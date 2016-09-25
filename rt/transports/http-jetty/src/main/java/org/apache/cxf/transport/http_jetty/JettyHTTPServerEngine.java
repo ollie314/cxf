@@ -34,7 +34,6 @@ import java.util.logging.Logger;
 import javax.annotation.PostConstruct;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.X509KeyManager;
 import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletContext;
 import javax.servlet.http.HttpServletRequest;
@@ -52,7 +51,6 @@ import org.apache.cxf.configuration.jsse.TLSServerParameters;
 import org.apache.cxf.configuration.security.ClientAuthentication;
 import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.transport.HttpUriMapper;
-import org.apache.cxf.transport.https.AliasedX509ExtendedKeyManager;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.security.SecurityHandler;
 import org.eclipse.jetty.server.AbstractConnector;
@@ -353,8 +351,11 @@ public class JettyHTTPServerEngine implements ServerEngine {
                 public void handle(String target, Request baseRequest, 
                                    HttpServletRequest request, HttpServletResponse response) 
                     throws IOException {
-                    String msg = HttpStatus.getMessage(response.getStatus());
-                    request.setAttribute(RequestDispatcher.ERROR_MESSAGE, msg);
+                    String msg = (String)request.getAttribute(RequestDispatcher.ERROR_MESSAGE);
+                    if (StringUtils.isEmpty(msg) || msg.contains("org.apache.cxf.interceptor.Fault")) {
+                        msg = HttpStatus.getMessage(response.getStatus());
+                        request.setAttribute(RequestDispatcher.ERROR_MESSAGE, msg);
+                    }
                     if (response instanceof Response) {
                         //need to use the deprecated method to support compiling with Jetty 8
                         ((Response)response).setStatus(response.getStatus(), msg);
@@ -382,6 +383,7 @@ public class JettyHTTPServerEngine implements ServerEngine {
         if (shouldCheckUrl(handler.getBus())) {
             checkRegistedContext(url);
         }
+        initializeContexts();
         
         SecurityHandler securityHandler = null;
         if (server == null) {
@@ -451,7 +453,6 @@ public class JettyHTTPServerEngine implements ServerEngine {
                     }
                 }
             }
-            contexts = new ContextHandlerCollection();
             /*
              * handlerCollection may be null here if is only one handler to deal with.
              * Which in turn implies that there can't be a 'defaultHander' to deal with.
@@ -529,6 +530,19 @@ public class JettyHTTPServerEngine implements ServerEngine {
         ++servantCount;
     }
     
+    private void initializeContexts() {
+        if (contexts == null) {
+            contexts = new ContextHandlerCollection();
+            if (server != null) {
+                if (server.getHandler() instanceof ContextHandlerCollection) {
+                    contexts = (ContextHandlerCollection) server.getHandler();
+                } else {
+                    server.setHandler(contexts);
+                }
+            }
+        }
+    }
+
     private void addServerMBean() {
         if (mBeanContainer == null) {
             return;
@@ -567,6 +581,7 @@ public class JettyHTTPServerEngine implements ServerEngine {
                 protected void doStart() throws Exception {
                     setSslContext(createSSLContext(this));
                     super.doStart();
+                    checkKeyStore();
                 }
                 public void checkKeyStore() {
                     //we'll handle this later
@@ -575,8 +590,19 @@ public class JettyHTTPServerEngine implements ServerEngine {
             decorateCXFJettySslSocketConnector(sslcf);
         }
         AbstractConnector result = null;
-        if (!Server.getVersion().startsWith("8")) {
-            result = createConnectorJetty9(sslcf, hosto, porto);
+        
+        int major = 8;
+        int minor = 0;
+        try {
+            String[] version = Server.getVersion().split("\\.");
+            major = Integer.parseInt(version[0]);
+            minor = Integer.parseInt(version[1]);
+        } catch (Exception e) {
+            // unparsable version
+        }
+    
+        if (major >= 9) {
+            result = createConnectorJetty9(sslcf, hosto, porto, major, minor);
         } else {
             result = createConnectorJetty8(sslcf, hosto, porto);
         }        
@@ -596,7 +622,7 @@ public class JettyHTTPServerEngine implements ServerEngine {
         return result;
     }
     
-    AbstractConnector createConnectorJetty9(SslContextFactory sslcf, String hosto, int porto) {
+    AbstractConnector createConnectorJetty9(SslContextFactory sslcf, String hosto, int porto, int major, int minor) {
         //Jetty 9
         AbstractConnector result = null;
         try {
@@ -626,14 +652,15 @@ public class JettyHTTPServerEngine implements ServerEngine {
                                                                                      String.class)
                                                         .newInstance(sslcf, "HTTP/1.1");
                 connectionFactories.add(scf);
-                result.getClass().getMethod("setDefaultProtocol", String.class).invoke(result, "SSL-HTTP/1.1");
+                String proto = (major > 9 || (major == 9 && minor >= 3)) ? "SSL" : "SSL-HTTP/1.1";
+                result.getClass().getMethod("setDefaultProtocol", String.class).invoke(result, proto);
             }
             connectionFactories.add(httpFactory);
             result.getClass().getMethod("setConnectionFactories", Collection.class)
                 .invoke(result, connectionFactories);
             
             if (getMaxIdleTime() > 0) {
-                result.getClass().getMethod("setIdleTimeout", Long.TYPE).invoke(result, new Long(getMaxIdleTime()));
+                result.getClass().getMethod("setIdleTimeout", Long.TYPE).invoke(result, Long.valueOf(getMaxIdleTime()));
             }
 
         } catch (RuntimeException rex) {
@@ -674,49 +701,64 @@ public class JettyHTTPServerEngine implements ServerEngine {
         String proto = tlsServerParameters.getSecureSocketProtocol() == null
             ? "TLS" : tlsServerParameters.getSecureSocketProtocol();
         
-        // Exclude SSLv3 + SSLv2Hello by default unless the protocol is given as SSLv3
-        if (!"SSLv3".equals(proto) && tlsServerParameters.getExcludeProtocols().isEmpty()) {
-            scf.addExcludeProtocols("SSLv3");
-            scf.addExcludeProtocols("SSLv2Hello");
-        } else {
-            for (String p : tlsServerParameters.getExcludeProtocols()) {
-                scf.addExcludeProtocols(p);
+        // Jetty 9 excludes SSLv3 by default. So if we want it then we need to 
+        // remove it from the default excluded protocols
+        boolean allowSSLv3 = "SSLv3".equals(proto);
+        if (allowSSLv3 || !tlsServerParameters.getIncludeProtocols().isEmpty()) {
+            List<String> excludedProtocols = new ArrayList<String>();
+            for (String excludedProtocol : scf.getExcludeProtocols()) {
+                if (!(tlsServerParameters.getIncludeProtocols().contains(excludedProtocol)
+                    || (allowSSLv3 && ("SSLv3".equals(excludedProtocol) 
+                        || "SSLv2Hello".equals(excludedProtocol))))) {
+                    excludedProtocols.add(excludedProtocol);
+                }
             }
+            String[] revisedProtocols = new String[excludedProtocols.size()];
+            excludedProtocols.toArray(revisedProtocols);
+            scf.setExcludeProtocols(revisedProtocols);
         }
- 
+        
+        for (String p : tlsServerParameters.getExcludeProtocols()) {
+            scf.addExcludeProtocols(p);
+        }
+        
         SSLContext context = tlsServerParameters.getJsseProvider() == null
             ? SSLContext.getInstance(proto)
                 : SSLContext.getInstance(proto, tlsServerParameters.getJsseProvider());
             
         KeyManager keyManagers[] = tlsServerParameters.getKeyManagers();
-        if (tlsServerParameters.getCertAlias() != null) {
-            keyManagers = getKeyManagersWithCertAlias(keyManagers);
-        }
+        org.apache.cxf.transport.https.SSLUtils.configureKeyManagersWithCertAlias(
+            tlsServerParameters, keyManagers);
+        
         context.init(tlsServerParameters.getKeyManagers(), 
                      tlsServerParameters.getTrustManagers(),
                      tlsServerParameters.getSecureRandom());
 
-        String[] cs = 
-            SSLUtils.getCiphersuites(
-                    tlsServerParameters.getCipherSuites(),
-                    SSLUtils.getServerSupportedCipherSuites(context),
-                    tlsServerParameters.getCipherSuitesFilter(),
-                    LOG, true);
-                
-        scf.setExcludeCipherSuites(cs);
+        // Set the CipherSuites
+        final String[] supportedCipherSuites = 
+            SSLUtils.getServerSupportedCipherSuites(context);
+
+        if (tlsServerParameters.getCipherSuitesFilter() != null
+            && tlsServerParameters.getCipherSuitesFilter().isSetExclude()) {
+            String[] excludedCipherSuites = 
+                SSLUtils.getFilteredCiphersuites(tlsServerParameters.getCipherSuitesFilter(),
+                                                 supportedCipherSuites,
+                                                 LOG, 
+                                                 true);
+            scf.setExcludeCipherSuites(excludedCipherSuites);
+        }
+        
+        String[] includedCipherSuites = 
+            SSLUtils.getCiphersuitesToInclude(tlsServerParameters.getCipherSuites(), 
+                                              tlsServerParameters.getCipherSuitesFilter(), 
+                                              context.getServerSocketFactory().getDefaultCipherSuites(),
+                                              supportedCipherSuites, 
+                                              LOG);
+        scf.setIncludeCipherSuites(includedCipherSuites);
+        
         return context;
     }
-    protected KeyManager[] getKeyManagersWithCertAlias(KeyManager keyManagers[]) throws Exception {
-        if (tlsServerParameters.getCertAlias() != null) {
-            for (int idx = 0; idx < keyManagers.length; idx++) {
-                if (keyManagers[idx] instanceof X509KeyManager) {
-                    keyManagers[idx] = new AliasedX509ExtendedKeyManager(
-                        tlsServerParameters.getCertAlias(), (X509KeyManager)keyManagers[idx]);
-                }
-            }
-        }
-        return keyManagers;
-    }
+
     protected void setClientAuthentication(SslContextFactory con,
                                            ClientAuthentication clientAuth) {
         con.setWantClientAuth(true);

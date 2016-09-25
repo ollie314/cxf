@@ -29,7 +29,6 @@ import javax.xml.parsers.DocumentBuilderFactory;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
-
 import org.apache.wss4j.common.saml.SAMLCallback;
 import org.apache.wss4j.common.saml.bean.ActionBean;
 import org.apache.wss4j.common.saml.bean.AttributeBean;
@@ -44,6 +43,7 @@ import org.apache.wss4j.common.saml.bean.SubjectConfirmationDataBean;
 import org.apache.wss4j.common.saml.bean.SubjectLocalityBean;
 import org.apache.wss4j.dom.WSConstants;
 import org.apache.wss4j.dom.message.WSSecEncryptedKey;
+import org.joda.time.DateTime;
 
 /**
  * A base implementation of a Callback Handler for a SAML assertion. By default it creates an
@@ -70,7 +70,25 @@ public abstract class AbstractSAMLCallbackHandler implements CallbackHandler {
     protected List<Object> customAttributeValues;
     protected ConditionsBean conditions;
     protected SubjectConfirmationDataBean subjectConfirmationData;
+    protected DateTime authnInstant;
+    protected DateTime sessionNotOnOrAfter;
     
+    public DateTime getSessionNotOnOrAfter() {
+        return sessionNotOnOrAfter;
+    }
+
+    public void setSessionNotOnOrAfter(DateTime sessionNotOnOrAfter) {
+        this.sessionNotOnOrAfter = sessionNotOnOrAfter;
+    }
+
+    public DateTime getAuthnInstant() {
+        return authnInstant;
+    }
+
+    public void setAuthnInstant(DateTime authnInstant) {
+        this.authnInstant = authnInstant;
+    }
+
     public void setSubjectConfirmationData(SubjectConfirmationDataBean subjectConfirmationData) {
         this.subjectConfirmationData = subjectConfirmationData;
     }
@@ -112,6 +130,10 @@ public abstract class AbstractSAMLCallbackHandler implements CallbackHandler {
         this.subjectLocalityDnsAddress = dnsAddress;
     }
     
+    public void setSubjectName(String subjectName) {
+        this.subjectName = subjectName;
+    }
+    
     public void setResource(String resource) {
         this.resource = resource;
     }
@@ -135,6 +157,8 @@ public abstract class AbstractSAMLCallbackHandler implements CallbackHandler {
                 subjectLocality.setDnsAddress(subjectLocalityDnsAddress);
                 authBean.setSubjectLocality(subjectLocality);
             }
+            authBean.setAuthenticationInstant(authnInstant);
+            authBean.setSessionNotOnOrAfter(sessionNotOnOrAfter);
             authBean.setAuthenticationMethod("Password");
             callback.setAuthenticationStatementData(Collections.singletonList(authBean));
         } else if (statement == Statement.ATTR) {

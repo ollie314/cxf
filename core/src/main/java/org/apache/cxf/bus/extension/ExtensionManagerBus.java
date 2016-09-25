@@ -20,7 +20,6 @@ package org.apache.cxf.bus.extension;
 
 import java.io.InputStream;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -61,19 +60,28 @@ import org.apache.cxf.transport.DestinationFactoryManager;
 public class ExtensionManagerBus extends AbstractBasicInterceptorProvider implements Bus {
     public static final String BUS_PROPERTY_NAME = "bus";
     static final boolean FORCE_LOGGING;
+    static final boolean FORCE_PRETTY;
     static {
         boolean b = false;
+        boolean pretty = false;
         try {
-            b = Boolean.getBoolean("org.apache.cxf.logging.enabled");
-            //treat these all the same
-            b |= Boolean.getBoolean("com.sun.xml.ws.transport.local.LocalTransportPipe.dump");
-            b |= Boolean.getBoolean("com.sun.xml.ws.util.pipe.StandaloneTubeAssembler.dump");
-            b |= Boolean.getBoolean("com.sun.xml.ws.transport.http.client.HttpTransportPipe.dump");
-            b |= Boolean.getBoolean("com.sun.xml.ws.transport.http.HttpAdapter.dump");
+            String prop = System.getProperty("org.apache.cxf.logging.enabled", "false");
+            if ("pretty".equals(prop)) {
+                b = true;
+                pretty = true;
+            } else {
+                b = Boolean.parseBoolean(prop);
+                //treat these all the same
+                b |= Boolean.getBoolean("com.sun.xml.ws.transport.local.LocalTransportPipe.dump");
+                b |= Boolean.getBoolean("com.sun.xml.ws.util.pipe.StandaloneTubeAssembler.dump");
+                b |= Boolean.getBoolean("com.sun.xml.ws.transport.http.client.HttpTransportPipe.dump");
+                b |= Boolean.getBoolean("com.sun.xml.ws.transport.http.HttpAdapter.dump");
+            }
         } catch (Throwable t) {
             //ignore
         }
         FORCE_LOGGING = b;
+        FORCE_PRETTY = pretty;
     }
     private static final String BUS_ID_PROPERTY_NAME = "org.apache.cxf.bus.id";
     
@@ -87,7 +95,7 @@ public class ExtensionManagerBus extends AbstractBasicInterceptorProvider implem
     
     private final ExtensionManagerImpl extensionManager;
     
-    public ExtensionManagerBus(Map<Class<?>, Object> extensions, Map<String, Object> properties,
+    public ExtensionManagerBus(Map<Class<?>, Object> extensions, Map<String, Object> props,
           ClassLoader extensionClassLoader) {
         if (extensions == null) {
             extensions = new ConcurrentHashMap<Class<?>, Object>(16, 0.75f, 4);
@@ -102,10 +110,12 @@ public class ExtensionManagerBus extends AbstractBasicInterceptorProvider implem
         
         CXFBusFactory.possiblySetDefaultBus(this);
         if (FORCE_LOGGING) {
-            features.add(new LoggingFeature());
+            LoggingFeature feature = new LoggingFeature();
+            feature.setPrettyLogging(FORCE_PRETTY);
+            features.add(feature);
         }        
-        if (null == properties) {
-            properties = new HashMap<String, Object>();
+        if (null != props) {
+            properties.putAll(props);
         }
         
         Configurer configurer = (Configurer)extensions.get(Configurer.class);
@@ -345,7 +355,9 @@ public class ExtensionManagerBus extends AbstractBasicInterceptorProvider implem
         this.features.clear();
         this.features.addAll(features);
         if (FORCE_LOGGING) {
-            this.features.add(new LoggingFeature());
+            LoggingFeature feature = new LoggingFeature();
+            feature.setPrettyLogging(FORCE_PRETTY);
+            this.features.add(feature);
         }
         if (state == BusState.RUNNING) {
             initializeFeatures();

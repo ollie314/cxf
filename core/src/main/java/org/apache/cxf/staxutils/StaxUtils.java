@@ -28,6 +28,7 @@ import java.io.Reader;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -44,6 +45,7 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.stream.Location;
 import javax.xml.stream.StreamFilter;
+import javax.xml.stream.XMLEventFactory;
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLOutputFactory;
 import javax.xml.stream.XMLResolver;
@@ -105,6 +107,8 @@ public final class StaxUtils {
         "org.apache.cxf.stax.maxAttributeSize";
     public static final String MAX_TEXT_LENGTH = 
         "org.apache.cxf.stax.maxTextLength";
+    public static final String MIN_TEXT_SEGMENT =
+        "org.apache.cxf.stax.minTextSegment";
     public static final String MAX_ELEMENT_COUNT = 
         "org.apache.cxf.stax.maxElementCount";
     public static final String MAX_XML_CHARACTERS = 
@@ -137,6 +141,7 @@ public final class StaxUtils {
     private static int maxAttributeCount = 500; 
     private static int maxAttributeSize = 64 * 1024; //64K per attribute, likely just "list" will hit
     private static int maxTextLength = 128 * 1024 * 1024;  //128M - more than this should DEFINITLEY use MTOM 
+    private static int minTextSegment = 64; // Same default as woodstox
     private static long maxElementCount = Long.MAX_VALUE;
     private static long maxXMLCharacters = Long.MAX_VALUE;
     
@@ -157,6 +162,7 @@ public final class StaxUtils {
         maxAttributeCount = getInteger(MAX_ATTRIBUTE_COUNT, maxAttributeCount); 
         maxAttributeSize = getInteger(MAX_ATTRIBUTE_SIZE, maxAttributeSize);
         maxTextLength = getInteger(MAX_TEXT_LENGTH, maxTextLength); 
+        minTextSegment = getInteger(MIN_TEXT_SEGMENT, minTextSegment);
         maxElementCount = getLong(MAX_ELEMENT_COUNT, maxElementCount);
         maxXMLCharacters = getLong(MAX_XML_CHARACTERS, maxXMLCharacters);
         
@@ -230,10 +236,18 @@ public final class StaxUtils {
     }
     
     public static void setInnerElementLevelThreshold(int i) {
+        if (i == -1) {
+            i = 500;
+        }
         innerElementLevelThreshold = i;
+        setProperty(SAFE_INPUT_FACTORY, "com.ctc.wstx.maxElementDepth", i);
     }
     public static void setInnerElementCountThreshold(int i) {
+        if (i == -1) {
+            i = 50000;
+        }
         innerElementCountThreshold = i;
+        setProperty(SAFE_INPUT_FACTORY, "com.ctc.wstx.maxChildrenPerElement", i);
     }
 
     /**
@@ -254,7 +268,6 @@ public final class StaxUtils {
     
     /**
      * Return a cached, namespace-aware, factory.
-     * @return
      */
     private static XMLInputFactory getXMLInputFactory() {
         if (SAFE_INPUT_FACTORY != null) {
@@ -300,14 +313,24 @@ public final class StaxUtils {
         try {
             factory = XMLInputFactory.newInstance();
         } catch (Throwable t) {
+            if (LOG.isLoggable(Level.FINE)) {
+                LOG.log(Level.FINE, "XMLInputFactory.newInstance() failed with: ", t);
+            }
             factory = null;
         }
         if (factory == null || !setRestrictionProperties(factory)) {
             try {
                 factory = createWoodstoxFactory();
             } catch (Throwable t) {
-                //ignore for now
+                if (LOG.isLoggable(Level.FINE)) {
+                    LOG.log(Level.FINE, "Cannot create Woodstox XMLInputFactory: ", t);
+                }
             }
+            
+            if (factory == null) {
+                throw new RuntimeException("Failed to create XMLInputFactory.");
+            }
+            
             if (!setRestrictionProperties(factory)) {
                 if (allowInsecureParser) {
                     LOG.log(Level.WARNING, "INSECURE_PARSER_DETECTED", factory.getClass().getName());
@@ -334,19 +357,23 @@ public final class StaxUtils {
     private static XMLInputFactory createWoodstoxFactory() {
         return WoodstoxHelper.createInputFactory();
     }
+    
+    public static XMLEventFactory createWoodstoxEventFactory() {
+        return WoodstoxHelper.createEventFactory();
+    }
+    
     private static boolean setRestrictionProperties(XMLInputFactory factory) {
         //For now, we can only support Woodstox 4.2.x and newer as none of the other
         //stax parsers support these settings
-        if (setProperty(factory, "com.ctc.wstx.maxAttributesPerElement", maxAttributeCount)
-            && setProperty(factory, "com.ctc.wstx.maxAttributeSize", maxAttributeSize)
-            && setProperty(factory, "com.ctc.wstx.maxChildrenPerElement", innerElementCountThreshold)
-            && setProperty(factory, "com.ctc.wstx.maxElementCount", maxElementCount)
-            && setProperty(factory, "com.ctc.wstx.maxElementDepth", innerElementLevelThreshold)
-            && setProperty(factory, "com.ctc.wstx.maxCharacters", maxXMLCharacters)
-            && setProperty(factory, "com.ctc.wstx.maxTextLength", maxTextLength)) {
-            return true;
-        }
-        return false;
+        final boolean wstxMaxs = setProperty(factory, "com.ctc.wstx.maxAttributesPerElement", maxAttributeCount)
+                    && setProperty(factory, "com.ctc.wstx.maxAttributeSize", maxAttributeSize)
+                    && setProperty(factory, "com.ctc.wstx.maxChildrenPerElement", innerElementCountThreshold)
+                    && setProperty(factory, "com.ctc.wstx.maxElementCount", maxElementCount)
+                    && setProperty(factory, "com.ctc.wstx.maxElementDepth", innerElementLevelThreshold)
+                    && setProperty(factory, "com.ctc.wstx.maxCharacters", maxXMLCharacters)
+                    && setProperty(factory, "com.ctc.wstx.maxTextLength", maxTextLength);
+        return wstxMaxs
+            && setProperty(factory, "com.ctc.wstx.minTextSegment", minTextSegment);
     }
 
     private static boolean setProperty(XMLInputFactory f, String p, Object o) {
@@ -378,7 +405,7 @@ public final class StaxUtils {
 
     public static XMLStreamWriter createXMLStreamWriter(OutputStream out, String encoding) {
         if (encoding == null) {
-            encoding = "UTF-8";
+            encoding = StandardCharsets.UTF_8.name();
         }
         XMLOutputFactory factory = getXMLOutputFactory();
         try {
@@ -1132,11 +1159,8 @@ public final class StaxUtils {
         }
     }
     public static Document read(File is) throws XMLStreamException, IOException {
-        InputStream fin = new FileInputStream(is);
-        try {
+        try (InputStream fin = new FileInputStream(is)) {
             return read(fin);
-        } finally {
-            fin.close();
         }
     }
     public static Document read(InputSource s) throws XMLStreamException {
@@ -1184,7 +1208,6 @@ public final class StaxUtils {
 
     /**
      * @param parent
-     * @return
      */
     private static Document getDocument(Node parent) {
         return (parent instanceof Document) ? (Document)parent : parent.getOwnerDocument();
@@ -1695,7 +1718,7 @@ public final class StaxUtils {
      */
     public static XMLStreamReader createXMLStreamReader(InputStream in, String encoding) {
         if (encoding == null) {
-            encoding = "UTF-8";
+            encoding = StandardCharsets.UTF_8.name();
         }
 
         XMLInputFactory factory = getXMLInputFactory();
@@ -2100,6 +2123,20 @@ public final class StaxUtils {
                 //ignore
             }
         }
+    }
+    
+    public static boolean isSecureReader(XMLStreamReader reader, Message message) {
+        if (reader instanceof DocumentDepthProperties) {
+            return true;
+        }
+        try {
+            if (reader.getProperty("com.ctc.wstx.maxChildrenPerElement") != null) {
+                return true;
+            }
+        } catch (Exception ex) {
+            //ignore
+        }
+        return false;
     }
     
     public static XMLStreamReader configureReader(XMLStreamReader xreader, Message message) throws XMLStreamException {

@@ -24,13 +24,13 @@
             <cxf:logging/>
         </cxf:features>
     </cxf:bus>
-    <jaxws:endpoint xmlns:s="http://www.example.org/contract/DoubleIt" id="doubleittransportut" implementor="org.apache.cxf.systest.sts.transformation.DoubleItPortTypeImpl" endpointName="s:DoubleItTransportUTPort" serviceName="s:DoubleItService" depends-on="ClientAuthHttpsSettings" address="https://localhost:${testutil.ports.Server}/doubleit/services/doubleittransportut" wsdlLocation="org/apache/cxf/systest/sts/transformation/DoubleIt.wsdl">
+    <jaxws:endpoint xmlns:s="http://www.example.org/contract/DoubleIt" id="doubleittransportut" implementor="org.apache.cxf.systest.sts.transformation.DoubleItPortTypeImpl" endpointName="s:DoubleItTransportUTPort" serviceName="s:DoubleItService" depends-on="ClientAuthHttpsSettings" address="https://localhost:${testutil.ports.transformation.Server}/doubleit/services/doubleittransportut" wsdlLocation="org/apache/cxf/systest/sts/transformation/DoubleIt.wsdl">
         <jaxws:properties>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
             <entry key="ws-security.ut.validator">
                 <bean class="org.apache.cxf.ws.security.trust.STSTokenValidator"/>
             </entry>
-            <entry key="ws-security.sts.client">
+            <entry key="security.sts.client">
                 <bean class="org.apache.cxf.ws.security.trust.STSClient">
                     <constructor-arg ref="cxf"/>
                     <property name="wsdlLocation" value="https://localhost:${testutil.ports.STSServer}/SecurityTokenService/Transport?wsdl"/>
@@ -52,13 +52,13 @@
     
     <bean id="roleClaimsCallbackHandler" class="org.apache.cxf.systest.sts.claims.ClaimsCallbackHandler"/>
     
-    <jaxws:endpoint xmlns:s="http://www.example.org/contract/DoubleIt" id="doubleittransportutclaims" implementor="org.apache.cxf.systest.sts.transformation.DoubleItPortTypeImpl" endpointName="s:DoubleItTransportUTClaimsPort" serviceName="s:DoubleItService" depends-on="ClientAuthHttpsSettings" address="https://localhost:${testutil.ports.Server}/doubleit/services/doubleittransportutclaims" wsdlLocation="org/apache/cxf/systest/sts/transformation/DoubleIt.wsdl">
+    <jaxws:endpoint xmlns:s="http://www.example.org/contract/DoubleIt" id="doubleittransportutclaims" implementor="org.apache.cxf.systest.sts.transformation.DoubleItPortTypeImpl" endpointName="s:DoubleItTransportUTClaimsPort" serviceName="s:DoubleItService" depends-on="ClientAuthHttpsSettings" address="https://localhost:${testutil.ports.transformation.Server}/doubleit/services/doubleittransportutclaims" wsdlLocation="org/apache/cxf/systest/sts/transformation/DoubleIt.wsdl">
         <jaxws:properties>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
             <entry key="ws-security.ut.validator">
                 <bean class="org.apache.cxf.ws.security.trust.STSTokenValidator"/>
             </entry>
-            <entry key="ws-security.sts.client">
+            <entry key="security.sts.client">
                 <bean class="org.apache.cxf.ws.security.trust.STSClient">
                     <constructor-arg ref="cxf"/>
                     <property name="wsdlLocation" value="https://localhost:${testutil.ports.STSServer}/SecurityTokenService/Transport?wsdl"/>
@@ -75,16 +75,11 @@
     </jaxws:endpoint>
     
     <httpj:engine-factory id="ClientAuthHttpsSettings" bus="cxf">
-        <httpj:engine port="${testutil.ports.Server}">
+        <httpj:engine port="${testutil.ports.transformation.Server}">
             <httpj:tlsServerParameters>
                 <sec:keyManagers keyPassword="skpass">
-                    <sec:keyStore type="jks" password="sspass" resource="servicestore.jks"/>
+                    <sec:keyStore type="jks" password="sspass" resource="keys/servicestore.jks"/>
                 </sec:keyManagers>
-                <sec:cipherSuitesFilter>
-                    <sec:include>.*_EXPORT_.*</sec:include>
-                    <sec:include>.*_EXPORT1024_.*</sec:include>
-                    <sec:include>.*_WITH_AES_.*</sec:include>
-                </sec:cipherSuitesFilter>
                 <sec:clientAuthentication want="false" required="false"/>
             </httpj:tlsServerParameters>
         </httpj:engine>
@@ -92,10 +87,10 @@
     <http:conduit name="https://localhost:.*">
         <http:tlsClientParameters disableCNCheck="true">
             <sec:trustManagers>
-                <sec:keyStore type="jks" password="sspass" resource="servicestore.jks"/>
+                <sec:keyStore type="jks" password="sspass" resource="keys/servicestore.jks"/>
             </sec:trustManagers>
             <sec:keyManagers keyPassword="skpass">
-                <sec:keyStore type="jks" password="sspass" resource="servicestore.jks"/>
+                <sec:keyStore type="jks" password="sspass" resource="keys/servicestore.jks"/>
             </sec:keyManagers>
         </http:tlsClientParameters>
     </http:conduit>

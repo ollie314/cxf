@@ -19,18 +19,25 @@
 
 package org.apache.cxf.message;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.apache.cxf.Bus;
 import org.apache.cxf.binding.Binding;
 import org.apache.cxf.endpoint.ConduitSelector;
 import org.apache.cxf.endpoint.Endpoint;
 import org.apache.cxf.endpoint.PreexistingConduitSelector;
 import org.apache.cxf.service.Service;
+import org.apache.cxf.service.model.BindingInfo;
 import org.apache.cxf.service.model.BindingOperationInfo;
+import org.apache.cxf.service.model.InterfaceInfo;
+import org.apache.cxf.service.model.OperationInfo;
+import org.apache.cxf.service.model.ServiceInfo;
 import org.apache.cxf.transport.Conduit;
 import org.apache.cxf.transport.Destination;
 import org.apache.cxf.transport.Session;
 
-public class ExchangeImpl extends StringMapImpl implements Exchange {
+public class ExchangeImpl extends ConcurrentHashMap<String, Object>  implements Exchange {
     
     private static final long serialVersionUID = -3112077559217623594L;
     private Destination destination;
@@ -69,24 +76,6 @@ public class ExchangeImpl extends StringMapImpl implements Exchange {
         this.bindingOp = ex.bindingOp;
     }
 
-    /*
-    public <T> T get(Class<T> key) { 
-        if (key == Bus.class) {
-            return (T)bus;
-        } else if (key == Service.class) {
-            return (T)service;
-        } else if (key == Endpoint.class) {
-            return (T)endpoint;
-        } else if (key == BindingOperationInfo.class) {
-            return (T)bindingOp;
-        } else if (key == Binding.class) {
-            return (T)binding;
-        } else if (key == OperationInfo.class) {
-            return super.get(key);
-        }
-        return super.get(key);
-    }
-    */
     private void resetContextCaches() {
         if (inMessage != null) {
             inMessage.resetContextCache();
@@ -101,10 +90,47 @@ public class ExchangeImpl extends StringMapImpl implements Exchange {
             outFaultMessage.resetContextCache();
         }
     }
+    
+    public <T> T get(Class<T> key) {
+        T t = key.cast(get(key.getName()));
+        
+        if (t == null) {
+            if (key == Bus.class) {
+                t = key.cast(bus);
+            } else if (key == OperationInfo.class && bindingOp != null) {
+                t = key.cast(bindingOp.getOperationInfo());
+            } else if (key == BindingOperationInfo.class) {
+                t = key.cast(bindingOp);
+            } else if (key == Endpoint.class) {
+                t = key.cast(endpoint);
+            } else if (key == Service.class) {
+                t = key.cast(service);
+            } else if (key == Binding.class) {
+                t = key.cast(binding);
+            } else if (key == BindingInfo.class && binding != null) {
+                t = key.cast(binding.getBindingInfo());
+            } else if (key == InterfaceInfo.class && endpoint != null) {
+                t = key.cast(endpoint.getEndpointInfo().getService().getInterface());
+            } else if (key == ServiceInfo.class && endpoint != null) {
+                t = key.cast(endpoint.getEndpointInfo().getService());
+            }
+        }
+        return t;
+    }
+
+    public void putAll(Map<? extends String, ?> m) {
+        for (Map.Entry<? extends String, ?> e : m.entrySet()) {
+            // just skip the null value to void the NPE in JDK1.8
+            if (e.getValue() != null) {
+                super.put(e.getKey(), e.getValue());
+            }
+        }
+    }
 
     public <T> void put(Class<T> key, T value) {
-        super.put(key, value);
-        if (key == Bus.class) {
+        if (value == null) {
+            super.remove(key);
+        } else if (key == Bus.class) {
             resetContextCaches();
             bus = (Bus)value;
         } else if (key == Endpoint.class) {
@@ -117,24 +143,35 @@ public class ExchangeImpl extends StringMapImpl implements Exchange {
             bindingOp = (BindingOperationInfo)value;
         } else if (key == Binding.class) {
             binding = (Binding)value;
+        } else {
+            super.put(key.getName(), value);
         }
     }
+    
     public Object put(String key, Object value) {
-        if (inMessage != null) {
-            inMessage.setContextualProperty(key, value);
-        }
-        if (outMessage != null) {
-            outMessage.setContextualProperty(key, value);
-        }
-        if (inFaultMessage != null) {
-            inFaultMessage.setContextualProperty(key, value);
-        }
-        if (outFaultMessage != null) {
-            outFaultMessage.setContextualProperty(key, value);
+        setMessageContextProperty(inMessage, key, value);
+        setMessageContextProperty(outMessage, key, value);
+        setMessageContextProperty(inFaultMessage, key, value);
+        setMessageContextProperty(outFaultMessage, key, value);
+        if (value == null) {
+            return super.remove(key);
         }
         return super.put(key, value);
     }
 
+    private void setMessageContextProperty(Message m, String key, Object value) {
+        if (m == null) {
+            return;
+        }
+        if (m instanceof MessageImpl) {
+            ((MessageImpl)m).setContextualProperty(key, value);
+        }  else if (m instanceof AbstractWrappedMessage) {
+            ((AbstractWrappedMessage)m).setContextualProperty(key, value);
+        } else {
+            //cannot set directly.  Just invalidate the cache.
+            m.resetContextCache();
+        }
+    }
     
     public Destination getDestination() {
         return destination;
@@ -189,7 +226,7 @@ public class ExchangeImpl extends StringMapImpl implements Exchange {
 
     public void setConduit(Conduit c) {
         put(ConduitSelector.class,
-            new PreexistingConduitSelector(c, get(Endpoint.class)));
+            new PreexistingConduitSelector(c, getEndpoint()));
     }
 
     public void setOutMessage(Message m) {

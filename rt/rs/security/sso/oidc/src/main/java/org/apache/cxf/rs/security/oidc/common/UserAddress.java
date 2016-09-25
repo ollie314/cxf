@@ -20,12 +20,16 @@ package org.apache.cxf.rs.security.oidc.common;
 
 import java.util.Map;
 
-import org.apache.cxf.jaxrs.provider.json.JsonMapObject;
+import org.apache.cxf.jaxrs.json.basic.JsonMapObject;
 
 public class UserAddress extends JsonMapObject {
     public static final String STREET = "street_address";
+    public static final String POSTCODE = "postal_address";
     public static final String LOCALITY = "locality";
     public static final String COUNTRY = "country";
+    public static final String REGION = "region";
+    public static final String FORMATTED = "formatted";
+    private static final long serialVersionUID = -6065703167243134105L;
     
     public UserAddress() {
     }
@@ -40,6 +44,12 @@ public class UserAddress extends JsonMapObject {
     public String getStreet() {
         return (String)getProperty(STREET);
     }
+    public void setPostalCode(String name) {
+        setProperty(POSTCODE, name);
+    }
+    public String getPostalCode() {
+        return (String)getProperty(POSTCODE);
+    }
     public void setLocality(String name) {
         setProperty(LOCALITY, name);
     }
@@ -51,5 +61,17 @@ public class UserAddress extends JsonMapObject {
     }
     public String getCountry() {
         return (String)getProperty(COUNTRY);
+    }
+    public void setRegion(String name) {
+        setProperty(REGION, name);
+    }
+    public String getRegion() {
+        return (String)getProperty(REGION);
+    }
+    public void setFormatted(String name) {
+        setProperty(FORMATTED, name);
+    }
+    public String getFormatted() {
+        return (String)getProperty(FORMATTED);
     }
 }

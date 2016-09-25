@@ -43,12 +43,12 @@ under the License.
   <!--jaxws:client id="GreeterAsymmetricClient" name="{http://cxf.apache.org/greeter_control}GreeterAsymmetricPort"-->
   <jaxws:client id="GreeterCombinedClient" address="http://localhost:${testutil.ports.Server}/RMGreeterAsymmetric" serviceClass="org.apache.cxf.greeter_control.Greeter">
       <jaxws:properties>
-      <entry key="ws-security.username" value="Alice"/>
-      <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.rm.sec.UTPasswordCallback"/>
-      <entry key="ws-security.encryption.properties" value="bob.properties"/>
-      <entry key="ws-security.encryption.username" value="bob"/>
-      <entry key="ws-security.signature.properties" value="alice.properties"/>
-      <entry key="ws-security.signature.username" value="alice"/>
+      <entry key="security.username" value="Alice"/>
+      <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.rm.sec.UTPasswordCallback"/>
+      <entry key="security.encryption.properties" value="bob.properties"/>
+      <entry key="security.encryption.username" value="bob"/>
+      <entry key="security.signature.properties" value="alice.properties"/>
+      <entry key="security.signature.username" value="alice"/>
     </jaxws:properties>
     <jaxws:features>
       <p:policies>
@@ -59,6 +59,18 @@ under the License.
 
   <jaxws:client id="GreeterPlainClient" address="http://localhost:${testutil.ports.Server}/RMGreeterNoSecurity" serviceClass="org.apache.cxf.greeter_control.Greeter">  
   </jaxws:client>
+
+  <jaxws:client id="GreeterCombinedClientNoProperty"
+         address="http://localhost:${testutil.ports.Server}/RMGreeterAsymmetric"
+         serviceClass="org.apache.cxf.greeter_control.Greeter">
+         <jaxws:features>
+             <p:policies>
+                 <wsp:PolicyReference xmlns:wsp="http://www.w3.org/ns/ws-policy"
+                     URI="#Combined" />
+                 </p:policies>
+            </jaxws:features>
+  </jaxws:client>
+
 
   <wsp:Policy xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd" xmlns:wsp="http://www.w3.org/ns/ws-policy" wsu:Id="Combined">
     <wsp:All>

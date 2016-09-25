@@ -53,6 +53,34 @@ public class StringUtilsTest extends Assert {
     }
     
     @Test
+    public void testGetPartsWithSingleSpace() throws Exception {
+        String str = "a b";
+        List<String> parts = StringUtils.getParts(str, " ");
+        assertEquals(2, parts.size());
+        assertEquals("a", parts.get(0));
+        assertEquals("b", parts.get(1));
+    }
+    
+    @Test
+    public void testGetPartsWithManySpaces() throws Exception {
+        String str = "a  b";
+        List<String> parts = StringUtils.getParts(str, " ");
+        assertEquals(2, parts.size());
+        assertEquals("a", parts.get(0));
+        assertEquals("b", parts.get(1));
+    }
+    
+    @Test
+    public void testSplitWithDot() throws Exception {
+        String str = "a.b.c";
+        String[] parts = StringUtils.split(str, "\\.", -1);
+        assertEquals(3, parts.length);
+        assertEquals("a", parts[0]);
+        assertEquals("b", parts[1]);
+        assertEquals("c", parts[2]);
+    }
+    
+    @Test
     public void testGetFound() throws Exception {
         String regex = "velocity-\\d+\\.\\d+\\.jar";
         

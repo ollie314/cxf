@@ -39,7 +39,7 @@ public class WSSecurityInterceptorProvider extends AbstractPolicyInterceptorProv
     private static final long serialVersionUID = -6222118542914666817L;
     private static final Collection<QName> ASSERTION_TYPES;
     static {
-        ASSERTION_TYPES = new ArrayList<QName>();
+        ASSERTION_TYPES = new ArrayList<>();
         
         ASSERTION_TYPES.add(SP12Constants.TRANSPORT_BINDING);
         ASSERTION_TYPES.add(SP12Constants.ASYMMETRIC_BINDING);
@@ -54,14 +54,19 @@ public class WSSecurityInterceptorProvider extends AbstractPolicyInterceptorProv
 
     public WSSecurityInterceptorProvider() {
         super(ASSERTION_TYPES);
+        
+        PolicyBasedWSS4JInInterceptor in = new PolicyBasedWSS4JInInterceptor();
         this.getOutInterceptors().add(PolicyBasedWSS4JOutInterceptor.INSTANCE);
         this.getOutFaultInterceptors().add(PolicyBasedWSS4JOutInterceptor.INSTANCE);
-        this.getInInterceptors().add(PolicyBasedWSS4JInInterceptor.INSTANCE);
-        this.getInFaultInterceptors().add(PolicyBasedWSS4JInInterceptor.INSTANCE);
+        this.getInInterceptors().add(in);
+        this.getInFaultInterceptors().add(in);
         
-        this.getOutInterceptors().add(PolicyBasedWSS4JStaxOutInterceptor.INSTANCE);
-        this.getOutFaultInterceptors().add(PolicyBasedWSS4JStaxOutInterceptor.INSTANCE);
-        this.getInInterceptors().add(PolicyBasedWSS4JStaxInInterceptor.INSTANCE);
-        this.getInFaultInterceptors().add(PolicyBasedWSS4JStaxInInterceptor.INSTANCE);
+        
+        PolicyBasedWSS4JStaxOutInterceptor so = new PolicyBasedWSS4JStaxOutInterceptor();
+        PolicyBasedWSS4JStaxInInterceptor si = new PolicyBasedWSS4JStaxInInterceptor();
+        this.getOutInterceptors().add(so);
+        this.getOutFaultInterceptors().add(so);
+        this.getInInterceptors().add(si);
+        this.getInFaultInterceptors().add(si);
     }
 }

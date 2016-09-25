@@ -99,22 +99,17 @@
     <bean id="transportSTSProperties" class="org.apache.cxf.sts.StaticSTSProperties">
         <property name="issuer" value="Issuer-B"/>
     </bean>
-    <jaxws:endpoint xmlns:ns1="http://docs.oasis-open.org/ws-sx/ws-trust/200512/" id="STS2" implementor="#transportSTSProviderBean" address="https://localhost:${testutil.ports.STSServer.2}/SecurityTokenService/Transport" wsdlLocation="src/test/resources/org/apache/cxf/systest/sts/deployment/ws-trust-1.4-service.wsdl" depends-on="ClientAuthHttpsSettings" serviceName="ns1:SecurityTokenService" endpointName="ns1:Transport_Port">
+    <jaxws:endpoint xmlns:ns1="http://docs.oasis-open.org/ws-sx/ws-trust/200512/" id="STS2" implementor="#transportSTSProviderBean" address="https://localhost:${testutil.ports.distributed_caching.STSServer.2}/SecurityTokenService/Transport" wsdlLocation="src/test/resources/org/apache/cxf/systest/sts/deployment/ws-trust-1.4-service.wsdl" depends-on="ClientAuthHttpsSettings" serviceName="ns1:SecurityTokenService" endpointName="ns1:Transport_Port">
         </jaxws:endpoint>
     <httpj:engine-factory id="ClientAuthHttpsSettings" bus="cxf">
-        <httpj:engine port="${testutil.ports.STSServer.2}">
+        <httpj:engine port="${testutil.ports.distributed_caching.STSServer.2}">
             <httpj:tlsServerParameters>
                 <sec:trustManagers>
-                    <sec:keyStore type="jks" password="stsspass" resource="stsstore.jks"/>
+                    <sec:keyStore type="jks" password="stsspass" resource="keys/stsstore.jks"/>
                 </sec:trustManagers>
                 <sec:keyManagers keyPassword="stskpass">
-                    <sec:keyStore type="jks" password="stsspass" resource="stsstore.jks"/>
+                    <sec:keyStore type="jks" password="stsspass" resource="keys/stsstore.jks"/>
                 </sec:keyManagers>
-                <sec:cipherSuitesFilter>
-                    <sec:include>.*_EXPORT_.*</sec:include>
-                    <sec:include>.*_EXPORT1024_.*</sec:include>
-                    <sec:include>.*_WITH_AES_.*</sec:include>
-                </sec:cipherSuitesFilter>
                 <sec:clientAuthentication want="true" required="true"/>
             </httpj:tlsServerParameters>
         </httpj:engine>

@@ -19,7 +19,6 @@
 package org.apache.cxf.ws.security.wss4j;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.security.Principal;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -32,12 +31,8 @@ import java.util.TreeSet;
 import javax.xml.namespace.QName;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.soap.MessageFactory;
 import javax.xml.soap.SOAPMessage;
-import javax.xml.soap.SOAPPart;
 import javax.xml.stream.XMLStreamReader;
-import javax.xml.stream.XMLStreamWriter;
-import javax.xml.transform.dom.DOMSource;
 
 import org.w3c.dom.Document;
 
@@ -54,15 +49,14 @@ import org.apache.cxf.message.MessageImpl;
 import org.apache.cxf.phase.Phase;
 import org.apache.cxf.phase.PhaseInterceptor;
 import org.apache.cxf.phase.PhaseInterceptorChain;
+import org.apache.cxf.security.SecurityContext;
 import org.apache.cxf.staxutils.StaxUtils;
 import org.apache.wss4j.common.principal.UsernameTokenPrincipal;
 import org.apache.wss4j.dom.WSConstants;
 import org.apache.wss4j.dom.WSDataRef;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
 import org.apache.wss4j.dom.handler.WSHandlerConstants;
 import org.apache.wss4j.dom.handler.WSHandlerResult;
-import org.apache.wss4j.dom.util.WSSecurityUtil;
-
 import org.junit.Test;
 
 
@@ -93,13 +87,13 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
     
     @Test
     public void testSignature() throws Exception {
-        Map<String, String> outProperties = new HashMap<String, String>();
+        Map<String, Object> outProperties = new HashMap<String, Object>();
         outProperties.put(WSHandlerConstants.ACTION, WSHandlerConstants.SIGNATURE);
         outProperties.put(WSHandlerConstants.SIG_PROP_FILE, "outsecurity.properties");
         outProperties.put(WSHandlerConstants.USER, "myalias");
         outProperties.put("password", "myAliasPassword");
         
-        Map<String, String> inProperties = new HashMap<String, String>();
+        Map<String, Object> inProperties = new HashMap<String, Object>();
         inProperties.put(WSHandlerConstants.ACTION, WSHandlerConstants.SIGNATURE);
         inProperties.put(WSHandlerConstants.SIG_VER_PROP_FILE, "insecurity.properties");
         
@@ -110,7 +104,7 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
         List<WSHandlerResult> handlerResults = 
             getResults(makeInvocation(outProperties, xpaths, inProperties));
         WSSecurityEngineResult actionResult =
-            WSSecurityUtil.fetchActionResult(handlerResults.get(0).getResults(), WSConstants.SIGN);
+            handlerResults.get(0).getActionResults().get(WSConstants.SIGN).get(0);
          
         X509Certificate certificate = 
             (X509Certificate) actionResult.get(WSSecurityEngineResult.TAG_X509_CERTIFICATE);
@@ -119,14 +113,14 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
     
     @Test
     public void testDirectReferenceSignature() throws Exception {
-        Map<String, String> outProperties = new HashMap<String, String>();
+        Map<String, Object> outProperties = new HashMap<String, Object>();
         outProperties.put(WSHandlerConstants.ACTION, WSHandlerConstants.SIGNATURE);
         outProperties.put(WSHandlerConstants.SIG_PROP_FILE, "outsecurity.properties");
         outProperties.put(WSHandlerConstants.USER, "myalias");
         outProperties.put(WSHandlerConstants.SIG_KEY_ID, "DirectReference");
         outProperties.put("password", "myAliasPassword");
         
-        Map<String, String> inProperties = new HashMap<String, String>();
+        Map<String, Object> inProperties = new HashMap<String, Object>();
         inProperties.put(WSHandlerConstants.ACTION, WSHandlerConstants.SIGNATURE);
         inProperties.put(WSHandlerConstants.SIG_VER_PROP_FILE, "insecurity.properties");
         
@@ -138,7 +132,7 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
         List<WSHandlerResult> handlerResults = 
             getResults(makeInvocation(outProperties, xpaths, inProperties));
         WSSecurityEngineResult actionResult =
-            WSSecurityUtil.fetchActionResult(handlerResults.get(0).getResults(), WSConstants.SIGN);
+            handlerResults.get(0).getActionResults().get(WSConstants.SIGN).get(0);
          
         X509Certificate certificate = 
             (X509Certificate) actionResult.get(WSSecurityEngineResult.TAG_X509_CERTIFICATE);
@@ -147,19 +141,16 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
     
     @Test
     public void testEncryption() throws Exception {
-        Map<String, String> outProperties = new HashMap<String, String>();
+        Map<String, Object> outProperties = new HashMap<String, Object>();
         outProperties.put(WSHandlerConstants.ACTION, WSHandlerConstants.ENCRYPT);
         outProperties.put(WSHandlerConstants.ENC_PROP_FILE, "outsecurity.properties");
         outProperties.put(WSHandlerConstants.USER, "myalias");
         outProperties.put("password", "myAliasPassword");
         
-        Map<String, String> inProperties = new HashMap<String, String>();
+        Map<String, Object> inProperties = new HashMap<String, Object>();
         inProperties.put(WSHandlerConstants.ACTION, WSHandlerConstants.ENCRYPT);
         inProperties.put(WSHandlerConstants.DEC_PROP_FILE, "insecurity.properties");
-        inProperties.put(
-            WSHandlerConstants.PW_CALLBACK_CLASS, 
-            "org.apache.cxf.ws.security.wss4j.TestPwdCallback"
-        );
+        inProperties.put(WSHandlerConstants.PW_CALLBACK_REF, new TestPwdCallback()); 
         
         List<String> xpaths = new ArrayList<String>();
         xpaths.add("//wsse:Security");
@@ -198,7 +189,7 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
     
     @Test
     public void testEncryptedUsernameToken() throws Exception {
-        Map<String, String> outProperties = new HashMap<String, String>();
+        Map<String, Object> outProperties = new HashMap<String, Object>();
         outProperties.put(
             WSHandlerConstants.ACTION,
             WSHandlerConstants.USERNAME_TOKEN + " " + WSHandlerConstants.ENCRYPT
@@ -212,16 +203,13 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
             "{Content}{" + WSConstants.WSSE_NS + "}UsernameToken"
         );
         
-        Map<String, String> inProperties = new HashMap<String, String>();
+        Map<String, Object> inProperties = new HashMap<String, Object>();
         inProperties.put(
             WSHandlerConstants.ACTION, 
             WSHandlerConstants.USERNAME_TOKEN + " " + WSHandlerConstants.ENCRYPT
         );
         inProperties.put(WSHandlerConstants.DEC_PROP_FILE, "insecurity.properties");
-        inProperties.put(
-            WSHandlerConstants.PW_CALLBACK_CLASS, 
-            "org.apache.cxf.ws.security.wss4j.TestPwdCallback"
-        );
+        inProperties.put(WSHandlerConstants.PW_CALLBACK_REF, new TestPwdCallback()); 
         
         List<String> xpaths = new ArrayList<String>();
         xpaths.add("//wsse:Security");
@@ -246,25 +234,23 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
         
         Principal utPrincipal = p1 instanceof UsernameTokenPrincipal ? p1 : p2;
         
-        Principal secContextPrincipal = (Principal)inmsg.get(WSS4JInInterceptor.PRINCIPAL_RESULT);
-        assertSame(secContextPrincipal, utPrincipal);
+        SecurityContext securityContext = inmsg.get(SecurityContext.class);
+        assertNotNull(securityContext);
+        assertSame(securityContext.getUserPrincipal(), utPrincipal);
     }
     
     @Test
     public void testUsernameToken() throws Exception {
-        Map<String, String> outProperties = new HashMap<String, String>();
+        Map<String, Object> outProperties = new HashMap<String, Object>();
         outProperties.put(WSHandlerConstants.ACTION, WSHandlerConstants.USERNAME_TOKEN);
         outProperties.put(WSHandlerConstants.PASSWORD_TYPE, WSConstants.PW_TEXT);
         outProperties.put(WSHandlerConstants.USER, "alice");
         outProperties.put("password", "alicePassword");
         
-        Map<String, String> inProperties = new HashMap<String, String>();
+        Map<String, Object> inProperties = new HashMap<String, Object>();
         inProperties.put(WSHandlerConstants.ACTION, WSHandlerConstants.USERNAME_TOKEN);
         inProperties.put(WSHandlerConstants.PASSWORD_TYPE, WSConstants.PW_DIGEST);
-        inProperties.put(
-            WSHandlerConstants.PW_CALLBACK_CLASS, 
-            "org.apache.cxf.ws.security.wss4j.TestPwdCallback"
-        );
+        inProperties.put(WSHandlerConstants.PW_CALLBACK_REF, new TestPwdCallback()); 
         
         List<String> xpaths = new ArrayList<String>();
         xpaths.add("//wsse:Security");
@@ -287,16 +273,7 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
         WSS4JOutInterceptor ohandler = new WSS4JOutInterceptor();
         PhaseInterceptor<SoapMessage> handler = ohandler.createEndingInterceptor();
 
-        SoapMessage msg = new SoapMessage(new MessageImpl());
-        Exchange ex = new ExchangeImpl();
-        ex.setInMessage(msg);
-        
-        SOAPMessage saajMsg = MessageFactory.newInstance().createMessage();
-        SOAPPart part = saajMsg.getSOAPPart();
-        part.setContent(new DOMSource(doc));
-        saajMsg.saveChanges();
-
-        msg.setContent(SOAPMessage.class, saajMsg);
+        SoapMessage msg = getSoapMessageForDom(doc);
 
         msg.put(WSHandlerConstants.ACTION, WSHandlerConstants.SIGNATURE);
         msg.put(WSHandlerConstants.SIG_PROP_FILE, "outsecurity.properties");
@@ -305,7 +282,8 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
 
         handler.handleMessage(msg);
 
-        doc = part;
+        SOAPMessage saajMsg = msg.getContent(SOAPMessage.class);
+        doc = saajMsg.getSOAPPart();
         
         assertValid("//wsse:Security", doc);
         assertValid("//wsse:Security/ds:Signature", doc);
@@ -332,6 +310,7 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
         WSS4JInInterceptor inHandler = new WSS4JInInterceptor(properties);
 
         SoapMessage inmsg = new SoapMessage(new MessageImpl());
+        Exchange ex = new ExchangeImpl();
         ex.setInMessage(inmsg);
         inmsg.setContent(SOAPMessage.class, saajMsg);
 
@@ -339,9 +318,11 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
 
         inHandler.handleMessage(inmsg);
         
-        WSSecurityEngineResult result = 
-            (WSSecurityEngineResult) inmsg.get(WSS4JInInterceptor.SIGNATURE_RESULT);
-        assertNull(result);
+        List<WSHandlerResult> results = getResults(inmsg);
+        assertTrue(results != null && results.size() == 1);
+        List<WSSecurityEngineResult> signatureResults = 
+            results.get(0).getActionResults().get(WSConstants.SIGN);
+        assertTrue(signatureResults == null || signatureResults.size() == 0);
     }
     
     @Test
@@ -351,16 +332,7 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
         WSS4JOutInterceptor ohandler = new WSS4JOutInterceptor();
         PhaseInterceptor<SoapMessage> handler = ohandler.createEndingInterceptor();
 
-        SoapMessage msg = new SoapMessage(new MessageImpl());
-        Exchange ex = new ExchangeImpl();
-        ex.setInMessage(msg);
-        
-        SOAPMessage saajMsg = MessageFactory.newInstance().createMessage();
-        SOAPPart part = saajMsg.getSOAPPart();
-        part.setContent(new DOMSource(doc));
-        saajMsg.saveChanges();
-
-        msg.setContent(SOAPMessage.class, saajMsg);
+        SoapMessage msg = getSoapMessageForDom(doc);
 
         msg.put(WSHandlerConstants.ACTION, WSHandlerConstants.SIGNATURE);
         msg.put(WSHandlerConstants.SIG_PROP_FILE, "outsecurity.properties");
@@ -369,7 +341,8 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
 
         handler.handleMessage(msg);
 
-        doc = part;
+        SOAPMessage saajMsg = msg.getContent(SOAPMessage.class);
+        doc = saajMsg.getSOAPPart();
         
         assertValid("//wsse:Security", doc);
         assertValid("//wsse:Security/ds:Signature", doc);
@@ -404,35 +377,36 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
         WSS4JInInterceptor inHandler = new WSS4JInInterceptor(properties);
 
         SoapMessage inmsg = new SoapMessage(new MessageImpl());
+        Exchange ex = new ExchangeImpl();
         ex.setInMessage(inmsg);
         inmsg.setContent(SOAPMessage.class, saajMsg);
-
+        
         inHandler.setProperty(WSHandlerConstants.ACTION, WSHandlerConstants.SIGNATURE);
 
         inHandler.handleMessage(inmsg);
         
-        WSSecurityEngineResult result = 
-            (WSSecurityEngineResult) inmsg.get(WSS4JInInterceptor.SIGNATURE_RESULT);
-        assertNotNull(result);
+        List<WSHandlerResult> results = getResults(inmsg);
+        assertTrue(results != null && results.size() == 1);
+        List<WSSecurityEngineResult> signatureResults = 
+            results.get(0).getActionResults().get(WSConstants.SIGN);
+        assertTrue(signatureResults.size() == 1);
         
-        Object obj = result.get("foo");
+        Object obj = signatureResults.get(0).get("foo");
         assertNotNull(obj);
         assertEquals(obj.getClass().getName(), CustomProcessor.class.getName());
     }
     
     @Test
     public void testPKIPath() throws Exception {
-        Map<String, String> outProperties = new HashMap<String, String>();
+        Map<String, Object> outProperties = new HashMap<String, Object>();
         outProperties.put(WSHandlerConstants.ACTION, WSHandlerConstants.SIGNATURE);
         outProperties.put(WSHandlerConstants.USER, "alice");
         outProperties.put(WSHandlerConstants.SIG_PROP_FILE, "alice.properties");
-        outProperties.put(
-            WSHandlerConstants.PW_CALLBACK_CLASS, KeystorePasswordCallback.class.getName()
-        );
+        outProperties.put(WSHandlerConstants.PW_CALLBACK_REF, new KeystorePasswordCallback());
         outProperties.put(WSHandlerConstants.SIG_KEY_ID, "DirectReference");
         outProperties.put(WSHandlerConstants.USE_SINGLE_CERTIFICATE, "false");
         
-        Map<String, String> inProperties = new HashMap<String, String>();
+        Map<String, Object> inProperties = new HashMap<String, Object>();
         inProperties.put(WSHandlerConstants.ACTION, WSHandlerConstants.SIGNATURE);
         inProperties.put(WSHandlerConstants.SIG_VER_PROP_FILE, "cxfca.properties");
         
@@ -443,7 +417,7 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
         List<WSHandlerResult> handlerResults = 
             getResults(makeInvocation(outProperties, xpaths, inProperties));
         WSSecurityEngineResult actionResult =
-            WSSecurityUtil.fetchActionResult(handlerResults.get(0).getResults(), WSConstants.SIGN);
+            handlerResults.get(0).getActionResults().get(WSConstants.SIGN).get(0);
          
         X509Certificate[] certificates = 
             (X509Certificate[]) actionResult.get(WSSecurityEngineResult.TAG_X509_CERTIFICATES);
@@ -453,7 +427,7 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
     
     @Test
     public void testUsernameTokenSignature() throws Exception {
-        Map<String, String> outProperties = new HashMap<String, String>();
+        Map<String, Object> outProperties = new HashMap<String, Object>();
         outProperties.put(
             WSHandlerConstants.ACTION, 
             WSHandlerConstants.USERNAME_TOKEN + " " + WSHandlerConstants.SIGNATURE);
@@ -467,7 +441,7 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
             "org.apache.cxf.ws.security.wss4j.TestPwdCallback"
         );
         
-        Map<String, String> inProperties = new HashMap<String, String>();
+        Map<String, Object> inProperties = new HashMap<String, Object>();
         inProperties.put(
             WSHandlerConstants.ACTION, 
             WSHandlerConstants.USERNAME_TOKEN + " " + WSHandlerConstants.SIGNATURE
@@ -487,23 +461,13 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
         makeInvocation(outProperties, xpaths, inProperties);
     }
     
-    
-    private byte[] getMessageBytes(Document doc) throws Exception {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        XMLStreamWriter byteArrayWriter = StaxUtils.createXMLStreamWriter(outputStream);
-        StaxUtils.writeDocument(doc, byteArrayWriter, false);
-        byteArrayWriter.flush();
-        return outputStream.toByteArray();
-    }
-
     /**
      * @return      a processor map suitable for custom processing of
      *              signatures (in this case, the actual processor is
      *              null, which will cause the WSS4J runtime to do no
      *              processing on the input)
      */
-    private Map<QName, String>
-    createCustomProcessorMap() {
+    private Map<QName, String> createCustomProcessorMap() {
         final Map<QName, String> ret = new HashMap<QName, String>();
         ret.put(
             new QName(
@@ -519,68 +483,6 @@ public class WSS4JInOutTest extends AbstractSecurityTest {
         final List<WSHandlerResult> handlerResults = 
             CastUtils.cast((List<?>)inmsg.get(WSHandlerConstants.RECV_RESULTS));
         return handlerResults;
-    }
-    
-    private SoapMessage makeInvocation(
-        Map<String, String> outProperties,
-        List<String> xpaths,
-        Map<String, String> inProperties
-    ) throws Exception {
-        Document doc = readDocument("wsse-request-clean.xml");
-
-        WSS4JOutInterceptor ohandler = new WSS4JOutInterceptor();
-        PhaseInterceptor<SoapMessage> handler = ohandler.createEndingInterceptor();
-
-        SoapMessage msg = new SoapMessage(new MessageImpl());
-        Exchange ex = new ExchangeImpl();
-        ex.setInMessage(msg);
-
-        SOAPMessage saajMsg = MessageFactory.newInstance().createMessage();
-        SOAPPart part = saajMsg.getSOAPPart();
-        part.setContent(new DOMSource(doc));
-        saajMsg.saveChanges();
-
-        msg.setContent(SOAPMessage.class, saajMsg);
-
-        for (String key : outProperties.keySet()) {
-            msg.put(key, outProperties.get(key));
-        }
-
-        handler.handleMessage(msg);
-
-        doc = part;
-
-        for (String xpath : xpaths) {
-            assertValid(xpath, doc);
-        }
-
-        byte[] docbytes = getMessageBytes(doc);
-        XMLStreamReader reader = StaxUtils.createXMLStreamReader(new ByteArrayInputStream(docbytes));
-
-        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-
-        dbf.setValidating(false);
-        dbf.setIgnoringComments(false);
-        dbf.setIgnoringElementContentWhitespace(true);
-        dbf.setNamespaceAware(true);
-
-        DocumentBuilder db = dbf.newDocumentBuilder();
-        db.setEntityResolver(new NullResolver());
-        doc = StaxUtils.read(db, reader, false);
-
-        WSS4JInInterceptor inHandler = new WSS4JInInterceptor();
-
-        SoapMessage inmsg = new SoapMessage(new MessageImpl());
-        ex.setInMessage(inmsg);
-        inmsg.setContent(SOAPMessage.class, saajMsg);
-
-        for (String key : inProperties.keySet()) {
-            inHandler.setProperty(key, inProperties.get(key));
-        }
-
-        inHandler.handleMessage(inmsg);
-
-        return inmsg;
     }
     
     // FOR DEBUGGING ONLY

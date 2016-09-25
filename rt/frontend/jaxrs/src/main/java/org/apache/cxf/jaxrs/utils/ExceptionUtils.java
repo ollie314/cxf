@@ -57,11 +57,7 @@ public final class ExceptionUtils {
             return true;
         }
 
-        if (Boolean.TRUE.equals(value) || "true".equalsIgnoreCase(value.toString())) {
-            return true;
-        }
-        
-        return false;
+        return Boolean.TRUE.equals(value) || "true".equalsIgnoreCase(value.toString());
     }
     
     
@@ -93,6 +89,13 @@ public final class ExceptionUtils {
                     mapperEx.printStackTrace();
                     return Response.serverError().build();
                 }
+            }
+        }
+        if (response == null) {
+            Throwable unwrappedException = ex.getCause();
+            if (unwrappedException instanceof WebApplicationException) {
+                WebApplicationException webEx = (WebApplicationException)unwrappedException;
+                response = webEx.getResponse();
             }
         }
         JAXRSUtils.setMessageContentType(currentMessage, response);

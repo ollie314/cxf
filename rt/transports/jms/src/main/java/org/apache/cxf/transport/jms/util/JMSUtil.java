@@ -46,8 +46,7 @@ public final class JMSUtil {
                                   String correlationId,
                                   long receiveTimeout,
                                   boolean pubSubNoLocal) {
-        ResourceCloser closer = new ResourceCloser();
-        try {
+        try (ResourceCloser closer = new ResourceCloser()) {
             String messageSelector = correlationId == null ? null : "JMSCorrelationID = '" + correlationId + "'";
             MessageConsumer consumer = closer.register(session.createConsumer(replyToDestination, messageSelector,
                                                  pubSubNoLocal));
@@ -59,8 +58,6 @@ public final class JMSUtil {
             return replyMessage;
         } catch (JMSException e) {
             throw convertJmsException(e);
-        } finally {
-            closer.close();
         }
     }
 
@@ -106,7 +103,9 @@ public final class JMSUtil {
             session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
             return session.createQueue(name);
         } finally {
-            session.close();
+            if (session != null) {
+                session.close();
+            }
         }
     }
     
@@ -120,8 +119,6 @@ public final class JMSUtil {
             actualNum++;
             messages.nextElement();
         }
-        browser.close();
-        session.close();
         return actualNum;
     }
 }

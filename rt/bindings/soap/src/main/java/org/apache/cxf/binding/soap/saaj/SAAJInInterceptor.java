@@ -30,6 +30,9 @@ import java.util.ResourceBundle;
 import javax.xml.namespace.QName;
 import javax.xml.soap.AttachmentPart;
 import javax.xml.soap.MessageFactory;
+import javax.xml.soap.SOAPBody;
+import javax.xml.soap.SOAPElement;
+import javax.xml.soap.SOAPEnvelope;
 import javax.xml.soap.SOAPException;
 import javax.xml.soap.SOAPHeader;
 import javax.xml.soap.SOAPMessage;
@@ -37,6 +40,9 @@ import javax.xml.soap.SOAPPart;
 import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
+import javax.xml.stream.events.Attribute;
+import javax.xml.stream.events.Namespace;
+import javax.xml.stream.events.XMLEvent;
 import javax.xml.transform.dom.DOMSource;
 
 import org.w3c.dom.Document;
@@ -159,6 +165,7 @@ public class SAAJInInterceptor extends AbstractSoapInterceptor {
     
     
     
+    @SuppressWarnings("unchecked")
     public void handleMessage(SoapMessage message) throws Fault {
         if (isGET(message)) {
             return;
@@ -184,6 +191,17 @@ public class SAAJInInterceptor extends AbstractSoapInterceptor {
             Document node = (Document) message.getContent(Node.class);
             if (node != part && node != null) {
                 StaxUtils.copy(node, new SAAJStreamWriter(part));
+            } else {
+                SOAPEnvelope env = soapMessage.getSOAPPart().getEnvelope();
+                if (node == null) {
+                    adjustPrefixes(env, (String)message.get(ReadHeadersInterceptor.ENVELOPE_PREFIX),
+                                   (String)message.get(ReadHeadersInterceptor.BODY_PREFIX));
+                }
+                List<XMLEvent> events = (List<XMLEvent>)message.get(ReadHeadersInterceptor.ENVELOPE_EVENTS);
+                applyEvents(events, env);
+                SOAPBody body = soapMessage.getSOAPBody();
+                events = (List<XMLEvent>)message.get(ReadHeadersInterceptor.BODY_EVENTS);
+                applyEvents(events, body);
             }
             message.setContent(Node.class, soapMessage.getSOAPPart());
 
@@ -220,10 +238,15 @@ public class SAAJInInterceptor extends AbstractSoapInterceptor {
                 soapMessage.getSOAPPart().getEnvelope().addHeader();
             }
             
+            //If we have an xmlReader that already is counting the attributes and such
+            //then we don't want to rely on the system level defaults in StaxUtils.copy
+            //CXF-6173
+            boolean secureReader = StaxUtils.isSecureReader(xmlReader, message);
             StaxUtils.copy(xmlReader, 
                            new SAAJStreamWriter(soapMessage.getSOAPPart(), 
                                                 soapMessage.getSOAPPart().getEnvelope().getBody()),
-                           true, true);
+                           true, 
+                           !secureReader);
             DOMSource bodySource = new DOMSource(soapMessage.getSOAPPart().getEnvelope().getBody());
             xmlReader = StaxUtils.createXMLStreamReader(bodySource);
             xmlReader.nextTag();
@@ -239,6 +262,24 @@ public class SAAJInInterceptor extends AbstractSoapInterceptor {
                     .getVersion().getSender());
         }
     }
+    
+    private static void adjustPrefixes(SOAPEnvelope env, String envPrefix, String bodyPrefix) throws SOAPException {
+        SAAJUtils.adjustPrefix(env, envPrefix);
+        SAAJUtils.adjustPrefix(env.getBody(), bodyPrefix);
+        SAAJUtils.adjustPrefix(env.getHeader(), envPrefix);
+    }
+
+    private static void applyEvents(List<XMLEvent> events, SOAPElement el) throws SOAPException {
+        if (events != null) {
+            for (XMLEvent ev : events) {
+                if (ev.isNamespace()) {
+                    el.addNamespaceDeclaration(((Namespace)ev).getPrefix(), ((Namespace)ev).getNamespaceURI());
+                } else if (ev.isAttribute()) {
+                    el.addAttribute(((Attribute)ev).getName(), ((Attribute)ev).getValue());
+                }
+            }
+        }
+    }
 
     public static void replaceHeaders(SOAPMessage soapMessage, SoapMessage message) throws SOAPException {
         SOAPHeader header = SAAJUtils.getHeader(soapMessage);
@@ -247,7 +288,7 @@ public class SAAJInInterceptor extends AbstractSoapInterceptor {
         }
         Element elem = DOMUtils.getFirstElement(header);
         while (elem != null) {
-            Bus b = message.getExchange() == null ? null : message.getExchange().get(Bus.class);
+            Bus b = message.getExchange() == null ? null : message.getExchange().getBus();
             HeaderProcessor p =  null;
             if (b != null && b.getExtension(HeaderManager.class) != null) {
                 p = b.getExtension(HeaderManager.class).getHeaderProcessor(elem.getNamespaceURI());

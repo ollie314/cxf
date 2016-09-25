@@ -47,6 +47,7 @@ import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.conn.DefaultSchemePortResolver;
 import org.apache.http.impl.conn.SystemDefaultDnsResolver;
 import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
+import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.http.impl.nio.conn.ManagedNHttpClientConnectionFactory;
 import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
@@ -77,6 +78,7 @@ public class AsyncHTTPConduitFactory implements HTTPConduitFactory {
     public static final String MAX_PER_HOST_CONNECTIONS 
         = "org.apache.cxf.transport.http.async.MAX_PER_HOST_CONNECTIONS";
     public static final String CONNECTION_TTL = "org.apache.cxf.transport.http.async.CONNECTION_TTL";
+    public static final String CONNECTION_MAX_IDLE = "org.apache.cxf.transport.http.async.CONNECTION_MAX_IDLE";
     
     //AsycClient specific props
     public static final String THREAD_COUNT = "org.apache.cxf.transport.http.async.ioThreadCount";
@@ -87,7 +89,7 @@ public class AsyncHTTPConduitFactory implements HTTPConduitFactory {
     public static final String USE_POLICY = "org.apache.cxf.transport.http.async.usePolicy";
     
     
-    public static enum UseAsyncPolicy {
+    public enum UseAsyncPolicy {
         ALWAYS, ASYNC_ONLY, NEVER;
         
         public static UseAsyncPolicy getPolicy(Object st) {
@@ -120,6 +122,7 @@ public class AsyncHTTPConduitFactory implements HTTPConduitFactory {
     int maxConnections = 5000;
     int maxPerRoute = 1000;
     int connectionTTL = 60000;
+    int connectionMaxIdle = 60000;
 
     int ioThreadCount = IOReactorConfig.DEFAULT.getIoThreadCount();
     long selectInterval = IOReactorConfig.DEFAULT.getSelectInterval();
@@ -167,6 +170,9 @@ public class AsyncHTTPConduitFactory implements HTTPConduitFactory {
 
     private boolean setProperties(Map<String, Object> s) {
         //properties that can be updated "live"
+        if (s == null) {
+            return false;
+        }
         Object st = s.get(USE_POLICY);
         if (st == null) {
             st = SystemPropertyAction.getPropertyOrNull(USE_POLICY);
@@ -175,6 +181,7 @@ public class AsyncHTTPConduitFactory implements HTTPConduitFactory {
         
         maxConnections = getInt(s.get(MAX_CONNECTIONS), maxConnections);
         connectionTTL = getInt(s.get(CONNECTION_TTL), connectionTTL);
+        connectionMaxIdle = getInt(s.get(CONNECTION_MAX_IDLE), connectionMaxIdle);
         maxPerRoute = getInt(s.get(MAX_PER_HOST_CONNECTIONS), maxPerRoute);
 
         if (connectionManager != null) {
@@ -278,15 +285,19 @@ public class AsyncHTTPConduitFactory implements HTTPConduitFactory {
 
 
     private void addListener(Bus b) {
-        b.getExtension(BusLifeCycleManager.class).registerLifeCycleListener(new BusLifeCycleListener() {
-            public void initComplete() {
-            }
-            public void preShutdown() {
-                shutdown();
-            }
-            public void postShutdown() {
-            }
-        });
+        BusLifeCycleManager manager = b.getExtension(BusLifeCycleManager.class);
+        if (manager != null) {
+            
+            manager.registerLifeCycleListener(new BusLifeCycleListener() {
+                public void initComplete() {
+                }
+                public void preShutdown() {
+                    shutdown();
+                }
+                public void postShutdown() {
+                }
+            });
+        }
     }
 
     public synchronized void setupNIOClient(HTTPClientPolicy clientPolicy) throws IOReactorException {
@@ -349,19 +360,31 @@ public class AsyncHTTPConduitFactory implements HTTPConduitFactory {
             }
         };
 
-        client = HttpAsyncClients.custom()
+        HttpAsyncClientBuilder httpAsyncClientBuilder = HttpAsyncClients.custom()
             .setConnectionManager(connectionManager)
             .setRedirectStrategy(redirectStrategy)
             .setDefaultCookieStore(new BasicCookieStore() {
                 private static final long serialVersionUID = 1L;
                 public void addCookie(Cookie cookie) {
                 }
-            })
-            .build();
+            });
+        
+        adaptClientBuilder(httpAsyncClientBuilder);
+        
+        client = httpAsyncClientBuilder.build();
         // Start the client thread
         client.start();
+        if (this.connectionTTL == 0) {
+            //if the connection does not have an expiry deadline
+            //use the ConnectionMaxIdle to close the idle connection
+            new CloseIdleConnectionThread(connectionManager, client).start();
+        }
     }
 
+    //provide a hook to customize the builder
+    protected void adaptClientBuilder(HttpAsyncClientBuilder httpAsyncClientBuilder) {    
+    }
+    
     public CloseableHttpAsyncClient createClient(final AsyncHTTPConduit c) throws IOException {
         if (client == null) {
             setupNIOClient(c.getClient());
@@ -369,4 +392,34 @@ public class AsyncHTTPConduitFactory implements HTTPConduitFactory {
         return client;
     }
 
+    public class CloseIdleConnectionThread extends Thread {
+
+        private final PoolingNHttpClientConnectionManager connMgr;
+
+        private final CloseableHttpAsyncClient client;
+
+        public CloseIdleConnectionThread(PoolingNHttpClientConnectionManager connMgr,
+                                     CloseableHttpAsyncClient client) {
+            super();
+            this.connMgr = connMgr;
+            this.client = client;
+        }
+
+        @Override
+        public void run() {
+            try {
+                while (client.isRunning()) {
+                    synchronized (this) {
+                        sleep(connectionMaxIdle);
+                        // close connections
+                        // that have been idle longer than specified connectionMaxIdle
+                        connMgr.closeIdleConnections(connectionMaxIdle, TimeUnit.MILLISECONDS);
+                    }
+                }
+            } catch (InterruptedException ex) {
+                // terminate
+            }
+        }
+        
+    }
 }

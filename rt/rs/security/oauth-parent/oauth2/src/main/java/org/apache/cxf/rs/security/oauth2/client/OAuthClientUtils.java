@@ -21,6 +21,7 @@ package org.apache.cxf.rs.security.oauth2.client;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
 
@@ -32,10 +33,12 @@ import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
 
 import org.apache.cxf.common.util.Base64Utility;
+import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.jaxrs.client.WebClient;
 import org.apache.cxf.rs.security.oauth2.common.AccessTokenGrant;
 import org.apache.cxf.rs.security.oauth2.common.ClientAccessToken;
 import org.apache.cxf.rs.security.oauth2.common.OAuthError;
+import org.apache.cxf.rs.security.oauth2.grants.refresh.RefreshTokenGrant;
 import org.apache.cxf.rs.security.oauth2.provider.OAuthJSONProvider;
 import org.apache.cxf.rs.security.oauth2.provider.OAuthServiceException;
 import org.apache.cxf.rs.security.oauth2.tokens.hawk.HawkAuthorizationScheme;
@@ -67,6 +70,8 @@ public final class OAuthClientUtils {
                                           String scope) {
         UriBuilder ub = getAuthorizationURIBuilder(authorizationServiceURI, 
                                                    clientId,
+                                                   redirectUri,
+                                                   state,
                                                    scope);
         if (redirectUri != null) {
             ub.queryParam(OAuthConstants.REDIRECT_URI, redirectUri);
@@ -75,6 +80,23 @@ public final class OAuthClientUtils {
             ub.queryParam(OAuthConstants.STATE, state);
         }
         return ub.build();
+    }
+    
+    public static UriBuilder getAuthorizationURIBuilder(String authorizationServiceURI, 
+                                          String clientId,
+                                          String redirectUri,
+                                          String state,
+                                          String scope) {
+        UriBuilder ub = getAuthorizationURIBuilder(authorizationServiceURI, 
+                                                   clientId,
+                                                   scope);
+        if (redirectUri != null) {
+            ub.queryParam(OAuthConstants.REDIRECT_URI, redirectUri);
+        }
+        if (state != null) {
+            ub.queryParam(OAuthConstants.STATE, state);
+        }
+        return ub;
     }
     
     /**
@@ -210,6 +232,25 @@ public final class OAuthClientUtils {
         return getAccessToken(accessTokenService, consumer, grant, extraParams, 
                               null, setAuthorizationHeader);
     }
+    public static ClientAccessToken refreshAccessToken(WebClient accessTokenService,
+                                                       ClientAccessToken at) {
+        return refreshAccessToken(accessTokenService, null, at, null, true);
+    }
+    public static ClientAccessToken refreshAccessToken(WebClient accessTokenService,
+                                                       Consumer consumer,
+                                                       ClientAccessToken at) {
+        return refreshAccessToken(accessTokenService, consumer, at, null, true);
+    }
+    public static ClientAccessToken refreshAccessToken(WebClient accessTokenService,
+                                                       Consumer consumer,
+                                                       ClientAccessToken at,
+                                                       String scope,
+                                                       boolean setAuthorizationHeader) 
+        throws OAuthServiceException {
+        RefreshTokenGrant grant = new RefreshTokenGrant(at.getRefreshToken(), scope); 
+        return getAccessToken(accessTokenService, consumer, grant, null, 
+                              at.getTokenType(), setAuthorizationHeader);
+    }
         
     /**
      * Obtains the access token from OAuth AccessToken Service 
@@ -234,6 +275,10 @@ public final class OAuthClientUtils {
                                                    boolean setAuthorizationHeader) 
         throws OAuthServiceException {    
         
+        if (accessTokenService == null) {
+            throw new OAuthServiceException(OAuthConstants.SERVER_ERROR);
+        }
+        
         Form form = new Form(grant.toMap());
         if (extraParams != null) {
             for (Map.Entry<String, String> entry : extraParams.entrySet()) {
@@ -241,20 +286,21 @@ public final class OAuthClientUtils {
             }
         }
         if (consumer != null) {
-            if (setAuthorizationHeader) {
+            boolean secretAvailable = !StringUtils.isEmpty(consumer.getClientSecret());
+            if (setAuthorizationHeader && secretAvailable) {
                 StringBuilder sb = new StringBuilder();
                 sb.append("Basic ");
                 try {
-                    String data = consumer.getKey() + ":" + consumer.getSecret();
-                    sb.append(Base64Utility.encode(data.getBytes("UTF-8")));
+                    String data = consumer.getClientId() + ":" + consumer.getClientSecret();
+                    sb.append(Base64Utility.encode(data.getBytes(StandardCharsets.UTF_8)));
                 } catch (Exception ex) {
                     throw new ProcessingException(ex);
                 }
-                accessTokenService.header("Authorization", sb.toString());
+                accessTokenService.replaceHeader("Authorization", sb.toString());
             } else {
-                form.param(OAuthConstants.CLIENT_ID, consumer.getKey());
-                if (consumer.getSecret() != null) {
-                    form.param(OAuthConstants.CLIENT_SECRET, consumer.getSecret());
+                form.param(OAuthConstants.CLIENT_ID, consumer.getClientId());
+                if (secretAvailable) {
+                    form.param(OAuthConstants.CLIENT_SECRET, consumer.getClientSecret());
                 }
             }
         } else {
@@ -275,7 +321,7 @@ public final class OAuthClientUtils {
             } else {
                 return token;
             }
-        } else if (400 == response.getStatus() && map.containsKey(OAuthConstants.ERROR_KEY)) {
+        } else if (response.getStatus() >= 400 && map.containsKey(OAuthConstants.ERROR_KEY)) {
             OAuthError error = new OAuthError(map.get(OAuthConstants.ERROR_KEY),
                                               map.get(OAuthConstants.ERROR_DESCRIPTION_KEY));
             error.setErrorUri(map.get(OAuthConstants.ERROR_URI_KEY));
@@ -367,11 +413,11 @@ public final class OAuthClientUtils {
         throws OAuthServiceException {
         // this should all be handled by token specific serializers
         String tokenType = token.getTokenType().toLowerCase();
-        if (OAuthConstants.BEARER_TOKEN_TYPE.equals(tokenType)) {
+        if (OAuthConstants.BEARER_TOKEN_TYPE.equalsIgnoreCase(tokenType)) {
             sb.append(OAuthConstants.BEARER_AUTHORIZATION_SCHEME);
             sb.append(" ");
             sb.append(token.getTokenKey());
-        } else if (OAuthConstants.HAWK_TOKEN_TYPE.equals(tokenType)) {
+        } else if (OAuthConstants.HAWK_TOKEN_TYPE.equalsIgnoreCase(tokenType)) {
             if (httpProps == null) {
                 throw new IllegalArgumentException("MAC scheme requires HTTP Request properties");
             }
@@ -382,29 +428,6 @@ public final class OAuthClientUtils {
         } else {
             throw new ProcessingException(new OAuthServiceException("Unsupported token type"));
         }
-        
-    }
-    
-    /**
-     * Simple consumer representation
-     */
-    public static class Consumer {
-        
-        private String key;
-        private String secret;
-        
-        public Consumer(String key, String secret) {
-            this.key = key;
-            this.secret = secret;
-        }
-        public String getKey() {
-            return key;
-        }
-    
-        public String getSecret() {
-            return secret;
-        }
-        
         
     }
 }

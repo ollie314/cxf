@@ -23,21 +23,36 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Properties;
 import java.util.Set;
-import java.util.UUID;
 
+import javax.servlet.http.HttpSession;
 import javax.ws.rs.core.MultivaluedMap;
 
 import org.apache.cxf.common.util.StringUtils;
-import org.apache.cxf.common.util.crypto.MessageDigestUtils;
+import org.apache.cxf.jaxrs.ext.MessageContext;
 import org.apache.cxf.jaxrs.impl.MetadataMap;
 import org.apache.cxf.jaxrs.model.URITemplate;
+import org.apache.cxf.jaxrs.utils.JAXRSUtils;
+import org.apache.cxf.message.Message;
+import org.apache.cxf.rs.security.jose.common.JoseConstants;
+import org.apache.cxf.rs.security.jose.jwa.AlgorithmUtils;
+import org.apache.cxf.rs.security.jose.jwa.ContentAlgorithm;
+import org.apache.cxf.rs.security.jose.jwa.SignatureAlgorithm;
+import org.apache.cxf.rs.security.jose.jwe.JweDecryptionProvider;
+import org.apache.cxf.rs.security.jose.jwe.JweEncryptionProvider;
+import org.apache.cxf.rs.security.jose.jwe.JweUtils;
+import org.apache.cxf.rs.security.jose.jws.JwsSignatureProvider;
+import org.apache.cxf.rs.security.jose.jws.JwsSignatureVerifier;
+import org.apache.cxf.rs.security.jose.jws.JwsUtils;
+import org.apache.cxf.rs.security.oauth2.common.AuthenticationMethod;
 import org.apache.cxf.rs.security.oauth2.common.Client;
 import org.apache.cxf.rs.security.oauth2.common.ClientAccessToken;
 import org.apache.cxf.rs.security.oauth2.common.OAuthPermission;
 import org.apache.cxf.rs.security.oauth2.common.ServerAccessToken;
 import org.apache.cxf.rs.security.oauth2.common.UserSubject;
 import org.apache.cxf.rs.security.oauth2.provider.OAuthServiceException;
+import org.apache.cxf.rt.security.crypto.CryptoUtils;
 import org.apache.cxf.security.LoginSecurityContext;
 import org.apache.cxf.security.SecurityContext;
 
@@ -48,7 +63,53 @@ public final class OAuthUtils {
 
     private OAuthUtils() {
     }
+    
+    public static String setSessionToken(MessageContext mc) {
+        return setSessionToken(mc, 0);
+    }
+    public static String setSessionToken(MessageContext mc, int maxInactiveInterval) {
+        return setSessionToken(mc, generateRandomTokenKey());
+    }
+    public static String setSessionToken(MessageContext mc, String sessionToken) {
+        return setSessionToken(mc, sessionToken, 0);
+    }
+    public static String setSessionToken(MessageContext mc, String sessionToken, int maxInactiveInterval) {
+        return setSessionToken(mc, sessionToken, null, 0);
+    }
+    public static String setSessionToken(MessageContext mc, String sessionToken, 
+                                                String attribute, int maxInactiveInterval) {    
+        HttpSession session = mc.getHttpServletRequest().getSession();
+        if (maxInactiveInterval > 0) {
+            session.setMaxInactiveInterval(maxInactiveInterval);
+        }
+        String theAttribute = attribute == null ? OAuthConstants.SESSION_AUTHENTICITY_TOKEN : attribute;
+        session.setAttribute(theAttribute, sessionToken);
+        return sessionToken;
+    }
 
+    public static String getSessionToken(MessageContext mc) {
+        return getSessionToken(mc, null);
+    }
+    public static String getSessionToken(MessageContext mc, String attribute) {
+        return getSessionToken(mc, attribute, true);
+    }
+    public static String getSessionToken(MessageContext mc, String attribute, boolean remove) {    
+        HttpSession session = mc.getHttpServletRequest().getSession();
+        String theAttribute = attribute == null ? OAuthConstants.SESSION_AUTHENTICITY_TOKEN : attribute;  
+        String sessionToken = (String)session.getAttribute(theAttribute);
+        if (sessionToken != null && remove) {
+            session.removeAttribute(theAttribute);    
+        }
+        return sessionToken;
+    }
+    public static UserSubject createSubject(MessageContext mc, SecurityContext sc) {
+        UserSubject subject = mc.getContent(UserSubject.class);
+        if (subject != null) {
+            return subject;
+        } else {
+            return OAuthUtils.createSubject(sc);
+        }
+    }
     public static UserSubject createSubject(SecurityContext securityContext) {
         List<String> roleNames = Collections.emptyList();
         if (securityContext instanceof LoginSecurityContext) {
@@ -58,13 +119,20 @@ public final class OAuthUtils {
                 roleNames.add(p.getName());
             }
         }
-        return 
-            new UserSubject(securityContext.getUserPrincipal().getName(), roleNames);
+        UserSubject subject = new UserSubject(securityContext.getUserPrincipal().getName(), roleNames);
+        Message m = JAXRSUtils.getCurrentMessage();
+        if (m != null && m.get(AuthenticationMethod.class) != null) {
+            subject.setAuthenticationMethod(m.get(AuthenticationMethod.class));
+        }
+        return subject;
     }
     
     public static String convertPermissionsToScope(List<OAuthPermission> perms) {
         StringBuilder sb = new StringBuilder();
         for (OAuthPermission perm : perms) {
+            if (perm.isInvisibleToClient() || perm.getPermission() == null) {
+                continue;
+            }
             if (sb.length() > 0) {
                 sb.append(" ");
             }
@@ -84,7 +152,7 @@ public final class OAuthUtils {
     public static boolean isGrantSupportedForClient(Client client, 
                                                     boolean canSupportPublicClients, 
                                                     String grantType) {
-        if (!client.isConfidential() && !canSupportPublicClients) {
+        if (grantType == null || !client.isConfidential() && !canSupportPublicClients) {
             return false;
         }
         List<String> allowedGrants = client.getAllowedGrantTypes();
@@ -105,32 +173,40 @@ public final class OAuthUtils {
     }
 
     public static String generateRandomTokenKey() throws OAuthServiceException {
-        return generateRandomTokenKey(null);
+        return generateRandomTokenKey(16);
+    }
+    public static String generateRandomTokenKey(int byteSize) {
+        if (byteSize < 16) {
+            throw new OAuthServiceException();
+        }
+        return StringUtils.toHexString(CryptoUtils.generateSecureRandomBytes(byteSize));
     }
     
     public static long getIssuedAt() {
-        return System.currentTimeMillis() / 1000;
-    }
-    
-    public static String generateRandomTokenKey(String digestAlgo) throws OAuthServiceException {
-        try {
-            byte[] bytes = UUID.randomUUID().toString().getBytes("UTF-8");
-            if (digestAlgo == null) {
-                digestAlgo = MessageDigestUtils.ALGO_MD5;
-            }
-            return MessageDigestUtils.generate(bytes, digestAlgo);
-        } catch (Exception ex) {
-            throw new OAuthServiceException(OAuthConstants.SERVER_ERROR, ex);
-        }
+        return System.currentTimeMillis() / 1000L;
     }
     
     public static boolean isExpired(Long issuedAt, Long lifetime) {
-        return lifetime != -1
-            && issuedAt + lifetime < System.currentTimeMillis() / 1000;
+        // At some point -1 was used to indicate an unlimited lifetime
+        // with 0 being introduced instead at a later stage. 
+        // In theory there still could be a code around initializing the tokens with -1. 
+        // Treating -1 and 0 the same way is reasonable and it also makes it easier to
+        // deal with the token introspection responses with no issuedAt time reported
+        return lifetime == null
+            || lifetime < -1
+            || lifetime > 0L && issuedAt + lifetime < System.currentTimeMillis() / 1000L;
     }
     
-    public static boolean validateAudience(String audience, List<String> audiences) {
-        return audience == null || !audiences.isEmpty() && audiences.contains(audience);
+    public static boolean validateAudience(String providedAudience, 
+                                           List<String> allowedAudiences) {
+        return providedAudience == null 
+            || validateAudiences(Collections.singletonList(providedAudience), allowedAudiences);
+    }
+    public static boolean validateAudiences(List<String> providedAudiences, 
+                                            List<String> allowedAudiences) {
+        return StringUtils.isEmpty(providedAudiences) 
+               && StringUtils.isEmpty(allowedAudiences)
+               || allowedAudiences.containsAll(providedAudiences);
     }
     
     public static boolean checkRequestURI(String servletPath, String uri) {
@@ -151,7 +227,9 @@ public final class OAuthUtils {
         return false;
     }
     
-    public static List<String> getRequestedScopes(Client client, String scopeParameter, 
+    public static List<String> getRequestedScopes(Client client, 
+                                                  String scopeParameter,
+                                                  boolean useAllClientScopes,
                                                   boolean partialMatchScopeValidation) {
         List<String> requestScopes = parseScope(scopeParameter);
         List<String> registeredScopes = client.getRegisteredScopes();
@@ -162,6 +240,14 @@ public final class OAuthUtils {
         if (!validateScopes(requestScopes, registeredScopes, partialMatchScopeValidation)) {
             throw new OAuthServiceException("Unexpected scope");
         }
+        if (useAllClientScopes) {
+            for (String registeredScope : registeredScopes) {
+                if (!requestScopes.contains(registeredScope)) {
+                    requestScopes.add(registeredScope);
+                }
+            }
+        }
+        
         return requestScopes;
     }
     
@@ -197,11 +283,64 @@ public final class OAuthUtils {
         if (supportOptionalParams) {
             clientToken.setExpiresIn(serverToken.getExpiresIn());
             List<OAuthPermission> perms = serverToken.getScopes();
-            if (!perms.isEmpty()) {
-                clientToken.setApprovedScope(OAuthUtils.convertPermissionsToScope(perms));    
+            String scopeString = OAuthUtils.convertPermissionsToScope(perms);
+            if (!StringUtils.isEmpty(scopeString)) {
+                clientToken.setApprovedScope(scopeString);    
             }
             clientToken.setParameters(serverToken.getParameters());
         }
         return clientToken;
+    }
+
+    public static JwsSignatureProvider getClientSecretSignatureProvider(String clientSecret) {
+        Properties sigProps = JwsUtils.loadSignatureOutProperties(false);
+        return JwsUtils.getHmacSignatureProvider(clientSecret, 
+                                                 getClientSecretSignatureAlgorithm(sigProps));
+    }
+    public static JwsSignatureVerifier getClientSecretSignatureVerifier(String clientSecret) {
+        Properties sigProps = JwsUtils.loadSignatureOutProperties(false);
+        return JwsUtils.getHmacSignatureVerifier(clientSecret, 
+                                                 getClientSecretSignatureAlgorithm(sigProps));
+    }
+    
+    public static JweDecryptionProvider getClientSecretDecryptionProvider(String clientSecret) {
+        Properties props = JweUtils.loadEncryptionInProperties(false);
+        byte[] key = StringUtils.toBytesUTF8(clientSecret);
+        return JweUtils.getDirectKeyJweDecryption(key, getClientSecretContentAlgorithm(props));
+    }
+    
+    public static JweEncryptionProvider getClientSecretEncryptionProvider(String clientSecret) {
+        Properties props = JweUtils.loadEncryptionInProperties(false);
+        byte[] key = StringUtils.toBytesUTF8(clientSecret);
+        return JweUtils.getDirectKeyJweEncryption(key, getClientSecretContentAlgorithm(props));
+    }
+    
+    private static ContentAlgorithm getClientSecretContentAlgorithm(Properties props) {
+        String ctAlgoProp = props.getProperty(OAuthConstants.CLIENT_SECRET_CONTENT_ENCRYPTION_ALGORITHM);
+        if (ctAlgoProp == null) {
+            ctAlgoProp = props.getProperty(JoseConstants.RSSEC_ENCRYPTION_CONTENT_ALGORITHM);
+        }
+        ContentAlgorithm ctAlgo = ContentAlgorithm.getAlgorithm(ctAlgoProp);
+        ctAlgo = ctAlgo != null ? ctAlgo : ContentAlgorithm.A128GCM;
+        return ctAlgo;
+    }
+    
+    public static SignatureAlgorithm getClientSecretSignatureAlgorithm(Properties sigProps) {
+        
+        String clientSecretSigProp = sigProps.getProperty(OAuthConstants.CLIENT_SECRET_SIGNATURE_ALGORITHM);
+        if (clientSecretSigProp == null) {
+            String sigProp = sigProps.getProperty(JoseConstants.RSSEC_SIGNATURE_ALGORITHM);
+            if (AlgorithmUtils.isHmacSign(sigProp)) {
+                clientSecretSigProp = sigProp;
+            }
+        }
+        SignatureAlgorithm sigAlgo = SignatureAlgorithm.getAlgorithm(clientSecretSigProp);
+        sigAlgo = sigAlgo != null ? sigAlgo : SignatureAlgorithm.HS256;
+        if (!AlgorithmUtils.isHmacSign(sigAlgo)) {
+            // Must be HS-based for the symmetric signature
+            throw new OAuthServiceException(OAuthConstants.SERVER_ERROR);
+        } else {
+            return sigAlgo;
+        }
     }
 }

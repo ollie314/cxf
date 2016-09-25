@@ -30,7 +30,7 @@ import java.util.logging.Logger;
 import javax.xml.soap.SOAPMessage;
 
 import org.w3c.dom.Document;
-
+import org.apache.cxf.attachment.AttachmentUtil;
 import org.apache.cxf.binding.soap.SoapFault;
 import org.apache.cxf.binding.soap.SoapMessage;
 import org.apache.cxf.binding.soap.SoapVersion;
@@ -44,8 +44,8 @@ import org.apache.cxf.phase.PhaseInterceptor;
 import org.apache.wss4j.common.crypto.ThreadLocalSecurityProvider;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.WSSConfig;
 import org.apache.wss4j.dom.action.Action;
+import org.apache.wss4j.dom.engine.WSSConfig;
 import org.apache.wss4j.dom.handler.HandlerAction;
 import org.apache.wss4j.dom.handler.RequestData;
 import org.apache.wss4j.dom.handler.WSHandlerConstants;
@@ -80,33 +80,14 @@ public class WSS4JOutInterceptor extends AbstractWSS4JInterceptor {
         setProperties(props);
     }
     
+    @Deprecated
     public boolean isAllowMTOM() {
         return mtomEnabled;
     }
     
-    /**
-     * Enable or disable mtom with WS-Security. MTOM is disabled if we are signing or
-     * encrypting the message Body, as otherwise attachments would not get encrypted
-     * or be part of the signature.
-     * @param mtomEnabled
-     */
+    @Deprecated
     public void setAllowMTOM(boolean allowMTOM) {
         this.mtomEnabled = allowMTOM;
-    }
-    
-    protected void handleSecureMTOM(SoapMessage mc, List<HandlerAction> actions) {
-        if (mtomEnabled) {
-            return;
-        }
-        
-        //must turn off mtom when using WS-Sec so binary is inlined so it can
-        //be properly signed/encrypted/etc...
-        String mtomKey = org.apache.cxf.message.Message.MTOM_ENABLED;
-        if (mc.get(mtomKey) == Boolean.TRUE) {
-            LOG.warning("MTOM will be disabled as the WSS4JOutInterceptor.mtomEnabled property"
-                    + " is set to false");
-        }
-        mc.put(mtomKey, Boolean.FALSE);
     }
 
     @Override
@@ -140,7 +121,7 @@ public class WSS4JOutInterceptor extends AbstractWSS4JInterceptor {
     
     final class WSS4JOutInterceptorInternal 
         implements PhaseInterceptor<SoapMessage> {
-        public WSS4JOutInterceptorInternal() {
+        WSS4JOutInterceptorInternal() {
             super();
         }
         
@@ -213,8 +194,12 @@ public class WSS4JOutInterceptor extends AbstractWSS4JInterceptor {
                 reqData.setMsgContext(mc);
                 reqData.setAttachmentCallbackHandler(new AttachmentCallbackHandler(mc));
                 
-                handleSecureMTOM(mc, actions);
-    
+                if (AttachmentUtil.isMtomEnabled(mc) && hasAttachments(mc)) {
+                    LOG.warning("MTOM is enabled with WS-Security. Please note that if an attachment is "
+                        + "referenced in the SOAP Body, only the reference will be signed and not the "
+                        + "SOAP Body!");
+                }
+                
                 /*
                  * For every action we need a username, so get this now. The
                  * username defined in the deployment descriptor takes precedence.
@@ -228,11 +213,7 @@ public class WSS4JOutInterceptor extends AbstractWSS4JInterceptor {
                     }
                 }
     
-                /*
-                 * Now we perform some set-up for UsernameToken and Signature
-                 * functions. No need to do it for encryption only. Check if
-                 * username is available and then get a passowrd.
-                 */
+                // Check to see if we require a username (+ if it's missing)
                 boolean userNameRequired = false;
                 for (HandlerAction handlerAction : actions) {
                     if ((handlerAction.getAction() == WSConstants.SIGN
@@ -246,13 +227,10 @@ public class WSS4JOutInterceptor extends AbstractWSS4JInterceptor {
                 }
                 if (userNameRequired && (reqData.getUsername() == null || reqData.getUsername().equals(""))
                         && (String)getOption(WSHandlerConstants.SIGNATURE_USER) == null) {
-                    /*
-                     * We need a username - if none throw an SoapFault. For
-                     * encryption there is a specific parameter to get a username.
-                     */
                     throw new SoapFault(new Message("NO_USERNAME", LOG), version
                             .getReceiver());
                 }
+            
                 if (doDebug) {
                     LOG.fine("Actor: " + reqData.getActor());
                 }
@@ -289,7 +267,6 @@ public class WSS4JOutInterceptor extends AbstractWSS4JInterceptor {
                 throw new SoapFault(new Message("SECURITY_FAILED", LOG), e, version
                         .getSender());
             } finally {
-                reqData.clear();
                 reqData = null;
             }
         }
@@ -314,12 +291,17 @@ public class WSS4JOutInterceptor extends AbstractWSS4JInterceptor {
             //nothing
         }
         
+        private boolean hasAttachments(SoapMessage mc) {
+            final Collection<org.apache.cxf.message.Attachment> attachments = mc.getAttachments();
+            return attachments != null && attachments.size() > 0;
+        }
+        
         private void configureActions(SoapMessage mc, boolean doDebug,
                 SoapVersion version, WSSConfig config) {
             
             final Map<Integer, Object> actionMap = CastUtils.cast(
                 (Map<?, ?>)getProperty(mc, WSS4J_ACTION_MAP));
-            if (actionMap != null) {
+            if (actionMap != null && !actionMap.isEmpty()) {
                 for (Map.Entry<Integer, Object> entry : actionMap.entrySet()) {
                     Class<?> removedAction = null;
                     
@@ -357,8 +339,7 @@ public class WSS4JOutInterceptor extends AbstractWSS4JInterceptor {
             }
         }
 
-        public Collection<PhaseInterceptor<? extends org.apache.cxf.message.Message>> 
-        getAdditionalInterceptors() {
+        public Collection<PhaseInterceptor<? extends org.apache.cxf.message.Message>> getAdditionalInterceptors() {
             return null;
         }
     }

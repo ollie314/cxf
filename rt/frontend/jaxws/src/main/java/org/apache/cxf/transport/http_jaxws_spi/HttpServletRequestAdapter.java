@@ -65,7 +65,7 @@ class HttpServletRequestAdapter implements HttpServletRequest {
     private ServletInputStreamAdapter servletInputStreamAdapter;
     private BufferedReader reader;
 
-    public HttpServletRequestAdapter(HttpExchange exchange) {
+    HttpServletRequestAdapter(HttpExchange exchange) {
         this.exchange = exchange;
         this.context = exchange.getHttpContext();
     }
@@ -402,7 +402,7 @@ class HttpServletRequestAdapter implements HttpServletRequest {
         
         private InputStream delegate;
         
-        public ServletInputStreamAdapter(InputStream delegate) {
+        ServletInputStreamAdapter(InputStream delegate) {
             this.delegate = delegate;
         }
 

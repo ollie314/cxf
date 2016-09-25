@@ -24,6 +24,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 
 import javax.ws.rs.Consumes;
 import javax.ws.rs.Encoded;
@@ -52,8 +53,8 @@ import org.apache.cxf.phase.PhaseInterceptorChain;
 @Produces({"application/x-www-form-urlencoded", "multipart/form-data" })
 @Consumes({"application/x-www-form-urlencoded", "multipart/form-data" })
 @Provider
-public class FormEncodingProvider<T> implements 
-    MessageBodyReader<T>, MessageBodyWriter<T> {
+public class FormEncodingProvider<T> extends AbstractConfigurableProvider 
+    implements MessageBodyReader<T>, MessageBodyWriter<T> {
         
     private FormValidator validator;
     @Context private MessageContext mc;
@@ -168,7 +169,7 @@ public class FormEncodingProvider<T> implements
             FormUtils.populateMapFromMultipart(params, body, PhaseInterceptorChain.getCurrentMessage(), 
                                                decode);
         } else {
-            String enc = HttpUtils.getEncoding(mt, "UTF-8");
+            String enc = HttpUtils.getEncoding(mt, StandardCharsets.UTF_8.name());
             
             Object servletRequest = mc != null ? mc.getHttpServletRequest() : null;
             if (servletRequest == null) {
@@ -222,7 +223,7 @@ public class FormEncodingProvider<T> implements
             (MultivaluedMap<String, String>)(obj instanceof Form ? ((Form)obj).asMap() : obj);
         boolean encoded = keepEncoded(anns);
         
-        String enc = HttpUtils.getSetEncoding(mt, headers, "UTF-8");
+        String enc = HttpUtils.getSetEncoding(mt, headers, StandardCharsets.UTF_8.name());
         
         FormUtils.writeMapToOutputStream(map, os, enc, encoded);
         

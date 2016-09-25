@@ -31,10 +31,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 import com.ning.http.client.AsyncHttpClient;
-import com.ning.http.client.websocket.WebSocket;
-import com.ning.http.client.websocket.WebSocketByteListener;
-import com.ning.http.client.websocket.WebSocketTextListener;
-import com.ning.http.client.websocket.WebSocketUpgradeHandler;
+import com.ning.http.client.ws.WebSocket;
+import com.ning.http.client.ws.WebSocketByteListener;
+import com.ning.http.client.ws.WebSocketTextListener;
+import com.ning.http.client.ws.WebSocketUpgradeHandler;
 
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.transport.websocket.WebSocketConstants;
@@ -58,7 +58,7 @@ class WebSocketTestClient {
     private WebSocket websocket;
     private String url;
     
-    public WebSocketTestClient(String url) {
+    WebSocketTestClient(String url) {
         this.received = Collections.synchronizedList(new ArrayList<Object>());
         this.fragments = Collections.synchronizedList(new ArrayList<Object>());
         this.latch = new CountDownLatch(1);
@@ -75,7 +75,7 @@ class WebSocketTestClient {
     }
 
     public void sendTextMessage(String message) {
-        websocket.sendTextMessage(message);
+        websocket.sendMessage(message);
     }
 
     public void sendMessage(byte[] message) {
@@ -226,7 +226,7 @@ class WebSocketTestClient {
         private String id;
         private Object entity;
         
-        public Response(Object data) {
+        Response(Object data) {
             this.data = data;
             String line;
             boolean first = true;
@@ -281,7 +281,7 @@ class WebSocketTestClient {
         }
 
         public String toString() {
-            StringBuffer sb = new StringBuffer();
+            StringBuilder sb = new StringBuilder();
             sb.append("Status: ").append(statusCode).append("\r\n");
             sb.append("Type: ").append(contentType).append("\r\n");
             sb.append("Entity: ").append(gettext(entity)).append("\r\n");
@@ -307,7 +307,15 @@ class WebSocketTestClient {
         }
 
         private int length(Object o) {
-            return o instanceof char[] ? ((String)o).length() : (o instanceof byte[] ? ((byte[])o).length : 0);
+            if (o instanceof String) {
+                return ((String)o).length();
+            } else if (o instanceof char[]) {
+                return ((char[])o).length;
+            } else if (o instanceof byte[]) {
+                return ((byte[])o).length;
+            } else {
+                return 0;
+            }
         }
 
         private int getchar(Object o, int p) {

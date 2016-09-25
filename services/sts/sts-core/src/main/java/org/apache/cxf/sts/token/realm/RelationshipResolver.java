@@ -29,7 +29,7 @@ public class RelationshipResolver {
     
     
     public RelationshipResolver(List<Relationship> relationships) {
-        relationshipMap = new HashMap<String, Relationship>();
+        relationshipMap = new HashMap<>();
         for (Relationship rel : relationships) {
             String key = generateKey(rel.getSourceRealm(), rel.getTargetRealm());
             relationshipMap.put(key, rel);
@@ -43,7 +43,7 @@ public class RelationshipResolver {
     
     
     private String generateKey(String sourceRealm, String targetRealm) {
-        return new StringBuffer().append(sourceRealm).append(">").append(targetRealm).toString();
+        return new StringBuilder().append(sourceRealm).append(">").append(targetRealm).toString();
         
     }
     

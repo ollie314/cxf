@@ -98,22 +98,17 @@ public class WrapperClassInInterceptor extends AbstractPhaseInterceptor<Message>
             message.put(MessageInfo.class, messageInfo);
             message.put(BindingMessageInfo.class, bmi);
             ex.put(BindingOperationInfo.class, boi2);
-            ex.put(OperationInfo.class, op);
             
             if (isGET(message)) {
                 LOG.fine("WrapperClassInInterceptor skipped in HTTP GET method");
                 return;
             }
             
-            MessagePartInfo wrapperPart = wrappedMessageInfo.getMessagePart(0);
+            MessagePartInfo wrapperPart = wrappedMessageInfo.getFirstMessagePart();
             Class<?> wrapperClass = wrapperPart.getTypeClass();
             Object wrappedObject = lst.get(wrapperPart.getIndex());
-            if (wrapperClass != null && !wrapperClass.isInstance(wrappedObject)) {
-                wrappedObject = null;
-                wrapperPart = null;
-                wrapperClass = null;
-            }
-            if (wrapperClass == null || wrappedObject == null) {
+            if (wrapperClass == null || wrappedObject == null
+                || (wrapperClass != null && !wrapperClass.isInstance(wrappedObject))) {
                 return;
             }
             

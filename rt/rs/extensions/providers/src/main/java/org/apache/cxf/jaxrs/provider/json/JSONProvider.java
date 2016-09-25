@@ -30,6 +30,7 @@ import java.io.StringReader;
 import java.io.Writer;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Enumeration;
@@ -103,6 +104,7 @@ public class JSONProvider<T> extends AbstractJAXBProvider<T>  {
     private List<String> primitiveArrayKeys;
     private boolean unwrapped;
     private String wrapperName;
+    private String namespaceSeparator;
     private Map<String, String> wrapperMap;
     private boolean dropRootElement;
     private boolean dropElementsInXmlStream = true;
@@ -215,7 +217,8 @@ public class JSONProvider<T> extends AbstractJAXBProvider<T>  {
         }
         
         XMLStreamReader reader = null;
-        String enc = HttpUtils.getEncoding(mt, "UTF-8");
+        String enc = HttpUtils.getEncoding(mt, StandardCharsets.UTF_8.name());
+        Unmarshaller unmarshaller = null;
         try {
             InputStream realStream = getInputStream(type, genericType, is);
             if (Document.class.isAssignableFrom(type)) {
@@ -228,7 +231,7 @@ public class JSONProvider<T> extends AbstractJAXBProvider<T>  {
             Class<?> theGenericType = isCollection ? InjectionUtils.getActualType(genericType) : type;
             Class<?> theType = getActualType(theGenericType, genericType, anns);
             
-            Unmarshaller unmarshaller = createUnmarshaller(theType, genericType, isCollection);
+            unmarshaller = createUnmarshaller(theType, genericType, isCollection);
             XMLStreamReader xsr = createReader(type, realStream, isCollection, enc);
             
             Object response = null;
@@ -269,6 +272,7 @@ public class JSONProvider<T> extends AbstractJAXBProvider<T>  {
             } catch (XMLStreamException e) {
                 throw ExceptionUtils.toBadRequestException(e, null);
             }
+            JAXBUtils.closeUnmarshaller(unmarshaller);
         }
         // unreachable
         return null;
@@ -288,7 +292,8 @@ public class JSONProvider<T> extends AbstractJAXBProvider<T>  {
         } else {
             reader = JSONUtils.createStreamReader(is, 
                                                   readXsiType, 
-                                                  namespaceMap, 
+                                                  namespaceMap,
+                                                  namespaceSeparator,
                                                   primitiveArrayKeys,
                                                   getDepthProperties(), 
                                                   enc);
@@ -370,7 +375,7 @@ public class JSONProvider<T> extends AbstractJAXBProvider<T>  {
         XMLStreamWriter writer = null;
         try {
             
-            String enc = HttpUtils.getSetEncoding(m, headers, "UTF-8");
+            String enc = HttpUtils.getSetEncoding(m, headers, StandardCharsets.UTF_8.name());
             if (Document.class.isAssignableFrom(cls)) {
                 writer = createWriter(obj, cls, genericType, enc, os, false);
                 copyReaderToWriter(StaxUtils.createXMLStreamReader((Document)obj), writer);
@@ -534,6 +539,9 @@ public class JSONProvider<T> extends AbstractJAXBProvider<T>  {
                                           writeXsiType && !ignoreNamespaces,
                                           attributesToElements,
                                           typeConverter);
+        if (namespaceSeparator != null) {
+            config.setJsonNamespaceSeparator(namespaceSeparator);
+        }
         if (!dropElementsInXmlStreamProp && super.outDropElements != null) {
             config.setIgnoredElements(outDropElements);
         }
@@ -685,5 +693,9 @@ public class JSONProvider<T> extends AbstractJAXBProvider<T>  {
 
     public void setEscapeForwardSlashesAlways(boolean escape) {
         this.escapeForwardSlashesAlways = escape;
+    }
+
+    public void setNamespaceSeparator(String namespaceSeparator) {
+        this.namespaceSeparator = namespaceSeparator;
     }
 }

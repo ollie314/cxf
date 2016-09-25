@@ -25,12 +25,12 @@
     </cxf:bus>
     <jaxws:client name="{http://apache.org/hello_world_soap_http}SoapPort" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.signature.properties" value="clientKeystore.properties"/>
-            <entry key="ws-security.signature.username" value="myclientkey"/>
-            <entry key="ws-security.callback-handler" value="demo.wssec.client.ClientCallbackHandler"/>
-            <entry key="ws-security.encryption.properties" value="clientKeystore.properties"/>
-            <entry key="ws-security.encryption.username" value="myservicekey"/>
-            <entry key="ws-security.sts.client">
+            <entry key="security.signature.properties" value="clientKeystore.properties"/>
+            <entry key="security.signature.username" value="myclientkey"/>
+            <entry key="security.callback-handler" value="demo.wssec.client.ClientCallbackHandler"/>
+            <entry key="security.encryption.properties" value="clientKeystore.properties"/>
+            <entry key="security.encryption.username" value="myservicekey"/>
+            <entry key="security.sts.client">
                 <bean class="org.apache.cxf.ws.security.trust.STSClient">
                     <constructor-arg ref="cxf"/>
                     <property name="wsdlLocation" value="http://localhost:8080/SecurityTokenService/UT?wsdl"/>
@@ -38,19 +38,19 @@
                     <property name="endpointName" value="{http://docs.oasis-open.org/ws-sx/ws-trust/200512/}UT_Port"/>
                     <property name="properties">
                         <map>
-                            <entry key="ws-security.username" value="alice"/>
-                            <entry key="ws-security.callback-handler" value="demo.wssec.client.ClientCallbackHandler"/>
-                            <entry key="ws-security.encryption.properties" value="clientKeystore.properties"/>
-                            <entry key="ws-security.encryption.username" value="mystskey"/>
+                            <entry key="security.username" value="alice"/>
+                            <entry key="security.callback-handler" value="demo.wssec.client.ClientCallbackHandler"/>
+                            <entry key="security.encryption.properties" value="clientKeystore.properties"/>
+                            <entry key="security.encryption.username" value="mystskey"/>
                             <!-- Because of the PublicKey requirement in the InitiatorToken element
                                 in the WSP WSDL, the client needs to have the STS add its public
                                 key to the SAML assertion, as configured in the three lines below.  
                            -->
-                            <entry key="ws-security.sts.token.username" value="myclientkey"/>
-                            <entry key="ws-security.sts.token.properties" value="clientKeystore.properties"/>
+                            <entry key="security.sts.token.username" value="myclientkey"/>
+                            <entry key="security.sts.token.properties" value="clientKeystore.properties"/>
                             <!-- If usecert = true, sends entire certificate in an X509Certificate element, else
                                 sends cert ID in a KeyValue element -->
-                            <entry key="ws-security.sts.token.usecert" value="true"/>
+                            <entry key="security.sts.token.usecert" value="true"/>
                         </map>
                     </property>
                 </bean>

@@ -46,13 +46,9 @@ import org.apache.cxf.transport.ConduitInitiatorManager;
 import org.apache.cxf.transport.Destination;
 import org.apache.cxf.transport.MessageObserver;
 
-import static org.apache.cxf.message.Message.ASYNC_POST_RESPONSE_DISPATCH;
-import static org.apache.cxf.message.Message.REQUESTOR_ROLE;
-
 import static org.apache.cxf.ws.addressing.JAXWSAConstants.ADDRESSING_PROPERTIES_INBOUND;
 import static org.apache.cxf.ws.addressing.JAXWSAConstants.ADDRESSING_PROPERTIES_OUTBOUND;
 import static org.apache.cxf.ws.addressing.JAXWSAConstants.CLIENT_ADDRESSING_PROPERTIES;
-
 
 /**
  * Holder for utility methods relating to contexts.
@@ -132,7 +128,7 @@ public final class ContextUtils {
     * @return true if the current messaging role is that of requestor
     */
     public static boolean isRequestor(Message message) {
-        Boolean requestor = (Boolean)message.get(REQUESTOR_ROLE);
+        Boolean requestor = (Boolean)message.get(Message.REQUESTOR_ROLE);
         return requestor != null && requestor.booleanValue();
     }
 
@@ -507,7 +503,7 @@ public final class ContextUtils {
      * invocation is required.
      */
     public static boolean retrieveAsyncPostResponseDispatch(Message message) {
-        Boolean ret = (Boolean)message.get(ASYNC_POST_RESPONSE_DISPATCH);
+        Boolean ret = (Boolean)message.get(Message.ASYNC_POST_RESPONSE_DISPATCH);
         return ret != null && ret.booleanValue();
     }
     
@@ -586,7 +582,7 @@ public final class ContextUtils {
      * @return the Method from the BindingOperationInfo
      */
     public static Message createMessage(Exchange exchange) {
-        Endpoint ep = exchange.get(Endpoint.class);
+        Endpoint ep = exchange.getEndpoint();
         Message msg = null;
         if (ep != null) {
             msg = new MessageImpl();
@@ -600,13 +596,13 @@ public final class ContextUtils {
     
     public static Destination createDecoupledDestination(Exchange exchange, 
                                                          final EndpointReferenceType reference) {
-        final EndpointInfo ei = exchange.get(Endpoint.class).getEndpointInfo();
+        final EndpointInfo ei = exchange.getEndpoint().getEndpointInfo();
         return new Destination() {
             public EndpointReferenceType getAddress() {
                 return reference;
             }
             public Conduit getBackChannel(Message inMessage) throws IOException {
-                Bus bus = inMessage.getExchange().get(Bus.class);
+                Bus bus = inMessage.getExchange().getBus();
                 //this is a response targeting a decoupled endpoint.   Treat it as a oneway so
                 //we don't wait for a response.
                 inMessage.getExchange().setOneWay(true);

@@ -60,12 +60,9 @@ public abstract class AbstractTypeTestClient
     }
 
     public boolean shouldRunTest(String name) {
-        if (System.getProperty("java.vendor").contains("IBM")
-            && "GMonth".equals(name)) {
-            //the validator in ibm doesn't like this type.
-            return false;
-        }
-        return true;
+        //the validator in ibm doesn't like this type.
+        return !(System.getProperty("java.vendor").contains("IBM")
+            && "GMonth".equals(name));
     }
     
     public static void initClient(Class<?> clz, QName serviceName, 
@@ -539,8 +536,8 @@ public abstract class AbstractTypeTestClient
             return;
         }
         int bufferSize = 1000;
-        StringBuffer buffer = new StringBuffer(bufferSize);
-        StringBuffer buffer2 = new StringBuffer(bufferSize);
+        StringBuilder buffer = new StringBuilder(bufferSize);
+        StringBuilder buffer2 = new StringBuilder(bufferSize);
         for (int x = 0; x < bufferSize; x++) {
             buffer.append((char)('a' + (x % 26)));
             buffer2.append((char)('A' + (x % 26)));

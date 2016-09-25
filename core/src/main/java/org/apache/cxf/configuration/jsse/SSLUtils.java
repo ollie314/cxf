@@ -20,12 +20,13 @@
 package org.apache.cxf.configuration.jsse;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.KeyManagementException;
 import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
@@ -68,14 +69,15 @@ public final class SSLUtils {
     private static final boolean DEFAULT_REQUIRE_CLIENT_AUTHENTICATION = false;
     private static final boolean DEFAULT_WANT_CLIENT_AUTHENTICATION = true;
     
-    /**
-     * By default, only include export-compatible ciphersuites.
-     */
     private static final List<String> DEFAULT_CIPHERSUITE_FILTERS_INCLUDE =
         Arrays.asList(new String[] {".*"});
+    /**
+     * By default, exclude NULL, anon, EXPORT, DES ciphersuites
+     */
     private static final List<String> DEFAULT_CIPHERSUITE_FILTERS_EXCLUDE =
         Arrays.asList(new String[] {".*_NULL_.*",
                                     ".*_anon_.*",
+                                    ".*_EXPORT_.*",
                                     ".*_DES_.*"});
     
     private static volatile KeyManager[] defaultManagers;
@@ -94,9 +96,9 @@ public final class SSLUtils {
         throws Exception {
         //TODO for performance reasons we should cache
         // the KeymanagerFactory and TrustManagerFactory 
-        if ((keyStorePassword != null)
-            && (keyPassword != null) 
-            && (!keyStorePassword.equals(keyPassword))) {
+        if (keyStorePassword != null
+            && keyPassword != null 
+            && !keyStorePassword.equals(keyPassword)) {
             LogUtils.log(log,
                          Level.WARNING,
                          "KEY_PASSWORD_NOT_SAME_KEYSTORE_PASSWORD");
@@ -107,42 +109,34 @@ public final class SSLUtils {
         KeyStore ks = KeyStore.getInstance(keyStoreType);
         
         if (keyStoreType.equalsIgnoreCase(PKCS12_TYPE)) {
-            DataInputStream dis = null;
-            byte[] bytes = null;
-            try {
-                FileInputStream fis = new FileInputStream(keyStoreLocation);
-                dis = new DataInputStream(fis);
-                bytes = new byte[dis.available()];
-                dis.readFully(bytes);
-            } finally {
-                if (dis != null) {
-                    dis.close();
+            Path path = FileSystems.getDefault().getPath(keyStoreLocation);
+            byte[] bytes = Files.readAllBytes(path);
+            try (ByteArrayInputStream bin = new ByteArrayInputStream(bytes)) {
+            
+                if (keyStorePassword != null) {
+                    keystoreManagers = loadKeyStore(kmf,
+                                                    ks,
+                                                    bin,
+                                                    keyStoreLocation,
+                                                    keyStorePassword,
+                                                    log);
                 }
             }
-            ByteArrayInputStream bin = new ByteArrayInputStream(bytes);
-            
-            if (keyStorePassword != null) {
-                keystoreManagers = loadKeyStore(kmf,
-                                                ks,
-                                                bin,
-                                                keyStoreLocation,
-                                                keyStorePassword,
-                                                log);
-            }
         } else {        
-            byte[] sslCert = loadClientCredential(keyStoreLocation);
+            byte[] sslCert = loadFile(keyStoreLocation);
             
             if (sslCert != null && sslCert.length > 0 && keyStorePassword != null) {
-                ByteArrayInputStream bin = new ByteArrayInputStream(sslCert);
-                keystoreManagers = loadKeyStore(kmf,
+                try (ByteArrayInputStream bin = new ByteArrayInputStream(sslCert)) {
+                    keystoreManagers = loadKeyStore(kmf,
                                                 ks,
                                                 bin,
                                                 keyStoreLocation,
                                                 keyStorePassword,
                                                 log);
+                }
             }  
         }
-        if ((keyStorePassword == null) && (keyStoreLocation != null)) {
+        if (keyStorePassword == null && keyStoreLocation != null) {
             LogUtils.log(log, Level.WARNING,
                          "FAILED_TO_LOAD_KEYSTORE_NULL_PASSWORD", 
                          keyStoreLocation);
@@ -159,6 +153,7 @@ public final class SSLUtils {
         }
         return defaultManagers;
     }
+    
     private static synchronized void loadDefaultKeyManagers(Logger log) {
         if (defaultManagers != null) {
             return;
@@ -238,27 +233,21 @@ public final class SSLUtils {
             
             trustedCertStore.load(null, "".toCharArray());
             CertificateFactory cf = CertificateFactory.getInstance(CERTIFICATE_FACTORY_TYPE);
-            byte[] caCert = loadCACert(trustStoreLocation);
+            byte[] caCert = loadFile(trustStoreLocation);
             try {
                 if (caCert != null) {
-                    ByteArrayInputStream cabin = new ByteArrayInputStream(caCert);
-                    X509Certificate cert = (X509Certificate)cf.generateCertificate(cabin);
-                    trustedCertStore.setCertificateEntry(cert.getIssuerDN().toString(), cert);
-                    cabin.close();
+                    try (ByteArrayInputStream cabin = new ByteArrayInputStream(caCert)) {
+                        X509Certificate cert = (X509Certificate)cf.generateCertificate(cabin);
+                        trustedCertStore.setCertificateEntry(cert.getIssuerDN().toString(), cert);
+                    }
                 }
             } catch (Exception e) {
                 LogUtils.log(log, Level.WARNING, "FAILED_TO_LOAD_TRUST_STORE", 
                              new Object[]{trustStoreLocation, e.getMessage()});
             } 
         } else {
-            FileInputStream trustStoreInputStream = null;
-            try {
-                trustStoreInputStream = new FileInputStream(trustStoreLocation);
+            try (FileInputStream trustStoreInputStream = new FileInputStream(trustStoreLocation)) {
                 trustedCertStore.load(trustStoreInputStream, null);
-            } finally {
-                if (trustStoreInputStream != null) {
-                    trustStoreInputStream.close();
-                }
             }
         }
         
@@ -269,49 +258,12 @@ public final class SSLUtils {
         return tmf.getTrustManagers();
     }
     
-    protected static byte[] loadClientCredential(String fileName) throws IOException {
+    protected static byte[] loadFile(String fileName) throws IOException {
         if (fileName == null) {
             return null;
         }
-        FileInputStream in = null;
-        try {
-            in = new FileInputStream(fileName);
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] buf = new byte[512];
-            int i = in.read(buf);
-            while (i  > 0) {
-                out.write(buf, 0, i);
-                i = in.read(buf);
-            }
-            return out.toByteArray();
-        } finally {
-            if (in != null) {
-                in.close();
-            }
-        }
-    }
-
-    protected static byte[] loadCACert(String fileName) throws IOException {
-        if (fileName == null) {
-            return null;
-        }
-        FileInputStream in = null;
-        try {
-            in = new FileInputStream(fileName);
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] buf = new byte[512];
-            int i = in.read(buf);
-        
-            while (i > 0) {
-                out.write(buf, 0, i);
-                i = in.read(buf);
-            }
-            return out.toByteArray();
-        } finally {
-            if (in != null) {
-                in.close();
-            }
-        }
+        Path path = FileSystems.getDefault().getPath(fileName);
+        return Files.readAllBytes(path);
     }
 
     public static String getKeystore(String keyStoreLocation, Logger log) {
@@ -335,6 +287,7 @@ public final class SSLUtils {
     public static String getKeystoreType(String keyStoreType, Logger log) {
         return getKeystoreType(keyStoreType, log, DEFAULT_KEYSTORE_TYPE);
     }
+    
     public static String getKeystoreType(String keyStoreType, Logger log, String def) {
         String logMsg = null;
         if (keyStoreType != null) {
@@ -350,7 +303,8 @@ public final class SSLUtils {
         }
         LogUtils.log(log, Level.FINE, logMsg, keyStoreType);
         return keyStoreType;
-    }  
+    }
+    
     public static String getKeystoreProvider(String keyStoreProvider, Logger log) {
         String logMsg = null;
         if (keyStoreProvider != null) {
@@ -449,25 +403,42 @@ public final class SSLUtils {
         return context.getServerSocketFactory().getSupportedCipherSuites();
     }
         
-    public static String[] getCiphersuites(List<String> cipherSuitesList,
-                                           String[] supportedCipherSuites,
+    public static String[] getCiphersuitesToInclude(List<String> cipherSuitesList,
                                            FiltersType filters,
-                                           Logger log, boolean exclude) {
-        String[] cipherSuites = null;
+                                           String[] defaultCipherSuites,
+                                           String[] supportedCipherSuites,
+                                           Logger log) {
+        // CipherSuites are returned in the following priority:
+        // 1) If we have defined explicit "cipherSuite" configuration
+        // 2) If we have defined ciphersuites via a system property.
+        // 3) The default JVM CipherSuites, if no filters have been defined
+        // 4) Filter the supported cipher suites (*not* the default JVM CipherSuites)
         if (!(cipherSuitesList == null || cipherSuitesList.isEmpty())) {
-            cipherSuites = getCiphersFromList(cipherSuitesList, log, exclude);
+            return getCiphersFromList(cipherSuitesList, log, false);
+        }
+        
+        String[] cipherSuites = getSystemCiphersuites(log);
+        if (cipherSuites != null) {
             return cipherSuites;
         }
-        if (!exclude) {
-            cipherSuites = getSystemCiphersuites(log);
-            if (cipherSuites != null) {
-                return cipherSuites;
-            }
+
+        // If we have no explicit cipherSuites (for the include case as above), and no filters, 
+        // then just use the defaults
+        if ((defaultCipherSuites != null && defaultCipherSuites.length != 0)
+            && (filters == null || !(filters.isSetInclude() || filters.isSetExclude()))) {
+            LogUtils.log(log, Level.FINE, "CIPHERSUITES_SET", defaultCipherSuites.toString());          
+            return defaultCipherSuites;
         }
+        
         LogUtils.log(log, Level.FINE, "CIPHERSUITES_NOT_SET");
-        if (filters == null) {
-            LogUtils.log(log, Level.FINE, "CIPHERSUITE_FILTERS_NOT_SET");
-        }
+        
+        return getFilteredCiphersuites(filters, supportedCipherSuites, log, false);
+    }
+    
+    public static String[] getFilteredCiphersuites(FiltersType filters,
+                                           String[] supportedCipherSuites,
+                                           Logger log, boolean exclude) {
+        // We have explicit filters, so use the "include/exclude" cipherSuiteFilter configuration
         List<String> filteredCipherSuites = new ArrayList<String>();
         List<String> excludedCipherSuites = new ArrayList<String>();
         List<Pattern> includes =
@@ -503,11 +474,10 @@ public final class SSLUtils {
                      "CIPHERSUITES_EXCLUDED",
                      excludedCipherSuites);
         if (exclude) {
-            cipherSuites = getCiphersFromList(excludedCipherSuites, log, exclude);
+            return getCiphersFromList(excludedCipherSuites, log, exclude);
         } else {
-            cipherSuites = getCiphersFromList(filteredCipherSuites, log, exclude);
+            return getCiphersFromList(filteredCipherSuites, log, exclude);
         }
-        return cipherSuites;
     }
 
     private static String[] getSystemCiphersuites(Logger log) {

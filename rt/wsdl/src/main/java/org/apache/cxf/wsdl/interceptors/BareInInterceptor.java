@@ -73,8 +73,8 @@ public class BareInInterceptor extends AbstractInDatabindingInterceptor {
         DataReader<XMLStreamReader> dr = getDataReader(message);
         MessageContentsList parameters = new MessageContentsList();
 
-        Endpoint ep = exchange.get(Endpoint.class);
-        BindingOperationInfo bop = exchange.get(BindingOperationInfo.class);
+        Endpoint ep = exchange.getEndpoint();
+        BindingOperationInfo bop = exchange.getBindingOperationInfo();
         ServiceInfo si = ep.getEndpointInfo().getService();
         // XXX - Should the BindingMessageInfo.class be put on
         // the message?
@@ -92,10 +92,9 @@ public class BareInInterceptor extends AbstractInDatabindingInterceptor {
                 //TO DO : check duplicate operation with no input
                 for (OperationInfo op : ops) {
                     MessageInfo bmsg = op.getInput();
-                    if (bmsg.getMessageParts().size() == 0) {
+                    if (bmsg.getMessagePartsNumber() == 0) {
                         BindingOperationInfo boi = ep.getEndpointInfo().getBinding().getOperation(op);
                         exchange.put(BindingOperationInfo.class, boi);
-                        exchange.put(OperationInfo.class, op);
                         exchange.setOneWay(op.isOneWay());
                     }
                 }

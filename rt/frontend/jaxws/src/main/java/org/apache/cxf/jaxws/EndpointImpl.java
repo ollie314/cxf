@@ -79,7 +79,7 @@ import org.apache.cxf.wsdl.WSDLManager;
 import org.apache.cxf.wsdl11.WSDLServiceBuilder;
 
 public class EndpointImpl extends javax.xml.ws.Endpoint 
-    implements InterceptorProvider, Configurable {
+    implements InterceptorProvider, Configurable, AutoCloseable {
     /**
      * This property controls whether the 'publishEndpoint' permission is checked 
      * using only the AccessController (i.e. when SecurityManager is not installed).
@@ -216,7 +216,7 @@ public class EndpointImpl extends javax.xml.ws.Endpoint
      * @return the class of the implementor object
      */
     public Class<?> getImplementorClass() {
-        return implementorClass != null ? implementorClass : ClassHelper.getRealClass(implementor);
+        return implementorClass != null ? implementorClass : ClassHelper.getRealClass(bus, implementor);
     }
 
     public List<Source> getMetadata() {
@@ -338,7 +338,7 @@ public class EndpointImpl extends javax.xml.ws.Endpoint
             serv = getServer(addr);
             if (addr != null) {            
                 EndpointInfo endpointInfo = serv.getEndpoint().getEndpointInfo();
-                if (!endpointInfo.getAddress().contains(addr)) {
+                if (endpointInfo.getAddress() == null || !endpointInfo.getAddress().contains(addr)) {
                     endpointInfo.setAddress(addr);
                 }
                 if (publishedEndpointUrl != null) {
@@ -640,8 +640,8 @@ public class EndpointImpl extends javax.xml.ws.Endpoint
     class DoubleAddInterceptorList implements List<Interceptor<? extends Message>> {
         List<Interceptor<? extends Message>> orig;
         List<Interceptor<? extends Message>> other;
-        public DoubleAddInterceptorList(List<Interceptor<? extends Message>> a1,
-                                        List<Interceptor<? extends Message>> a2) {
+        DoubleAddInterceptorList(List<Interceptor<? extends Message>> a1,
+                                 List<Interceptor<? extends Message>> a2) {
             orig = a1;
             other = a2;
         }
@@ -855,6 +855,11 @@ public class EndpointImpl extends javax.xml.ws.Endpoint
             sf.setDestinationFactory(new JAXWSHttpSpiTransportFactory(context));
         }
         publish(context.getPath());
+    }
+
+    @Override
+    public void close() throws Exception {
+        stop();
     }    
 
 }

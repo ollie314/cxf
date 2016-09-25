@@ -77,8 +77,8 @@ import org.apache.cxf.message.MessageUtils;
 public class MultipartProvider extends AbstractConfigurableProvider
     implements MessageBodyReader<Object>, MessageBodyWriter<Object> {
     
-    private static final String ACTIVE_JAXRS_PROVIDER_KEY = "active.jaxrs.provider";
     private static final String SUPPORT_TYPE_AS_MULTIPART = "support.type.as.multipart";
+    private static final String SINGLE_PART_IS_COLLECTION = "single.multipart.is.collection";
     private static final Logger LOG = LogUtils.getL7dLogger(MultipartProvider.class);
     private static final ResourceBundle BUNDLE = BundleUtils.getBundle(MultipartProvider.class);
     private static final Set<Class<?>> WELL_KNOWN_MULTIPART_CLASSES;
@@ -125,15 +125,12 @@ public class MultipartProvider extends AbstractConfigurableProvider
     
     private boolean isSupported(Class<?> type, Type genericType, Annotation[] anns, 
                                 MediaType mt) {
-        if (mediaTypeSupported(mt) 
+        return mediaTypeSupported(mt) 
             && (WELL_KNOWN_MULTIPART_CLASSES.contains(type)
                 || Collection.class.isAssignableFrom(type)
                 || Map.class.isAssignableFrom(type) && type != MultivaluedMap.class
                 || AnnotationUtils.getAnnotation(anns, Multipart.class) != null
-                || MessageUtils.isTrue(mc.getContextualProperty(SUPPORT_TYPE_AS_MULTIPART)))) {
-            return true;
-        }
-        return false;
+                || MessageUtils.isTrue(mc.getContextualProperty(SUPPORT_TYPE_AS_MULTIPART)));
     }
 
     protected void checkContentLength() {
@@ -171,7 +168,9 @@ public class MultipartProvider extends AbstractConfigurableProvider
         Multipart id = AnnotationUtils.getAnnotation(anns, Multipart.class);
         Attachment multipart = AttachmentUtils.getMultipart(id, mt, infos);
         if (multipart != null) {
-            if (collectionExpected && !mediaTypeSupported(multipart.getContentType())) {
+            if (collectionExpected 
+                && !mediaTypeSupported(multipart.getContentType())
+                && !MessageUtils.isTrue(mc.getContextualProperty(SINGLE_PART_IS_COLLECTION))) {
                 List<Attachment> allMultiparts = AttachmentUtils.getMatchingAttachments(id, infos);
                 return getAttachmentCollection(t, allMultiparts, anns);
             } else {
@@ -379,13 +378,13 @@ public class MultipartProvider extends AbstractConfigurableProvider
                                             Annotation[] anns,
                                             String mimeType, int id) {
         MediaType mt = JAXRSUtils.toMediaType(mimeType);
-        mc.put(ACTIVE_JAXRS_PROVIDER_KEY, this);
+        mc.put(ProviderFactory.ACTIVE_JAXRS_PROVIDER_KEY, this);
         
         MessageBodyWriter<T> r = null;
         try {
             r = mc.getProviders().getMessageBodyWriter(cls, genericType, anns, mt);
         } finally {
-            mc.put("active.jaxrs.provider", null); 
+            mc.put(ProviderFactory.ACTIVE_JAXRS_PROVIDER_KEY, null); 
         }
         if (r == null) {
             org.apache.cxf.common.i18n.Message message = 
@@ -437,12 +436,12 @@ public class MultipartProvider extends AbstractConfigurableProvider
         private Type genericType;
         private Annotation[] anns;
         private MediaType contentType;
-        public MessageBodyWriterDataHandler(MessageBodyWriter<T> writer,
-                                            T obj,
-                                            Class<T> cls,
-                                            Type genericType,
-                                            Annotation[] anns,
-                                            MediaType contentType) {
+        MessageBodyWriterDataHandler(MessageBodyWriter<T> writer,
+                                     T obj,
+                                     Class<T> cls,
+                                     Type genericType,
+                                     Annotation[] anns,
+                                     MediaType contentType) {
             super(new ByteDataSource("1".getBytes()));
             this.writer = writer;
             this.obj = obj;

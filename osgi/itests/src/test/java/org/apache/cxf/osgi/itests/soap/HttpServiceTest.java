@@ -46,18 +46,18 @@ public class HttpServiceTest extends CXFOSGiTestSupport {
 
     @Test
     public void testHttpEndpoint() throws Exception {
-        Greeter greeter = greeterHttp("8181");
+        Greeter greeter = greeterHttpProxy("8181");
         String res = greeter.greetMe("Chris");
         Assert.assertEquals("Hi Chris", res);
     }
     @Test
     public void testHttpEndpointJetty() throws Exception {
-        Greeter greeter = greeterHttp(HttpTestActivator.PORT);
+        Greeter greeter = greeterHttpProxy(HttpTestActivator.PORT);
         String res = greeter.greetMe("Chris");
         Assert.assertEquals("Hi Chris", res);
     }
     
-    private Greeter greeterHttp(String port) {
+    private Greeter greeterHttpProxy(String port) {
         JaxWsProxyFactoryBean factory = new JaxWsProxyFactoryBean();
         factory.setServiceClass(Greeter.class);
         factory.setAddress("http://localhost:" + port + "/cxf/greeter");
@@ -67,9 +67,10 @@ public class HttpServiceTest extends CXFOSGiTestSupport {
     @Configuration
     public Option[] config() {
         return new Option[] {
-            cxfBaseConfigWithTestUtils(),
+            cxfBaseConfig(),
+            features(cxfUrl, "cxf-jaxws", "cxf-http-jetty", "http"),
+            testUtils(),
             logLevel(LogLevel.INFO),
-            features(cxfUrl, "cxf-http", "cxf-http-jetty"),
             provision(serviceBundle())
         };
     }

@@ -19,6 +19,7 @@
 package org.apache.cxf.rs.security.saml.sso;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 
@@ -28,7 +29,6 @@ import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
 
 import org.w3c.dom.Element;
-
 import org.apache.cxf.common.util.Base64Utility;
 import org.apache.cxf.jaxrs.ext.MessageContextImpl;
 import org.apache.cxf.jaxrs.utils.ExceptionUtils;
@@ -40,13 +40,13 @@ import org.apache.wss4j.common.crypto.CryptoType;
 import org.apache.wss4j.common.ext.WSPasswordCallback;
 import org.apache.wss4j.common.saml.OpenSAMLUtil;
 import org.apache.wss4j.common.util.DOM2Writer;
-import org.opensaml.common.SignableSAMLObject;
-import org.opensaml.saml2.core.AuthnRequest;
-import org.opensaml.xml.security.x509.BasicX509Credential;
-import org.opensaml.xml.security.x509.X509KeyInfoGeneratorFactory;
-import org.opensaml.xml.signature.KeyInfo;
-import org.opensaml.xml.signature.Signature;
-import org.opensaml.xml.signature.SignatureConstants;
+import org.opensaml.saml.common.SignableSAMLObject;
+import org.opensaml.saml.saml2.core.AuthnRequest;
+import org.opensaml.security.x509.BasicX509Credential;
+import org.opensaml.xmlsec.keyinfo.impl.X509KeyInfoGeneratorFactory;
+import org.opensaml.xmlsec.signature.KeyInfo;
+import org.opensaml.xmlsec.signature.Signature;
+import org.opensaml.xmlsec.signature.support.SignatureConstants;
 
 public class SamlPostBindingFilter extends AbstractServiceProviderFilter {
     
@@ -96,9 +96,9 @@ public class SamlPostBindingFilter extends AbstractServiceProviderFilter {
         // Not correct according to the spec but required by some IDPs.
         if (useDeflateEncoding) {
             DeflateEncoderDecoder encoder = new DeflateEncoderDecoder();
-            deflatedBytes = encoder.deflateToken(requestMessage.getBytes("UTF-8"));
+            deflatedBytes = encoder.deflateToken(requestMessage.getBytes(StandardCharsets.UTF_8));
         } else {
-            deflatedBytes = requestMessage.getBytes("UTF-8");
+            deflatedBytes = requestMessage.getBytes(StandardCharsets.UTF_8);
         }
 
         return Base64Utility.encode(deflatedBytes);
@@ -151,9 +151,7 @@ public class SamlPostBindingFilter extends AbstractServiceProviderFilter {
         signature.setCanonicalizationAlgorithm(SignatureConstants.ALGO_ID_C14N_EXCL_OMIT_COMMENTS);
         signature.setSignatureAlgorithm(sigAlgo);
         
-        BasicX509Credential signingCredential = new BasicX509Credential();
-        signingCredential.setEntityCertificate(issuerCerts[0]);
-        signingCredential.setPrivateKey(privateKey);
+        BasicX509Credential signingCredential = new BasicX509Credential(issuerCerts[0], privateKey);
 
         signature.setSigningCredential(signingCredential);
 
@@ -163,7 +161,7 @@ public class SamlPostBindingFilter extends AbstractServiceProviderFilter {
         try {
             KeyInfo keyInfo = kiFactory.newInstance().generate(signingCredential);
             signature.setKeyInfo(keyInfo);
-        } catch (org.opensaml.xml.security.SecurityException ex) {
+        } catch (org.opensaml.security.SecurityException ex) {
             throw new Exception(
                     "Error generating KeyInfo from signing credential", ex);
         }

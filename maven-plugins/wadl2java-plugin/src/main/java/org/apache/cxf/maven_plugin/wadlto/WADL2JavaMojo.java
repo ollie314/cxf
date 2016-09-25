@@ -28,30 +28,32 @@ import java.util.Set;
 import org.apache.cxf.Bus;
 import org.apache.cxf.maven_plugin.common.ClassLoaderSwitcher;
 import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugins.annotations.Component;
+import org.apache.maven.plugins.annotations.LifecyclePhase;
+import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.plugins.annotations.ResolutionScope;
+import org.sonatype.plexus.build.incremental.BuildContext;
 
 
 /**
- * @goal wadl2java
- * @phase generate-sources
- * @description CXF WADL To Java Tool
- * @requiresDependencyResolution test
- * @threadSafe
+ * CXF WADL To Java Tool
  */
+@Mojo(name = "wadl2java", defaultPhase = LifecyclePhase.GENERATE_SOURCES, threadSafe = true,
+      requiresDependencyResolution = ResolutionScope.TEST)
 public class WADL2JavaMojo extends AbstractCodeGeneratorMojo {
-    /**
-     * @parameter
-     */
+    @Parameter
     WadlOption wadlOptions[];
 
-    /**
-     * @parameter expression="${cxf.wadlRoot}" default-value="${basedir}/src/main/resources/wadl"
-     */
+    @Parameter(property = "cxf.wadlRoot", defaultValue = "${basedir}/src/main/resources/wadl")
     File wadlRoot;
 
-    /**
-     * @parameter expression="${cxf.testWadlRoot}" default-value="${basedir}/src/test/resources/wadl"
-     */
+    @Parameter(property = "cxf.testWadlRoot", defaultValue = "${basedir}/src/test/resources/wadl")
     File testWadlRoot;
+    
+    
+    @Component
+    BuildContext buildContext;
     
     private void mergeOptions(List<WadlOption> effectiveOptions) {
         if (wadlOptions == null) {
@@ -74,6 +76,20 @@ public class WADL2JavaMojo extends AbstractCodeGeneratorMojo {
         File classesDir = new File(classesDirectory);
         classesDir.mkdirs();
         markerDirectory.mkdirs();
+        
+        // add the generated source into compile source
+        // do this step first to ensure the source folder will be added to the Eclipse classpath
+        if (project != null && sourceRoot != null) {
+            project.addCompileSourceRoot(sourceRoot.getAbsolutePath());
+        }
+        if (project != null && testSourceRoot != null) {
+            project.addTestCompileSourceRoot(testSourceRoot.getAbsolutePath());
+        }
+        
+        // if this is an m2e configuration build then return immediately without doing any work
+        if (project != null && buildContext.isIncremental() && !buildContext.hasDelta(project.getBasedir())) {
+            return;
+        }
 
         List<WadlOption> effectiveWsdlOptions = createWadlOptionsFromScansAndExplicitWadlOptions(classesDir);
 
@@ -109,12 +125,6 @@ public class WADL2JavaMojo extends AbstractCodeGeneratorMojo {
                 bus.shutdown(true);
             }
             classLoaderSwitcher.restoreClassLoader();
-        }
-        if (project != null && sourceRoot != null && sourceRoot.exists()) {
-            project.addCompileSourceRoot(sourceRoot.getAbsolutePath());
-        }
-        if (project != null && testSourceRoot != null && testSourceRoot.exists()) {
-            project.addTestCompileSourceRoot(testSourceRoot.getAbsolutePath());
         }
 
         System.gc();

@@ -20,6 +20,8 @@ package org.apache.cxf.feature;
 
 import org.apache.cxf.Bus;
 import org.apache.cxf.annotations.Logging;
+import org.apache.cxf.annotations.Provider;
+import org.apache.cxf.annotations.Provider.Type;
 import org.apache.cxf.common.injection.NoJSR250Annotations;
 import org.apache.cxf.interceptor.AbstractLoggingInterceptor;
 import org.apache.cxf.interceptor.InterceptorProvider;
@@ -31,6 +33,7 @@ import org.apache.cxf.interceptor.LoggingOutInterceptor;
  * By attaching this feature to an endpoint, you
  * can specify logging. If this feature is present, an endpoint will log input
  * and output of ordinary and log messages.
+ * 
  * <pre>
  * <![CDATA[
     <jaxws:endpoint ...>
@@ -40,8 +43,12 @@ import org.apache.cxf.interceptor.LoggingOutInterceptor;
     </jaxws:endpoint>
   ]]>
   </pre>
+ * 
+ * @deprecated use the logging module rt/features/logging instead 
  */
 @NoJSR250Annotations
+@Deprecated
+@Provider(value = Type.Feature)
 public class LoggingFeature extends AbstractFeature {
     private static final int DEFAULT_LIMIT = AbstractLoggingInterceptor.DEFAULT_LIMIT;
     private static final LoggingInInterceptor IN = new LoggingInInterceptor(DEFAULT_LIMIT);

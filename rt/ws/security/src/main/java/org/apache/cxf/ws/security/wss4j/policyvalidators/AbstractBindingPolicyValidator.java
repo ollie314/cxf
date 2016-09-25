@@ -21,34 +21,27 @@ package org.apache.cxf.ws.security.wss4j.policyvalidators;
 
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 
 import javax.xml.namespace.QName;
 
 import org.w3c.dom.Element;
-
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.helpers.CastUtils;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
-import org.apache.neethi.Assertion;
-
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.wss4j.common.saml.SAMLKeyInfo;
 import org.apache.wss4j.common.saml.SamlAssertionWrapper;
+import org.apache.wss4j.common.token.BinarySecurity;
+import org.apache.wss4j.common.token.PKIPathSecurity;
+import org.apache.wss4j.common.token.X509Security;
 import org.apache.wss4j.dom.WSConstants;
 import org.apache.wss4j.dom.WSDataRef;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
-import org.apache.wss4j.dom.message.token.BinarySecurity;
-import org.apache.wss4j.dom.message.token.PKIPathSecurity;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
+import org.apache.wss4j.dom.handler.WSHandlerResult;
 import org.apache.wss4j.dom.message.token.Timestamp;
-import org.apache.wss4j.dom.message.token.X509Security;
-import org.apache.wss4j.dom.util.WSSecurityUtil;
-import org.apache.wss4j.policy.SP11Constants;
-import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.SPConstants;
 import org.apache.wss4j.policy.model.AbstractSymmetricAsymmetricBinding;
 import org.apache.wss4j.policy.model.AbstractSymmetricAsymmetricBinding.ProtectionOrder;
@@ -63,7 +56,7 @@ import org.apache.wss4j.policy.model.X509Token;
 /**
  * Some abstract functionality for validating a security binding.
  */
-public abstract class AbstractBindingPolicyValidator implements BindingPolicyValidator {
+public abstract class AbstractBindingPolicyValidator implements SecurityPolicyValidator {
     
     private static final QName SIG_QNAME = new QName(WSConstants.SIG_NS, WSConstants.SIG_LN);
     
@@ -78,21 +71,18 @@ public abstract class AbstractBindingPolicyValidator implements BindingPolicyVal
     protected boolean validateTimestamp(
         boolean includeTimestamp,
         boolean transportBinding,
-        List<WSSecurityEngineResult> results,
+        WSHandlerResult results,
         List<WSSecurityEngineResult> signedResults,
         Message message
     ) {
         List<WSSecurityEngineResult> timestampResults = 
-            WSSecurityUtil.fetchAllActionResults(results, WSConstants.TS);
+            results.getActionResults().get(WSConstants.TS);
         
         // Check whether we received a timestamp and compare it to the policy
-        if (includeTimestamp && timestampResults.size() != 1) {
+        if (includeTimestamp && (timestampResults == null || timestampResults.size() != 1)) {
             return false;
         } else if (!includeTimestamp) {
-            if (timestampResults.isEmpty()) {
-                return true;
-            }
-            return false;
+            return timestampResults == null || timestampResults.isEmpty();
         }
         
         // At this point we received a (required) Timestamp. Now check that it is integrity protected.
@@ -160,7 +150,7 @@ public abstract class AbstractBindingPolicyValidator implements BindingPolicyVal
         AbstractSymmetricAsymmetricBinding binding, 
         AssertionInfo ai,
         AssertionInfoMap aim,
-        List<WSSecurityEngineResult> results,
+        WSHandlerResult results,
         List<WSSecurityEngineResult> signedResults,
         Message message
     ) {
@@ -170,7 +160,8 @@ public abstract class AbstractBindingPolicyValidator implements BindingPolicyVal
             ai.setNotAsserted(error);
             return false;
         }
-        assertPolicy(aim, SPConstants.INCLUDE_TIMESTAMP);
+        String namespace = binding.getName().getNamespaceURI();
+        PolicyUtils.assertPolicy(aim, new QName(namespace, SPConstants.INCLUDE_TIMESTAMP));
         
         // Check the EntireHeaderAndBodySignatures property
         if (binding.isOnlySignEntireHeadersAndBody()
@@ -179,15 +170,15 @@ public abstract class AbstractBindingPolicyValidator implements BindingPolicyVal
             ai.setNotAsserted(error);
             return false;
         }
-        assertPolicy(aim, SPConstants.ONLY_SIGN_ENTIRE_HEADERS_AND_BODY);
+        PolicyUtils.assertPolicy(aim, new QName(namespace, SPConstants.ONLY_SIGN_ENTIRE_HEADERS_AND_BODY));
         
         // Check whether the signatures were encrypted or not
-        if (binding.isEncryptSignature() && !isSignatureEncrypted(results)) {
+        if (binding.isEncryptSignature() && !isSignatureEncrypted(results.getResults())) {
             ai.setNotAsserted("The signature is not protected");
             return false;
         }
-        assertPolicy(aim, SPConstants.ENCRYPT_SIGNATURE);
-        assertPolicy(aim, SPConstants.PROTECT_TOKENS);
+        PolicyUtils.assertPolicy(aim, new QName(namespace, SPConstants.ENCRYPT_SIGNATURE));
+        PolicyUtils.assertPolicy(aim, new QName(namespace, SPConstants.PROTECT_TOKENS));
         
         /*
         // Check ProtectTokens
@@ -210,18 +201,20 @@ public abstract class AbstractBindingPolicyValidator implements BindingPolicyVal
         List<WSSecurityEngineResult> results
     ) {
         ProtectionOrder protectionOrder = binding.getProtectionOrder();
+        String namespace = binding.getName().getNamespaceURI();
+        
         if (protectionOrder == ProtectionOrder.EncryptBeforeSigning) {
             if (!binding.isProtectTokens() && isSignedBeforeEncrypted(results)) {
                 ai.setNotAsserted("Not encrypted before signed");
                 return false;
             }
-            assertPolicy(aim, SPConstants.ENCRYPT_BEFORE_SIGNING);
+            PolicyUtils.assertPolicy(aim, new QName(namespace, SPConstants.ENCRYPT_BEFORE_SIGNING));
         } else if (protectionOrder == ProtectionOrder.SignBeforeEncrypting) { 
             if (isEncryptedBeforeSigned(results)) {
                 ai.setNotAsserted("Not signed before encrypted");
                 return false;
             }
-            assertPolicy(aim, SPConstants.SIGN_BEFORE_ENCRYPTING);
+            PolicyUtils.assertPolicy(aim, new QName(namespace, SPConstants.SIGN_BEFORE_ENCRYPTING));
         }
         return true;
     }
@@ -243,10 +236,7 @@ public abstract class AbstractBindingPolicyValidator implements BindingPolicyVal
                 signed = true;
             }
             if (actInt.intValue() == WSConstants.ENCR && el != null) {
-                if (signed) {
-                    return true;
-                }
-                return false;
+                return signed;
             }
         }
         return false;
@@ -269,10 +259,7 @@ public abstract class AbstractBindingPolicyValidator implements BindingPolicyVal
             // Don't count an endorsing signature
             if (actInt.intValue() == WSConstants.SIGN && el != null
                 && !(el.size() == 1 && el.get(0).getName().equals(SIG_QNAME))) {
-                if (encrypted) {
-                    return true;
-                }
-                return false;
+                return encrypted;
             }
         }
         return false;
@@ -314,12 +301,10 @@ public abstract class AbstractBindingPolicyValidator implements BindingPolicyVal
         List<WSSecurityEngineResult> results,
         List<WSSecurityEngineResult> signedResults
     ) {
-        for (int i = 0; i < signedResults.size(); i++) {
-            WSSecurityEngineResult result = signedResults.get(i);
+        for (WSSecurityEngineResult result : signedResults) {
             
             // Get the Token result that was used for the signature
-            WSSecurityEngineResult tokenResult = 
-                findCorrespondingToken(result, results);
+            WSSecurityEngineResult tokenResult = findCorrespondingToken(result, results);
             if (tokenResult == null) {
                 return false;
             }
@@ -409,13 +394,15 @@ public abstract class AbstractBindingPolicyValidator implements BindingPolicyVal
             Integer actInt = (Integer)result.get(WSSecurityEngineResult.TAG_ACTION);
             if (actInt.intValue() == WSConstants.SIGN && !foundPrimarySignature) {
                 foundPrimarySignature = true;
-                String sigId = (String)result.get(WSSecurityEngineResult.TAG_ID);
-                if (sigId == null || !isIdEncrypted(sigId, results)) {
+                Element sigElement = 
+                    (Element)result.get(WSSecurityEngineResult.TAG_TOKEN_ELEMENT);
+                if (sigElement == null || !isElementEncrypted(sigElement, results)) {
                     return false;
                 }
             } else if (actInt.intValue() == WSConstants.SC) {
-                String sigId = (String)result.get(WSSecurityEngineResult.TAG_ID);
-                if (sigId == null || !isIdEncrypted(sigId, results)) {
+                Element sigElement = 
+                    (Element)result.get(WSSecurityEngineResult.TAG_TOKEN_ELEMENT);
+                if (sigElement == null || !isElementEncrypted(sigElement, results)) {
                     return false;
                 }
             }
@@ -424,9 +411,9 @@ public abstract class AbstractBindingPolicyValidator implements BindingPolicyVal
     }
     
     /**
-     * Return true if the given id was encrypted
+     * Return true if the given Element was encrypted
      */
-    private boolean isIdEncrypted(String sigId, List<WSSecurityEngineResult> results) {
+    private boolean isElementEncrypted(Element element, List<WSSecurityEngineResult> results) {
         for (WSSecurityEngineResult wser : results) {
             Integer actInt = (Integer)wser.get(WSSecurityEngineResult.TAG_ACTION);
             if (actInt.intValue() == WSConstants.ENCR) {
@@ -435,12 +422,8 @@ public abstract class AbstractBindingPolicyValidator implements BindingPolicyVal
                 if (el != null) {
                     for (WSDataRef r : el) {
                         Element protectedElement = r.getProtectedElement();
-                        if (protectedElement != null) {
-                            String id = protectedElement.getAttributeNS(null, "Id");
-                            String wsuId = protectedElement.getAttributeNS(WSConstants.WSU_NS, "Id");
-                            if (sigId.equals(id) || sigId.equals(wsuId)) {
-                                return true;
-                            }
+                        if (element.equals(protectedElement)) {
+                            return true;
                         }
                     }
                 }
@@ -449,77 +432,4 @@ public abstract class AbstractBindingPolicyValidator implements BindingPolicyVal
         return false;
     }
     
-    protected void assertPolicy(AssertionInfoMap aim, Assertion token) {
-        Collection<AssertionInfo> ais = aim.get(token.getName());
-        if (ais != null && !ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                if (ai.getAssertion() == token) {
-                    ai.setAsserted(true);
-                }
-            }    
-        }
-    }
-    
-    protected void notAssertPolicy(AssertionInfoMap aim, Assertion token, String msg) {
-        Collection<AssertionInfo> ais = aim.get(token.getName());
-        if (ais != null && !ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                if (ai.getAssertion() == token) {
-                    ai.setNotAsserted(msg);
-                }
-            }    
-        }
-    }
-    
-    protected boolean assertPolicy(AssertionInfoMap aim, String localname) {
-        Collection<AssertionInfo> ais = getAllAssertionsByLocalname(aim, localname);
-        if (!ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                ai.setAsserted(true);
-            }    
-            return true;
-        }
-        return false;
-    }
-    
-    protected boolean assertPolicy(AssertionInfoMap aim, QName q) {
-        Collection<AssertionInfo> ais = aim.get(q);
-        if (ais != null && !ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                ai.setAsserted(true);
-            }    
-            return true;
-        }
-        return false;
-    }
-    
-    protected void notAssertPolicy(AssertionInfoMap aim, QName q, String msg) {
-        Collection<AssertionInfo> ais = aim.get(q);
-        if (ais != null && !ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                ai.setNotAsserted(msg);
-            }    
-        }
-    }
-    
-    protected Collection<AssertionInfo> getAllAssertionsByLocalname(
-        AssertionInfoMap aim,
-        String localname
-    ) {
-        Collection<AssertionInfo> sp11Ais = aim.get(new QName(SP11Constants.SP_NS, localname));
-        Collection<AssertionInfo> sp12Ais = aim.get(new QName(SP12Constants.SP_NS, localname));
-        
-        if ((sp11Ais != null && !sp11Ais.isEmpty()) || (sp12Ais != null && !sp12Ais.isEmpty())) {
-            Collection<AssertionInfo> ais = new HashSet<AssertionInfo>();
-            if (sp11Ais != null) {
-                ais.addAll(sp11Ais);
-            }
-            if (sp12Ais != null) {
-                ais.addAll(sp12Ais);
-            }
-            return ais;
-        }
-            
-        return Collections.emptySet();
-    }
 }

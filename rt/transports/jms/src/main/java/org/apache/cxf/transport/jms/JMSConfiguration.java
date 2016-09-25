@@ -25,11 +25,13 @@ import javax.jms.Destination;
 import javax.jms.JMSException;
 import javax.jms.Message;
 import javax.jms.Session;
+import javax.naming.NamingException;
 import javax.transaction.TransactionManager;
 
 import org.apache.cxf.common.injection.NoJSR250Annotations;
 import org.apache.cxf.transport.jms.util.DestinationResolver;
 import org.apache.cxf.transport.jms.util.JMSDestinationResolver;
+import org.apache.cxf.transport.jms.util.JndiHelper;
 
 @NoJSR250Annotations
 public class JMSConfiguration {
@@ -52,7 +54,9 @@ public class JMSConfiguration {
     private int priority = Message.DEFAULT_PRIORITY;
     private long timeToLive = Message.DEFAULT_TIME_TO_LIVE;
     private boolean sessionTransacted;
+    private boolean createSecurityContext = true;
 
+    private int concurrentConsumers = 1;
     private int maxSuspendedContinuations = DEFAULT_VALUE;
     private int reconnectPercentOfMax = 70;
 
@@ -73,6 +77,7 @@ public class JMSConfiguration {
      * Destination name to send out as replyTo address in the message 
      */
     private String replyToDestination;
+    private volatile Destination replyToDestinationDest;
     private String messageType = JMSConstants.TEXT_MESSAGE_TYPE;
     private boolean pubSubDomain;
     private boolean replyPubSubDomain;
@@ -303,12 +308,28 @@ public class JMSConfiguration {
         this.sessionTransacted = sessionTransacted;
     }
 
+    public boolean isCreateSecurityContext() {
+        return createSecurityContext;
+    }
+    
+    public void setCreateSecurityContext(boolean b) {
+        this.createSecurityContext = b;
+    }
+    
     /**
      * For compatibility with old spring based code
      * @param transactionManager
      */
     @Deprecated
     public void setTransactionManager(Object transactionManager) {
+    }
+
+    public int getConcurrentConsumers() {
+        return concurrentConsumers;
+    }
+
+    public void setConcurrentConsumers(int concurrentConsumers) {
+        this.concurrentConsumers = concurrentConsumers;
     }
 
     public int getMaxSuspendedContinuations() {
@@ -346,13 +367,34 @@ public class JMSConfiguration {
             synchronized (this) {
                 factory = connectionFactory;
                 if (factory == null) {
-                    factory = JMSFactory.getConnectionFactoryFromJndi(this);
+                    factory = getConnectionFactoryFromJndi();
                     connectionFactory = factory;
                 }
             }
         }
         return factory;
     }
+    
+    /**
+     * Retrieve connection factory from JNDI
+     * 
+     * @param jmsConfig
+     * @param jndiConfig
+     * @return
+     */
+    private ConnectionFactory getConnectionFactoryFromJndi() {
+        if (getJndiEnvironment() == null || getConnectionFactoryName() == null) {
+            return null;
+        }
+        try {
+            ConnectionFactory cf = new JndiHelper(getJndiEnvironment()).
+                lookup(getConnectionFactoryName(), ConnectionFactory.class);
+            return cf;
+        } catch (NamingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     
     public String getDurableSubscriptionClientId() {
         return durableSubscriptionClientId;
@@ -400,14 +442,27 @@ public class JMSConfiguration {
         }
         return resolver.resolveDestinationName(session, replyToDestinationName, pubSubDomain);
     }
-    
+
     public Destination getReplyToDestination(Session session, String userDestination) throws JMSException {
-        if (userDestination == null) {
+        if (userDestination != null) {
+            return destinationResolver.resolveDestinationName(session, userDestination, replyPubSubDomain);
+        }
+        if (replyToDestination == null) {
             return getReplyDestination(session);
         }
-        return destinationResolver.resolveDestinationName(session, userDestination, replyPubSubDomain);
+        Destination result = replyToDestinationDest;
+        if (result == null) {
+            synchronized (this) {
+                result = replyToDestinationDest;
+                if (result == null) {
+                    result = destinationResolver.resolveDestinationName(session, replyToDestination, replyPubSubDomain);
+                    replyToDestinationDest = result;
+                }
+            }
+        }
+        return result;
     }
-    
+
     public Destination getReplyDestination(Session session) throws JMSException {
         Destination result = replyDestinationDest;
         if (result == null) {

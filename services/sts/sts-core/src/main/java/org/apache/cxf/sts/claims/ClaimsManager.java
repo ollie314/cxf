@@ -37,8 +37,8 @@ import org.apache.cxf.sts.token.realm.RealmSupport;
 import org.apache.cxf.sts.token.realm.Relationship;
 import org.apache.cxf.ws.security.sts.provider.STSException;
 import org.apache.wss4j.common.saml.SamlAssertionWrapper;
-import org.opensaml.common.SAMLVersion;
-import org.opensaml.xml.XMLObject;
+import org.opensaml.core.xml.XMLObject;
+import org.opensaml.saml.common.SAMLVersion;
 
 
 /**
@@ -50,7 +50,7 @@ public class ClaimsManager {
 
     private List<ClaimsParser> claimParsers;
     private List<ClaimsHandler> claimHandlers;
-    private List<URI> supportedClaimTypes = new ArrayList<URI>();
+    private List<URI> supportedClaimTypes = new ArrayList<>();
     private boolean stopProcessingOnException = true;
     private IdentityMapper identityMapper;
     
@@ -145,93 +145,7 @@ public class ClaimsManager {
         if (relationship == null || relationship.getType().equals(Relationship.FED_TYPE_IDENTITY)) {
             // Federate identity. Identity already mapped.
             // Call all configured claims handlers to retrieve the required claims
-            if (claimHandlers == null || claimHandlers.size() == 0) {
-                return null;
-            }
-            Principal originalPrincipal = parameters.getPrincipal();
-            ProcessedClaimCollection returnCollection = new ProcessedClaimCollection();
-            for (ClaimsHandler handler : claimHandlers) {
-                
-                ClaimCollection supportedClaims = 
-                    filterHandlerClaims(claims, handler.getSupportedClaimTypes());
-                if (supportedClaims.isEmpty()) {
-                    continue;
-                }
-                
-                if (handler instanceof RealmSupport) {
-                    RealmSupport handlerRealmSupport = (RealmSupport)handler;
-                    // Check whether the handler supports the current realm
-                    if (handlerRealmSupport.getSupportedRealms() != null
-                            && handlerRealmSupport.getSupportedRealms().size() > 0
-                            && handlerRealmSupport.getSupportedRealms().indexOf(parameters.getRealm()) == -1) {
-                        if (LOG.isLoggable(Level.FINER)) {
-                            LOG.finer("Handler '" + handler.getClass().getName() + "' doesn't support"
-                                    + " realm '" + parameters.getRealm()  + "'");
-                        }
-                        continue;
-                    }
-                    
-                    // If handler realm is configured and different from current realm
-                    // do an identity mapping
-                    if (handlerRealmSupport.getHandlerRealm() != null
-                            && !handlerRealmSupport.getHandlerRealm().equalsIgnoreCase(parameters.getRealm())) {
-                        Principal targetPrincipal = null;
-                        try {
-                            if (LOG.isLoggable(Level.FINE)) {
-                                LOG.fine("Mapping user '" + parameters.getPrincipal().getName()
-                                        + "' [" + parameters.getRealm() + "] to realm '"
-                                        + handlerRealmSupport.getHandlerRealm() + "'");
-                            }
-                            targetPrincipal = doMapping(parameters.getRealm(), parameters.getPrincipal(),
-                                    handlerRealmSupport.getHandlerRealm());
-                        } catch (Exception ex) {
-                            LOG.log(Level.WARNING, "Failed to map user '" + parameters.getPrincipal().getName()
-                                    + "' [" + parameters.getRealm() + "] to realm '"
-                                    + handlerRealmSupport.getHandlerRealm() + "'", ex);
-                            throw new STSException("Failed to map user for claims handler",
-                                    STSException.REQUEST_FAILED);
-                        }
-                        
-                        if (targetPrincipal == null) {
-                            LOG.log(Level.WARNING, "Null. Failed to map user '" + parameters.getPrincipal().getName()
-                                    + "' [" + parameters.getRealm() + "] to realm '"
-                                    + handlerRealmSupport.getHandlerRealm() + "'");
-                            throw new STSException("Failed to map user for claims handler",
-                                    STSException.REQUEST_FAILED);
-                        }
-                        if (LOG.isLoggable(Level.INFO)) {
-                            LOG.info("Principal '" + targetPrincipal.getName()
-                                    + "' passed to handler '" + handler.getClass().getName() + "'");
-                        }
-                        parameters.setPrincipal(targetPrincipal);
-                    } else {
-                        if (LOG.isLoggable(Level.FINER)) {
-                            LOG.finer("Handler '" + handler.getClass().getName() + "' doesn't require"
-                                    + " identity mapping '" + parameters.getRealm()  + "'");
-                        }
-                        
-                    }
-                }
-                
-                ProcessedClaimCollection claimCollection = null;
-                try {
-                    claimCollection = handler.retrieveClaimValues(supportedClaims, parameters);
-                } catch (RuntimeException ex) {
-                    LOG.log(Level.INFO, "Failed retrieving claims from ClaimsHandler "
-                            + handler.getClass().getName(), ex);
-                    if (this.isStopProcessingOnException()) {
-                        throw ex;
-                    }
-                } finally {
-                    // set original principal again, otherwise wrong principal passed to next claim handler in the list
-                    // if no mapping required or wrong source principal used for next identity mapping
-                    parameters.setPrincipal(originalPrincipal);
-                }
-                
-                if (claimCollection != null && claimCollection.size() != 0) {
-                    returnCollection.addAll(claimCollection);
-                }
-            }
+            ProcessedClaimCollection returnCollection = handleClaims(claims, parameters);
             validateClaimValues(claims, returnCollection);
             return returnCollection;
             
@@ -263,6 +177,99 @@ public class ClaimsManager {
             return targetClaims;
         }
 
+    }
+    
+    private ProcessedClaimCollection handleClaims(ClaimCollection claims, ClaimsParameters parameters) {
+        ProcessedClaimCollection returnCollection = new ProcessedClaimCollection();
+        Principal originalPrincipal = parameters.getPrincipal();
+        
+        if (claimHandlers == null) {
+            return returnCollection;
+        }
+        
+        for (ClaimsHandler handler : claimHandlers) {
+            
+            ClaimCollection supportedClaims = 
+                filterHandlerClaims(claims, handler.getSupportedClaimTypes());
+            if (supportedClaims.isEmpty()) {
+                continue;
+            }
+            
+            if (handler instanceof RealmSupport) {
+                RealmSupport handlerRealmSupport = (RealmSupport)handler;
+                // Check whether the handler supports the current realm
+                if (handlerRealmSupport.getSupportedRealms() != null
+                        && handlerRealmSupport.getSupportedRealms().size() > 0
+                        && handlerRealmSupport.getSupportedRealms().indexOf(parameters.getRealm()) == -1) {
+                    if (LOG.isLoggable(Level.FINER)) {
+                        LOG.finer("Handler '" + handler.getClass().getName() + "' doesn't support"
+                                + " realm '" + parameters.getRealm()  + "'");
+                    }
+                    continue;
+                }
+                
+                // If handler realm is configured and different from current realm
+                // do an identity mapping
+                if (handlerRealmSupport.getHandlerRealm() != null
+                        && !handlerRealmSupport.getHandlerRealm().equalsIgnoreCase(parameters.getRealm())) {
+                    Principal targetPrincipal = null;
+                    try {
+                        if (LOG.isLoggable(Level.FINE)) {
+                            LOG.fine("Mapping user '" + parameters.getPrincipal().getName()
+                                    + "' [" + parameters.getRealm() + "] to realm '"
+                                    + handlerRealmSupport.getHandlerRealm() + "'");
+                        }
+                        targetPrincipal = doMapping(parameters.getRealm(), parameters.getPrincipal(),
+                                handlerRealmSupport.getHandlerRealm());
+                    } catch (Exception ex) {
+                        LOG.log(Level.WARNING, "Failed to map user '" + parameters.getPrincipal().getName()
+                                + "' [" + parameters.getRealm() + "] to realm '"
+                                + handlerRealmSupport.getHandlerRealm() + "'", ex);
+                        throw new STSException("Failed to map user for claims handler",
+                                STSException.REQUEST_FAILED);
+                    }
+                    
+                    if (targetPrincipal == null || targetPrincipal.getName() == null) {
+                        LOG.log(Level.WARNING, "Null. Failed to map user '" + parameters.getPrincipal().getName()
+                                + "' [" + parameters.getRealm() + "] to realm '"
+                                + handlerRealmSupport.getHandlerRealm() + "'");
+                        continue;
+                    }
+                    if (LOG.isLoggable(Level.INFO)) {
+                        LOG.info("Principal '" + targetPrincipal.getName()
+                                + "' passed to handler '" + handler.getClass().getName() + "'");
+                    }
+                    parameters.setPrincipal(targetPrincipal);
+                } else {
+                    if (LOG.isLoggable(Level.FINER)) {
+                        LOG.finer("Handler '" + handler.getClass().getName() + "' doesn't require"
+                                + " identity mapping '" + parameters.getRealm()  + "'");
+                    }
+                    
+                }
+            }
+            
+            ProcessedClaimCollection claimCollection = null;
+            try {
+                claimCollection = handler.retrieveClaimValues(supportedClaims, parameters);
+            } catch (RuntimeException ex) {
+                LOG.log(Level.INFO, "Failed retrieving claims from ClaimsHandler "
+                        + handler.getClass().getName(), ex);
+                if (this.isStopProcessingOnException()) {
+                    throw ex;
+                }
+            } finally {
+                // set original principal again, otherwise wrong principal passed to next claim handler in the list
+                // if no mapping required or wrong source principal used for next identity mapping
+                parameters.setPrincipal(originalPrincipal);
+            }
+            
+            if (claimCollection != null && claimCollection.size() != 0) {
+                returnCollection.addAll(claimCollection);
+            }
+        }
+        
+        return returnCollection;
     }
 
     private ClaimCollection filterHandlerClaims(ClaimCollection claims,
@@ -299,8 +306,8 @@ public class ClaimsManager {
     }
 
 
-    protected List<ProcessedClaim> parseClaimsInAssertion(org.opensaml.saml1.core.Assertion assertion) {
-        List<org.opensaml.saml1.core.AttributeStatement> attributeStatements = 
+    protected List<ProcessedClaim> parseClaimsInAssertion(org.opensaml.saml.saml1.core.Assertion assertion) {
+        List<org.opensaml.saml.saml1.core.AttributeStatement> attributeStatements = 
             assertion.getAttributeStatements();
         if (attributeStatements == null || attributeStatements.isEmpty()) {
             if (LOG.isLoggable(Level.FINEST)) {
@@ -310,13 +317,13 @@ public class ClaimsManager {
         }
         ProcessedClaimCollection collection = new ProcessedClaimCollection();
 
-        for (org.opensaml.saml1.core.AttributeStatement statement : attributeStatements) {
+        for (org.opensaml.saml.saml1.core.AttributeStatement statement : attributeStatements) {
             if (LOG.isLoggable(Level.FINEST)) {
                 LOG.finest("parsing statement: " + statement.getElementQName());
             }
 
-            List<org.opensaml.saml1.core.Attribute> attributes = statement.getAttributes();
-            for (org.opensaml.saml1.core.Attribute attribute : attributes) {
+            List<org.opensaml.saml.saml1.core.Attribute> attributes = statement.getAttributes();
+            for (org.opensaml.saml.saml1.core.Attribute attribute : attributes) {
                 if (LOG.isLoggable(Level.FINEST)) {
                     LOG.finest("parsing attribute: " + attribute.getAttributeName());
                 }
@@ -343,8 +350,8 @@ public class ClaimsManager {
         return collection;
     }
 
-    protected List<ProcessedClaim> parseClaimsInAssertion(org.opensaml.saml2.core.Assertion assertion) {
-        List<org.opensaml.saml2.core.AttributeStatement> attributeStatements = 
+    protected List<ProcessedClaim> parseClaimsInAssertion(org.opensaml.saml.saml2.core.Assertion assertion) {
+        List<org.opensaml.saml.saml2.core.AttributeStatement> attributeStatements = 
             assertion.getAttributeStatements();
         if (attributeStatements == null || attributeStatements.isEmpty()) {
             if (LOG.isLoggable(Level.FINEST)) {
@@ -355,12 +362,12 @@ public class ClaimsManager {
 
         List<ProcessedClaim> collection = new ArrayList<ProcessedClaim>();
 
-        for (org.opensaml.saml2.core.AttributeStatement statement : attributeStatements) {
+        for (org.opensaml.saml.saml2.core.AttributeStatement statement : attributeStatements) {
             if (LOG.isLoggable(Level.FINEST)) {
                 LOG.finest("parsing statement: " + statement.getElementQName());
             }
-            List<org.opensaml.saml2.core.Attribute> attributes = statement.getAttributes();
-            for (org.opensaml.saml2.core.Attribute attribute : attributes) {
+            List<org.opensaml.saml.saml2.core.Attribute> attributes = statement.getAttributes();
+            for (org.opensaml.saml.saml2.core.Attribute attribute : attributes) {
                 if (LOG.isLoggable(Level.FINEST)) {
                     LOG.finest("parsing attribute: " + attribute.getName());
                 }

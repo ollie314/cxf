@@ -27,27 +27,32 @@ import org.apache.cxf.jaxrs.impl.tl.ThreadLocalProxy;
 public class ProviderInfo<T> extends AbstractResourceInfo {
 
     private T provider;
+    private boolean custom;
+    private boolean busGlobal;
     
-    public ProviderInfo(T provider, Bus bus) {
-        this(provider, bus, true);
+    public ProviderInfo(T provider, Bus bus, boolean custom) {
+        this(provider, bus, true, custom);
     }
     
-    public ProviderInfo(T provider, Bus bus, boolean checkContexts) {
-        this(provider, null, bus, checkContexts);
-    }
-    
-    public ProviderInfo(T provider, 
-                        Map<Class<?>, ThreadLocalProxy<?>> constructorProxies, 
-                        Bus bus) {
-        this(provider, constructorProxies, bus, true);
+    public ProviderInfo(T provider, Bus bus, boolean checkContexts, boolean custom) {
+        this(provider, null, bus, checkContexts, custom);
     }
     
     public ProviderInfo(T provider, 
                         Map<Class<?>, ThreadLocalProxy<?>> constructorProxies, 
                         Bus bus,
-                        boolean checkContexts) {
+                        boolean custom) {
+        this(provider, constructorProxies, bus, true, custom);
+    }
+    
+    public ProviderInfo(T provider, 
+                        Map<Class<?>, ThreadLocalProxy<?>> constructorProxies, 
+                        Bus bus,
+                        boolean checkContexts,
+                        boolean custom) {
         super(provider.getClass(), provider.getClass(), true, checkContexts, constructorProxies, bus, provider);
         this.provider = provider;
+        this.custom = custom;
     }
     
     @Override
@@ -68,6 +73,18 @@ public class ProviderInfo<T> extends AbstractResourceInfo {
 
     public int hashCode() {
         return provider.hashCode();
+    }
+
+    public boolean isCustom() {
+        return custom;
+    }
+
+    public boolean isBusGlobal() {
+        return busGlobal;
+    }
+
+    public void setBusGlobal(boolean busGlobal) {
+        this.busGlobal = busGlobal;
     }
 
 }

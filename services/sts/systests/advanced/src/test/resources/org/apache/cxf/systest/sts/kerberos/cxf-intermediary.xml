@@ -30,7 +30,7 @@
         <property name="serviceName" value="bob@service.ws.apache.org"/>
     </bean>
     
-    <jaxws:endpoint xmlns:s="http://www.example.org/contract/DoubleIt" id="doubleittransportkerberos" implementor="org.apache.cxf.systest.sts.kerberos.IntermediaryPortTypeImpl" endpointName="s:DoubleItTransportKerberosPort" serviceName="s:DoubleItService" depends-on="ClientAuthHttpsSettings" address="https://localhost:${testutil.ports.Intermediary}/doubleit/services/doubleittransportkerberos" wsdlLocation="org/apache/cxf/systest/sts/kerberos/DoubleItIntermediary.wsdl">
+    <jaxws:endpoint xmlns:s="http://www.example.org/contract/DoubleIt" id="doubleittransportkerberos" implementor="org.apache.cxf.systest.sts.kerberos.IntermediaryPortTypeImpl" endpointName="s:DoubleItTransportKerberosPort" serviceName="s:DoubleItService" depends-on="ClientAuthHttpsSettings" address="https://localhost:${testutil.ports.kerberos.Intermediary}/doubleit/services/doubleittransportkerberos" wsdlLocation="org/apache/cxf/systest/sts/kerberos/DoubleItIntermediary.wsdl">
         <jaxws:properties>
             <entry key="ws-security.bst.validator" value-ref="kerberosValidator"/>
         </jaxws:properties>
@@ -40,7 +40,7 @@
        <property name="loginContextName" value="bob"/>
     </bean>
 
-    <jaxrs:server modelRef="classpath:org/apache/cxf/systest/sts/kerberos/jaxrs.xml" depends-on="ClientAuthHttpsSettings" address="https://localhost:${testutil.ports.Intermediary}/doubleit/services/doubleit-rs">
+    <jaxrs:server modelRef="classpath:org/apache/cxf/systest/sts/kerberos/jaxrs.xml" depends-on="ClientAuthHttpsSettings" address="https://localhost:${testutil.ports.kerberos.Intermediary}/doubleit/services/doubleit-rs">
         <jaxrs:providers>
             <ref bean="kerberosFilter" />
         </jaxrs:providers>
@@ -55,10 +55,10 @@
     
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItTransportSAML2Port" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="myclientkey"/>
-            <entry key="ws-security.signature.properties" value="clientKeystore.properties"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
-            <entry key="ws-security.sts.client">
+            <entry key="security.username" value="myclientkey"/>
+            <entry key="security.signature.properties" value="clientKeystore.properties"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
+            <entry key="security.sts.client">
                 <bean class="org.apache.cxf.ws.security.trust.STSClient">
                     <constructor-arg ref="cxf"/>
                     <property name="wsdlLocation" value="https://localhost:${testutil.ports.STSServer}/SecurityTokenService/Kerberos?wsdl"/>
@@ -66,11 +66,11 @@
                     <property name="endpointName" value="{http://docs.oasis-open.org/ws-sx/ws-trust/200512/}Transport_Kerberos_Port"/>
                     <property name="properties">
                         <map>
-                            <entry key="ws-security.username" value="alice"/>
-                            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
-                            <entry key="ws-security.sts.token.username" value="myclientkey"/>
-                            <entry key="ws-security.sts.token.properties" value="clientKeystore.properties"/>
-                            <entry key="ws-security.sts.token.usecert" value="true"/>
+                            <entry key="security.username" value="alice"/>
+                            <entry key="security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
+                            <entry key="security.sts.token.username" value="myclientkey"/>
+                            <entry key="security.sts.token.properties" value="clientKeystore.properties"/>
+                            <entry key="security.sts.token.usecert" value="true"/>
                             <entry key="ws-security.kerberos.client" value-ref="kerberosClient"/>
                         </map>
                     </property>
@@ -80,16 +80,11 @@
     </jaxws:client>
     
     <httpj:engine-factory id="ClientAuthHttpsSettings" bus="cxf">
-        <httpj:engine port="${testutil.ports.Intermediary}">
+        <httpj:engine port="${testutil.ports.kerberos.Intermediary}">
             <httpj:tlsServerParameters>
                 <sec:keyManagers keyPassword="skpass">
-                    <sec:keyStore type="jks" password="sspass" resource="servicestore.jks"/>
+                    <sec:keyStore type="jks" password="sspass" resource="keys/servicestore.jks"/>
                 </sec:keyManagers>
-                <sec:cipherSuitesFilter>
-                    <sec:include>.*_EXPORT_.*</sec:include>
-                    <sec:include>.*_EXPORT1024_.*</sec:include>
-                    <sec:include>.*_WITH_AES_.*</sec:include>
-                </sec:cipherSuitesFilter>
                 <sec:clientAuthentication want="false" required="false"/>
             </httpj:tlsServerParameters>
         </httpj:engine>
@@ -98,10 +93,10 @@
     <http:conduit name="https://localhost:.*">
         <http:tlsClientParameters disableCNCheck="true">
             <sec:trustManagers>
-                <sec:keyStore type="jks" password="sspass" resource="servicestore.jks"/>
+                <sec:keyStore type="jks" password="sspass" resource="keys/servicestore.jks"/>
             </sec:trustManagers>
             <sec:keyManagers keyPassword="skpass">
-                <sec:keyStore type="jks" password="sspass" resource="servicestore.jks"/>
+                <sec:keyStore type="jks" password="sspass" resource="keys/servicestore.jks"/>
             </sec:keyManagers>
         </http:tlsClientParameters>
     </http:conduit>

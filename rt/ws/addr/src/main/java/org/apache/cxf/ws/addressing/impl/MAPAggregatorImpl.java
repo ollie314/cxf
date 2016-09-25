@@ -206,7 +206,7 @@ public class MAPAggregatorImpl extends MAPAggregator {
     */
     private boolean hasUsingAddressing(Message message) {
         boolean ret = false;
-        Endpoint endpoint = message.getExchange().get(Endpoint.class);
+        Endpoint endpoint = message.getExchange().getEndpoint();
         if (null != endpoint) {
             Boolean b = (Boolean)endpoint.get(USING_ADDRESSING);
             if (null == b) {
@@ -243,12 +243,7 @@ public class MAPAggregatorImpl extends MAPAggregator {
         if (null == aim) {
             return false;            
         }
-        if (null == aim.get(MetadataConstants.ADDRESSING_ASSERTION_QNAME)) {
-            return false;
-        }
-        // no need to analyse the content of the Addressing assertion here
-        
-        return true;
+        return null != aim.get(MetadataConstants.ADDRESSING_ASSERTION_QNAME);
     }
     
     /**
@@ -271,10 +266,7 @@ public class MAPAggregatorImpl extends MAPAggregator {
         if (null != aim.get(MetadataConstants.USING_ADDRESSING_2005_QNAME)) {
             return true;
         }
-        if (null != aim.get(MetadataConstants.USING_ADDRESSING_2006_QNAME)) {
-            return true;
-        } 
-        return false;
+        return null != aim.get(MetadataConstants.USING_ADDRESSING_2006_QNAME);
     }
 
    
@@ -309,12 +301,10 @@ public class MAPAggregatorImpl extends MAPAggregator {
 
         for (QName type : types) {
             assertAssertion(aim, type);
+            // ADDRESSING_ASSERTION is normalized, so check only the default namespace
             if (type.equals(MetadataConstants.ADDRESSING_ASSERTION_QNAME)) {
                 assertAssertion(aim, MetadataConstants.ANON_RESPONSES_ASSERTION_QNAME);
                 assertAssertion(aim, MetadataConstants.NON_ANON_RESPONSES_ASSERTION_QNAME);
-            } else if (type.equals(MetadataConstants.ADDRESSING_ASSERTION_QNAME_0705)) {
-                assertAssertion(aim, MetadataConstants.ANON_RESPONSES_ASSERTION_QNAME_0705);
-                assertAssertion(aim, MetadataConstants.NON_ANON_RESPONSES_ASSERTION_QNAME_0705);
             }
         }
     }
@@ -348,17 +338,12 @@ public class MAPAggregatorImpl extends MAPAggregator {
         
         for (QName type : types) {
             assertAssertion(aim, type);
+            // ADDRESSING_ASSERTION is normalized, so check only the default namespace
             if (type.equals(MetadataConstants.ADDRESSING_ASSERTION_QNAME)) {
                 if (onlyAnonymous) {
                     assertAssertion(aim, MetadataConstants.ANON_RESPONSES_ASSERTION_QNAME);
                 } else if (!hasAnonymous) {
                     assertAssertion(aim, MetadataConstants.NON_ANON_RESPONSES_ASSERTION_QNAME);
-                }        
-            } else if (type.equals(MetadataConstants.ADDRESSING_ASSERTION_QNAME_0705)) {
-                if (onlyAnonymous) {
-                    assertAssertion(aim, MetadataConstants.ANON_RESPONSES_ASSERTION_QNAME_0705);
-                } else if (!hasAnonymous) {
-                    assertAssertion(aim, MetadataConstants.NON_ANON_RESPONSES_ASSERTION_QNAME_0705);
                 }        
             }
         }
@@ -724,7 +709,7 @@ public class MAPAggregatorImpl extends MAPAggregator {
     }
 
     protected String getActionUri(Message message, boolean checkMessage) {
-        BindingOperationInfo bop = message.getExchange().get(BindingOperationInfo.class);
+        BindingOperationInfo bop = message.getExchange().getBindingOperationInfo();
         if (bop == null || Boolean.TRUE.equals(bop.getProperty("operation.is.synthetic"))) {
             return null;
         }
@@ -918,7 +903,7 @@ public class MAPAggregatorImpl extends MAPAggregator {
     private EndpointReferenceType getReplyTo(Message message, 
                                              EndpointReferenceType originalReplyTo) {
         Exchange exchange = message.getExchange();
-        Endpoint info = exchange.get(Endpoint.class);
+        Endpoint info = exchange.getEndpoint();
         if (info == null) {
             return originalReplyTo;
         }
@@ -950,7 +935,7 @@ public class MAPAggregatorImpl extends MAPAggregator {
     private Destination createDecoupledDestination(Message message) {
         String replyToAddress = (String)message.getContextualProperty(WSAContextUtils.REPLYTO_PROPERTY);
         if (replyToAddress != null) {
-            return setUpDecoupledDestination(message.getExchange().get(Bus.class),
+            return setUpDecoupledDestination(message.getExchange().getBus(),
                                              replyToAddress, 
                                              message);
         }
@@ -989,7 +974,7 @@ public class MAPAggregatorImpl extends MAPAggregator {
         DestinationFactory factory =
             factoryManager.getDestinationFactoryForUri(address);
         if (factory != null) {
-            Endpoint ep = message.getExchange().get(Endpoint.class);
+            Endpoint ep = message.getExchange().getEndpoint();
             
             EndpointInfo ei = new EndpointInfo();
             ei.setName(new QName(ep.getEndpointInfo().getName().getNamespaceURI(),

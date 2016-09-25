@@ -50,8 +50,8 @@ import org.apache.cxf.staxutils.StaxUtils;
 //The following wsdl file is used.
 //wsdlLocation = "/trunk/testutils/src/main/resources/wsdl/hello_world_rpc_lit.wsdl"
 @WebServiceProvider(portName = "SoapPortProviderRPCLit6", serviceName = "SOAPServiceProviderRPCLit",
-                  targetNamespace = "http://apache.org/hello_world_rpclit",
-wsdlLocation = "/wsdl/hello_world_rpc_lit.wsdl")
+                    targetNamespace = "http://apache.org/hello_world_rpclit",
+                    wsdlLocation = "/wsdl/hello_world_rpc_lit.wsdl")
 @ServiceMode(value = Service.Mode.PAYLOAD)
 public class HWSAXSourcePayloadProvider implements Provider<SAXSource> {
     
@@ -92,7 +92,9 @@ public class HWSAXSourcePayloadProvider implements Provider<SAXSource> {
         try {
             
             DOMResult domResult = new DOMResult();
-            Transformer transformer = TransformerFactory.newInstance().newTransformer();
+            TransformerFactory transformerFactory = TransformerFactory.newInstance();
+            transformerFactory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            Transformer transformer = transformerFactory.newTransformer();
             transformer.transform(request, domResult);
             Node n = domResult.getNode().getFirstChild();
 
@@ -113,11 +115,12 @@ public class HWSAXSourcePayloadProvider implements Provider<SAXSource> {
     
     private File getSOAPBodyFile(Document doc) throws Exception {
         File file = FileUtils.createTempFile("cxf-systest", "xml");
-        FileOutputStream out = new FileOutputStream(file);
-        XMLStreamWriter writer = StaxUtils.createXMLStreamWriter(out);
-        StaxUtils.writeDocument(doc, writer, true);
-        writer.close();
-        return file;
+        try (FileOutputStream out = new FileOutputStream(file)) {
+            XMLStreamWriter writer = StaxUtils.createXMLStreamWriter(out);
+            StaxUtils.writeDocument(doc, writer, true);
+            writer.close();
+            return file;
+        }
     }
 
 }

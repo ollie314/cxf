@@ -24,17 +24,17 @@
             <cxf:logging/>
         </cxf:features>
     </cxf:bus>
-    <jaxws:endpoint xmlns:s="http://www.example.org/contract/DoubleIt" id="doubleitasymmetricbst" implementor="org.apache.cxf.systest.sts.common.DoubleItPortTypeImpl" endpointName="s:DoubleItAsymmetricBSTPort" serviceName="s:DoubleItService" address="http://localhost:${testutil.ports.Server}/doubleit/services/doubleitasymmetricbst" wsdlLocation="org/apache/cxf/systest/sts/binarysecuritytoken/DoubleIt.wsdl">
+    <jaxws:endpoint xmlns:s="http://www.example.org/contract/DoubleIt" id="doubleitasymmetricbst" implementor="org.apache.cxf.systest.sts.common.DoubleItPortTypeImpl" endpointName="s:DoubleItAsymmetricBSTPort" serviceName="s:DoubleItService" address="http://localhost:${testutil.ports.binarysecuritytoken.Server}/doubleit/services/doubleitasymmetricbst" wsdlLocation="org/apache/cxf/systest/sts/binarysecuritytoken/DoubleIt.wsdl">
         <jaxws:properties>
-            <entry key="ws-security.callback-handler" value="common.CommonCallbackHandler"/>
+            <entry key="security.callback-handler" value="common.CommonCallbackHandler"/>
             <entry key="ws-security.bst.validator">
                 <bean class="org.apache.cxf.ws.security.trust.STSTokenValidator"/>
             </entry>
-            <entry key="ws-security.signature.username" value="myservicekey"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
-            <entry key="ws-security.signature.properties" value="serviceKeystore.properties"/>
-            <entry key="ws-security.encryption.username" value="useReqSigCert"/>
-            <entry key="ws-security.sts.client">
+            <entry key="security.signature.username" value="myservicekey"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
+            <entry key="security.signature.properties" value="serviceKeystore.properties"/>
+            <entry key="security.encryption.username" value="useReqSigCert"/>
+            <entry key="security.sts.client">
                 <bean class="org.apache.cxf.ws.security.trust.STSClient">
                     <constructor-arg ref="cxf"/>
                     <property name="wsdlLocation" value="https://localhost:${testutil.ports.STSServer}/SecurityTokenService/Transport?wsdl"/>
@@ -42,8 +42,8 @@
                     <property name="endpointName" value="{http://docs.oasis-open.org/ws-sx/ws-trust/200512/}Transport_Port"/>
                     <property name="properties">
                         <map>
-                            <entry key="ws-security.username" value="bob"/>
-                            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
+                            <entry key="security.username" value="bob"/>
+                            <entry key="security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
                         </map>
                     </property>
                 </bean>
@@ -53,10 +53,10 @@
     <http:conduit name="https://localhost.*">
         <http:tlsClientParameters disableCNCheck="true">
             <sec:trustManagers>
-                <sec:keyStore type="jks" password="sspass" resource="servicestore.jks"/>
+                <sec:keyStore type="jks" password="sspass" resource="keys/servicestore.jks"/>
             </sec:trustManagers>
             <sec:keyManagers keyPassword="skpass">
-                <sec:keyStore type="jks" password="sspass" resource="servicestore.jks"/>
+                <sec:keyStore type="jks" password="sspass" resource="keys/servicestore.jks"/>
             </sec:keyManagers>
         </http:tlsClientParameters>
     </http:conduit>

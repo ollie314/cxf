@@ -39,7 +39,6 @@ import org.ops4j.pax.exam.spi.reactors.ExamReactorStrategy;
 import org.ops4j.pax.exam.spi.reactors.PerClass;
 import org.ops4j.pax.tinybundles.core.TinyBundles;
 import org.osgi.framework.Constants;
-
 import static org.ops4j.pax.exam.CoreOptions.provision;
 import static org.ops4j.pax.exam.karaf.options.KarafDistributionOption.features;
 import static org.ops4j.pax.exam.karaf.options.KarafDistributionOption.logLevel;
@@ -75,6 +74,22 @@ public class JaxRsServiceTest extends CXFOSGiTestSupport {
     }
 
     @Test
+    public void postWithValidation() throws Exception {
+        Book book = new Book();
+        book.setId(-1);
+        book.setName(null);
+        Response response = wt.path("/books-validate/").request("application/xml").post(Entity.xml(book));
+        Assert.assertEquals(Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+
+        book = new Book();
+        book.setId(3212);
+        book.setName("A Book");
+        response = wt.path("/books-validate/").request("application/xml").post(Entity.xml(book));
+        Assert.assertEquals(Status.CREATED.getStatusCode(), response.getStatus());
+        Assert.assertNotNull(response.getLocation());
+    }
+
+    @Test
     public void testJaxRsDelete() throws Exception {
         Response response = wt.path("/books/123").request("application/xml").delete();
         Assert.assertEquals(Status.OK.getStatusCode(), response.getStatus());
@@ -93,15 +108,19 @@ public class JaxRsServiceTest extends CXFOSGiTestSupport {
     @Configuration
     public Option[] config() {
         return new Option[] {
-            cxfBaseConfigWithTestUtils(),
+            cxfBaseConfig(),
+            features(cxfUrl, "cxf-core", "cxf-wsdl", "cxf-jaxrs", "http",
+                    "cxf-bean-validation-core",
+                    "cxf-bean-validation"),
+            testUtils(),
             logLevel(LogLevel.INFO),
-            features(cxfUrl, "cxf-http"),
             provision(serviceBundle())
         };
     }
 
     private InputStream serviceBundle() {
         return TinyBundles.bundle()
+                  .set(Constants.DYNAMICIMPORT_PACKAGE, "*")
                   .add(JaxRsTestActivator.class)
                   .add(Book.class)
                   .add(BookStore.class)

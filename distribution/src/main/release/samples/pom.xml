@@ -22,7 +22,7 @@
     <groupId>org.apache.cxf.samples</groupId>
     <artifactId>cxf-samples</artifactId>
     <packaging>pom</packaging>
-    <version>3.1.0-SNAPSHOT</version>
+    <version>3.2.0-SNAPSHOT</version>
     <name>Apache CXF Samples</name>
     <description>Apache CXF Samples</description>
     <url>http://cxf.apache.org</url>
@@ -51,8 +51,16 @@
         <module>jax_rs/basic_https</module>
         <module>jax_rs/basic</module>
         <module>jax_rs/websocket</module>
+        <module>jax_rs/websocket_web</module>
+        <module>jax_rs/websocket_osgi</module>
         <module>jax_rs/search</module>
         <module>jax_rs/description_swagger</module>
+        <module>jax_rs/description_swagger2</module>
+        <module>jax_rs/description_swagger2_web</module>
+        <module>jax_rs/description_swagger2_osgi</module>
+        <module>jax_rs/description_swagger2_spring</module>
+        <module>jax_rs/basic_oidc</module>
+        <module>jax_rs/big_query</module>
         <module>callback</module>
         <module>wsdl_first_pure_xml</module>
         <module>jaxws_dispatch_provider</module>
@@ -73,6 +81,7 @@
         <module>js_provider</module>
         <module>ws_security/ut</module>
         <module>ws_security/sign_enc</module>
+        <module>ws_security/sign_enc_policy</module>
         <module>ws_security/ut_policy</module>
         <module>mtom</module>
         <module>jaxws_async</module>
@@ -102,6 +111,20 @@
         <module>jax_rs/minimal_osgi</module>
         <module>ws_discovery</module>
         <module>ws_eventing</module>
+        <module>throttling</module>
+        <module>jax_rs/tracing_htrace</module>
+        <module>clustering/failover_jaxws_osgi</module>
+        <module>clustering/failover_server</module>
+        <module>jax_rs/sse_cdi</module>
+        <module>jax_rs/sse_tomcat</module>
+        <module>jax_rs/sse_spring</module>
+        
+        <!--
+         These are removed from the build as they currently don't inherit the parent from 
+         this pom and thus have problems with deploys 
+        <module>jaxws_spring_boot</module>
+        <module>jax_rs/jaxrs_spring_boot</module>
+        -->
     </modules>
     <dependencyManagement>
         <dependencies>
@@ -134,10 +157,10 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.1</version>
+                    <version>3.3</version>
                     <configuration>
-                        <source>1.7</source>
-                        <target>1.7</target>
+                        <source>1.8</source>
+                        <target>1.8</target>
                     </configuration>
                 </plugin>
                 <plugin>

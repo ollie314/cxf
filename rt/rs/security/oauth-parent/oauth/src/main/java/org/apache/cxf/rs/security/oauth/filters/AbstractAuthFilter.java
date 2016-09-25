@@ -257,7 +257,7 @@ public class AbstractAuthFilter {
                 } else {
                     roles = info.getRoles();
                 }
-                return roles == null ? false : roles.contains(role);
+                return roles.contains(role);
             }
              
         };
@@ -280,7 +280,7 @@ public class AbstractAuthFilter {
     }
 
     private class CustomHttpServletWrapper extends HttpServletRequestWrapper {
-        public CustomHttpServletWrapper(HttpServletRequest req) {
+        CustomHttpServletWrapper(HttpServletRequest req) {
             super(req);
         }
         

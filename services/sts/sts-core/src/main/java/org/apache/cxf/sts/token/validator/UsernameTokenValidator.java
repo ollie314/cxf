@@ -19,8 +19,9 @@
 package org.apache.cxf.sts.token.validator;
 
 import java.security.Principal;
+import java.util.Base64;
 import java.util.HashSet;
-import java.util.Properties;
+import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -33,7 +34,6 @@ import javax.xml.bind.Marshaller;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
-
 import org.apache.cxf.common.jaxb.JAXBContextCache;
 import org.apache.cxf.common.jaxb.JAXBContextCache.CachedContextAndSchemas;
 import org.apache.cxf.common.logging.LogUtils;
@@ -47,19 +47,17 @@ import org.apache.cxf.sts.token.realm.UsernameTokenRealmCodec;
 import org.apache.cxf.ws.security.sts.provider.model.ObjectFactory;
 import org.apache.cxf.ws.security.sts.provider.model.secext.UsernameTokenType;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
+import org.apache.wss4j.common.bsp.BSPEnforcer;
 import org.apache.wss4j.common.crypto.Crypto;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.common.principal.CustomTokenPrincipal;
 import org.apache.wss4j.common.principal.WSUsernameTokenPrincipalImpl;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.WSSConfig;
-import org.apache.wss4j.dom.bsp.BSPEnforcer;
+import org.apache.wss4j.dom.engine.WSSConfig;
 import org.apache.wss4j.dom.handler.RequestData;
 import org.apache.wss4j.dom.message.token.UsernameToken;
 import org.apache.wss4j.dom.validate.Credential;
 import org.apache.wss4j.dom.validate.Validator;
-import org.apache.xml.security.exceptions.Base64DecodingException;
-import org.apache.xml.security.utils.Base64;
 
 /**
  * This class validates a wsse UsernameToken.
@@ -71,6 +69,7 @@ public class UsernameTokenValidator implements TokenValidator {
     private Validator validator = new org.apache.wss4j.dom.validate.UsernameTokenValidator();
     
     private UsernameTokenRealmCodec usernameTokenRealmCodec;
+    private SubjectRoleParser roleParser = new DefaultSubjectRoleParser();
     
     /**
      * Set the WSS4J Validator instance to use to validate the token.
@@ -102,10 +101,7 @@ public class UsernameTokenValidator implements TokenValidator {
      * ReceivedToken argument. The realm is ignored in this token Validator.
      */
     public boolean canHandleToken(ReceivedToken validateTarget, String realm) {
-        if (validateTarget.getToken() instanceof UsernameTokenType) {
-            return true;
-        }
-        return false;
+        return validateTarget.getToken() instanceof UsernameTokenType;
     }
     
     /**
@@ -122,7 +118,7 @@ public class UsernameTokenValidator implements TokenValidator {
         WSSConfig wssConfig = WSSConfig.getNewInstance();
         requestData.setWssConfig(wssConfig);
         requestData.setCallbackHandler(callbackHandler);
-        requestData.setMsgContext(tokenParameters.getWebServiceContext().getMessageContext());
+        requestData.setMsgContext(tokenParameters.getMessageContext());
         
         TokenValidatorResponse response = new TokenValidatorResponse();
         ReceivedToken validateTarget = tokenParameters.getToken();
@@ -141,7 +137,7 @@ public class UsernameTokenValidator implements TokenValidator {
         // Marshall the received JAXB object into a DOM Element
         Element usernameTokenElement = null;
         try {
-            Set<Class<?>> classes = new HashSet<Class<?>>();
+            Set<Class<?>> classes = new HashSet<>();
             classes.add(ObjectFactory.class);
             classes.add(org.apache.cxf.ws.security.sts.provider.model.wstrust14.ObjectFactory.class);
                     
@@ -168,7 +164,7 @@ public class UsernameTokenValidator implements TokenValidator {
         //
         try {
             boolean allowNamespaceQualifiedPasswordTypes = 
-                wssConfig.getAllowNamespaceQualifiedPasswordTypes();
+                requestData.isAllowNamespaceQualifiedPasswordTypes();
             UsernameToken ut = 
                 new UsernameToken(usernameTokenElement, allowNamespaceQualifiedPasswordTypes, 
                                   new BSPEnforcer());
@@ -188,16 +184,26 @@ public class UsernameTokenValidator implements TokenValidator {
                 }
             }
             
+            Principal principal = null;
             if (secToken == null) {
                 Credential credential = new Credential();
                 credential.setUsernametoken(ut);
-                validator.validate(credential, requestData);
+                credential = validator.validate(credential, requestData);
+                principal = credential.getPrincipal();
+                if (credential.getSubject() != null && roleParser != null) {
+                    // Parse roles from the validated token
+                    Set<Principal> roles = 
+                        roleParser.parseRolesFromSubject(principal, credential.getSubject());
+                    response.setRoles(roles);
+                }
             }
-            
-            Principal principal = 
-                createPrincipal(
-                    ut.getName(), ut.getPassword(), ut.getPasswordType(), ut.getNonce(), ut.getCreated()
-                );
+           
+            if (principal == null) {
+                principal = 
+                    createPrincipal(
+                        ut.getName(), ut.getPassword(), ut.getPasswordType(), ut.getNonce(), ut.getCreated()
+                    );
+            }
             
             // Get the realm of the UsernameToken
             String tokenRealm = null;
@@ -205,9 +211,9 @@ public class UsernameTokenValidator implements TokenValidator {
                 tokenRealm = usernameTokenRealmCodec.getRealmFromToken(ut);
                 // verify the realm against the cached token
                 if (secToken != null) {
-                    Properties props = secToken.getProperties();
+                    Map<String, Object> props = secToken.getProperties();
                     if (props != null) {
-                        String cachedRealm = props.getProperty(STSConstants.TOKEN_REALM);
+                        String cachedRealm = (String)props.get(STSConstants.TOKEN_REALM);
                         if (!tokenRealm.equals(cachedRealm)) {
                             return response;
                         }
@@ -228,9 +234,8 @@ public class UsernameTokenValidator implements TokenValidator {
             response.setPrincipal(principal);
             response.setTokenRealm(tokenRealm);
             validateTarget.setState(STATE.VALID);
+            LOG.fine("Username Token successfully validated");
         } catch (WSSecurityException ex) {
-            LOG.log(Level.WARNING, "", ex);
-        } catch (Base64DecodingException ex) {
             LOG.log(Level.WARNING, "", ex);
         }
         
@@ -247,17 +252,27 @@ public class UsernameTokenValidator implements TokenValidator {
         String passwordType,
         String nonce,
         String createdTime
-    ) throws Base64DecodingException {
+    ) {
         boolean hashed = false;
         if (WSConstants.PASSWORD_DIGEST.equals(passwordType)) {
             hashed = true;
         }
         WSUsernameTokenPrincipalImpl principal = new WSUsernameTokenPrincipalImpl(username, hashed);
-        principal.setNonce(Base64.decode(nonce));
+        if (nonce != null) {
+            principal.setNonce(Base64.getMimeDecoder().decode(nonce));
+        }
         principal.setPassword(passwordValue);
         principal.setCreatedTime(createdTime);
         principal.setPasswordType(passwordType);
         return principal;
+    }
+
+    public SubjectRoleParser getRoleParser() {
+        return roleParser;
+    }
+
+    public void setRoleParser(SubjectRoleParser roleParser) {
+        this.roleParser = roleParser;
     }
     
 }

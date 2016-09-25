@@ -49,7 +49,9 @@ import javax.ws.rs.container.DynamicFeature;
 import javax.ws.rs.container.PreMatching;
 import javax.ws.rs.container.ResourceInfo;
 import javax.ws.rs.core.Context;
+import javax.ws.rs.core.Feature;
 import javax.ws.rs.core.FeatureContext;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriInfo;
@@ -58,8 +60,11 @@ import javax.ws.rs.ext.ReaderInterceptorContext;
 import javax.ws.rs.ext.WriterInterceptor;
 import javax.ws.rs.ext.WriterInterceptorContext;
 
+import com.fasterxml.jackson.jaxrs.json.JacksonJaxbJsonProvider;
+
 import org.apache.cxf.Bus;
 import org.apache.cxf.BusFactory;
+import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.helpers.IOUtils;
 import org.apache.cxf.jaxrs.JAXRSServerFactoryBean;
 import org.apache.cxf.jaxrs.lifecycle.SingletonResourceProvider;
@@ -92,7 +97,8 @@ public class BookServer20 extends AbstractBusTestServerBase {
         providers.add(new PostMatchContainerRequestFilter());
         providers.add(new FaultyContainerRequestFilter());
         providers.add(new PreMatchReplaceStreamOrAddress());
-        providers.add(new GenericHandlerWriter());
+        providers.add(new ServerTestFeature());
+        providers.add(new JacksonJaxbJsonProvider());
         sf.setProviders(providers);
         sf.setResourceProvider(BookStore.class,
                                new SingletonResourceProvider(new BookStore(), true));
@@ -126,13 +132,22 @@ public class BookServer20 extends AbstractBusTestServerBase {
 
         @Override
         public void filter(ContainerRequestContext context) throws IOException {
+            UriInfo ui = context.getUriInfo();
+            String path = ui.getPath(false);
+            
+            if (context.getMethod().equals("POST") 
+                && "bookstore/bookheaders/simple".equals(path) && !context.hasEntity()) {
+                byte[] bytes = StringUtils.toBytesUTF8("<Book><name>Book</name><id>126</id></Book>");
+                context.getHeaders().putSingle(HttpHeaders.CONTENT_LENGTH, Integer.toString(bytes.length));
+                context.getHeaders().putSingle("Content-Type", "application/xml");
+                context.getHeaders().putSingle("EmptyRequestStreamDetected", "true");
+                context.setEntityStream(new ByteArrayInputStream(bytes));
+            }
             if ("true".equals(context.getProperty("DynamicPrematchingFilter"))) {
                 throw new RuntimeException();
             }
             context.setProperty("FirstPrematchingFilter", "true");
             
-            UriInfo ui = context.getUriInfo();
-            String path = ui.getPath(false);
             if ("wrongpath".equals(path)) {
                 context.setRequestUri(URI.create("/bookstore/bookheaders/simple"));
             } else if ("throwException".equals(path)) {
@@ -491,6 +506,15 @@ public class BookServer20 extends AbstractBusTestServerBase {
                     configurable.register(new PostMatchDynamicEchoBookFilter(2));
                 }
             }
+        }
+        
+    }
+    private static class ServerTestFeature implements Feature {
+
+        @Override
+        public boolean configure(FeatureContext context) {
+            context.register(new GenericHandlerWriter());
+            return true;
         }
         
     }

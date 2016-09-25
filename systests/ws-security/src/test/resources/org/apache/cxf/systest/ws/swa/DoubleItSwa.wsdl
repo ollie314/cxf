@@ -141,7 +141,32 @@
             </wsdl:fault>
         </wsdl:operation>
     </wsdl:binding>
-     <wsdl:binding name="DoubleItCombinedAsymmetricBinding" type="tns:DoubleItSwaPortType">
+    <wsdl:binding name="DoubleItCombinedDerivedBinding" type="tns:DoubleItSwaPortType">
+        <wsp:PolicyReference URI="#DoubleItSymmetricDerivedPolicy"/>
+        <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+        <wsdl:operation name="DoubleIt3">
+            <soap:operation soapAction=""/>
+            <wsdl:input>
+                 <mime:multipartRelated>
+                    <mime:part>
+                        <soap:body use="literal"/>
+                    </mime:part>
+                    <mime:part>
+                        <mime:content part="attachment" type="image/jpeg"/>
+                    </mime:part>
+                </mime:multipartRelated>
+                <wsp:PolicyReference URI="#Combined_Policy"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+                <wsp:PolicyReference URI="#Combined_Policy"/>
+            </wsdl:output>
+            <wsdl:fault name="DoubleItFault">
+                <soap:body use="literal" name="DoubleItFault"/>
+            </wsdl:fault>
+        </wsdl:operation>
+    </wsdl:binding>
+    <wsdl:binding name="DoubleItCombinedAsymmetricBinding" type="tns:DoubleItSwaPortType">
         <wsp:PolicyReference URI="#DoubleItAsymmetricPolicy"/>
         <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
         <wsdl:operation name="DoubleIt3">
@@ -180,6 +205,9 @@
         <wsdl:port name="DoubleItSWAEncryptionCompleteActionPort" binding="tns:DoubleItNoSecurityBinding">
             <soap:address location="http://localhost:9001/DoubleItSWAEncryptionCompleteAction"/>
         </wsdl:port>
+        <wsdl:port name="DoubleItSWASignatureEncryptionContentActionPort" binding="tns:DoubleItNoSecurityBinding">
+            <soap:address location="http://localhost:9001/DoubleItSWASignatureEncryptionContentAction"/>
+        </wsdl:port>
         <wsdl:port name="DoubleItSWASignatureContentPolicyPort" binding="tns:DoubleItSignatureContentBinding">
             <soap:address location="http://localhost:9001/DoubleItSWASignatureContentPolicy"/>
         </wsdl:port>
@@ -189,8 +217,14 @@
         <wsdl:port name="DoubleItSWAEncryptionPolicyPort" binding="tns:DoubleItEncryptionBinding">
             <soap:address location="http://localhost:9001/DoubleItSWAEncryptionPolicy"/>
         </wsdl:port>
+        <wsdl:port name="DoubleItSWAEncryptionContentPolicyPort" binding="tns:DoubleItEncryptionBinding">
+            <soap:address location="http://localhost:9001/DoubleItSWAEncryptionContentPolicy"/>
+        </wsdl:port>
         <wsdl:port name="DoubleItSWACombinedPolicyPort" binding="tns:DoubleItCombinedBinding">
             <soap:address location="http://localhost:9001/DoubleItSWACombinedPolicy"/>
+        </wsdl:port>
+        <wsdl:port name="DoubleItSWACombinedDerivedPolicyPort" binding="tns:DoubleItCombinedDerivedBinding">
+            <soap:address location="http://localhost:9001/DoubleItSWACombinedDerivedPolicy"/>
         </wsdl:port>
         <wsdl:port name="DoubleItSWACombinedAsymmetricPolicyPort" binding="tns:DoubleItCombinedAsymmetricBinding">
             <soap:address location="http://localhost:9001/DoubleItSWACombinedAsymmetricPolicy"/>
@@ -207,6 +241,39 @@
                                 <sp:X509Token sp:IncludeToken="http://docs.oasis-open.org/ws-sx/ws-securitypolicy/200702/IncludeToken/Never">
                                     <wsp:Policy>
                                         <sp:WssX509V3Token10/>
+                                    </wsp:Policy>
+                                </sp:X509Token>
+                            </wsp:Policy>
+                        </sp:ProtectionToken>
+                        <sp:Layout>
+                            <wsp:Policy>
+                                <sp:Lax/>
+                            </wsp:Policy>
+                        </sp:Layout>
+                        <sp:IncludeTimestamp/>
+                        <sp:OnlySignEntireHeadersAndBody/>
+                        <sp:AlgorithmSuite>
+                            <wsp:Policy>
+                                <sp:Basic128/>
+                            </wsp:Policy>
+                        </sp:AlgorithmSuite>
+                    </wsp:Policy>
+                </sp:SymmetricBinding>
+            </wsp:All>
+        </wsp:ExactlyOne>
+    </wsp:Policy>
+    
+    <wsp:Policy wsu:Id="DoubleItSymmetricDerivedPolicy">
+        <wsp:ExactlyOne>
+            <wsp:All>
+                <sp:SymmetricBinding>
+                    <wsp:Policy>
+                        <sp:ProtectionToken>
+                            <wsp:Policy>
+                                <sp:X509Token sp:IncludeToken="http://docs.oasis-open.org/ws-sx/ws-securitypolicy/200702/IncludeToken/Never">
+                                    <wsp:Policy>
+                                        <sp:WssX509V3Token10/>
+                                        <sp:RequireDerivedKeys/>
                                     </wsp:Policy>
                                 </sp:X509Token>
                             </wsp:Policy>

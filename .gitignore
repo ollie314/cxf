@@ -1,10 +1,12 @@
 .idea/
+.mvn/
 *.iml
 *.ipr
 *.iws
 .DS_Store
 .checkstyle
 .classpath
+.ekstazi
 .pmd
 .pmdruleset
 .pmdruleset.xml
@@ -14,3 +16,4 @@
 target/
 velocity.log
 bin/
+node_modules/

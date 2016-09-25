@@ -19,14 +19,27 @@
 
 package org.apache.cxf.ws.security.wss4j.policyvalidators;
 
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collection;
+import java.util.List;
 
 import javax.xml.namespace.QName;
 
-import org.apache.cxf.message.Message;
 import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
+import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
+import org.apache.cxf.ws.security.tokenstore.SecurityToken;
+import org.apache.cxf.ws.security.tokenstore.TokenStoreUtils;
+import org.apache.wss4j.common.ext.WSSecurityException;
+import org.apache.wss4j.common.token.BinarySecurity;
+import org.apache.wss4j.common.util.KeyUtils;
+import org.apache.wss4j.dom.WSConstants;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
 import org.apache.wss4j.dom.message.token.KerberosSecurity;
+import org.apache.wss4j.policy.SP11Constants;
+import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.SPConstants;
 import org.apache.wss4j.policy.model.KerberosToken;
 import org.apache.wss4j.policy.model.KerberosToken.ApReqTokenType;
@@ -35,57 +48,71 @@ import org.apache.wss4j.policy.model.KerberosToken.ApReqTokenType;
  * Validate a WSSecurityEngineResult corresponding to the processing of a Kerberos Token
  * against the appropriate policy.
  */
-public class KerberosTokenPolicyValidator extends AbstractTokenPolicyValidator {
+public class KerberosTokenPolicyValidator extends AbstractSecurityPolicyValidator {
     
-    private Message message;
-
-    public KerberosTokenPolicyValidator(
-        Message message
-    ) {
-        this.message = message;
+    /**
+     * Return true if this SecurityPolicyValidator implementation is capable of validating a 
+     * policy defined by the AssertionInfo parameter
+     */
+    public boolean canValidatePolicy(AssertionInfo assertionInfo) {
+        return assertionInfo.getAssertion() != null 
+            && (SP12Constants.KERBEROS_TOKEN.equals(assertionInfo.getAssertion().getName())
+                || SP11Constants.KERBEROS_TOKEN.equals(assertionInfo.getAssertion().getName()));
     }
     
-    public boolean validatePolicy(
-        AssertionInfoMap aim,
-        KerberosSecurity kerberosToken
-    ) {
-        Collection<AssertionInfo> krbAis = getAllAssertionsByLocalname(aim, SPConstants.KERBEROS_TOKEN);
-        if (!krbAis.isEmpty()) {
-            parsePolicies(aim, krbAis, kerberosToken);
-            
-            assertPolicy(aim, SPConstants.REQUIRE_KEY_IDENTIFIER_REFERENCE);
-        }
+    /**
+     * Validate policies.
+     */
+    public void validatePolicies(PolicyValidatorParameters parameters, Collection<AssertionInfo> ais) {
+        List<WSSecurityEngineResult> kerberosResults = 
+            findKerberosResults(parameters.getResults().getActionResults().get(WSConstants.BST));
         
-        return true;
+        for (WSSecurityEngineResult kerberosResult : kerberosResults) {
+            KerberosSecurity kerberosToken = 
+                (KerberosSecurity)kerberosResult.get(WSSecurityEngineResult.TAG_BINARY_SECURITY_TOKEN);
+            
+            boolean asserted = true;
+            for (AssertionInfo ai : ais) {
+                KerberosToken kerberosTokenPolicy = (KerberosToken)ai.getAssertion();
+                ai.setAsserted(true);
+                assertToken(kerberosTokenPolicy, parameters.getAssertionInfoMap());
+                
+                if (!isTokenRequired(kerberosTokenPolicy, parameters.getMessage())) {
+                    PolicyUtils.assertPolicy(
+                        parameters.getAssertionInfoMap(), 
+                        new QName(kerberosTokenPolicy.getVersion().getNamespace(), 
+                                  "WssKerberosV5ApReqToken11")
+                    );
+                    PolicyUtils.assertPolicy(
+                        parameters.getAssertionInfoMap(), 
+                        new QName(kerberosTokenPolicy.getVersion().getNamespace(), 
+                                  "WssGssKerberosV5ApReqToken11")
+                    );
+                    continue;
+                }
+                
+                if (!checkToken(parameters.getAssertionInfoMap(), kerberosTokenPolicy, kerberosToken)) {
+                    asserted = false;
+                    ai.setNotAsserted("An incorrect Kerberos Token Type is detected");
+                    continue;
+                }
+            }
+            
+            if (asserted) {
+                SecurityToken token = createSecurityToken(kerberosToken);
+                token.setSecret((byte[])kerberosResult.get(WSSecurityEngineResult.TAG_SECRET));
+                TokenStoreUtils.getTokenStore(parameters.getMessage()).add(token);
+                parameters.getMessage().getExchange().put(SecurityConstants.TOKEN_ID, token.getId());
+                return;
+            }
+        }
     }
     
-    private void parsePolicies(
-        AssertionInfoMap aim, 
-        Collection<AssertionInfo> ais, 
-        KerberosSecurity kerberosToken
-    ) {
-        for (AssertionInfo ai : ais) {
-            KerberosToken kerberosTokenPolicy = (KerberosToken)ai.getAssertion();
-            ai.setAsserted(true);
-            
-            if (!isTokenRequired(kerberosTokenPolicy, message)) {
-                assertPolicy(
-                    aim, 
-                    new QName(kerberosTokenPolicy.getVersion().getNamespace(), 
-                              "WssKerberosV5ApReqToken11")
-                );
-                assertPolicy(
-                    aim, 
-                    new QName(kerberosTokenPolicy.getVersion().getNamespace(), 
-                              "WssGssKerberosV5ApReqToken11")
-                );
-                continue;
-            }
-            
-            if (!checkToken(aim, kerberosTokenPolicy, kerberosToken)) {
-                ai.setNotAsserted("An incorrect Kerberos Token Type is detected");
-                continue;
-            }
+    private void assertToken(KerberosToken token, AssertionInfoMap aim) {
+        String namespace = token.getName().getNamespaceURI();
+        
+        if (token.isRequireKeyIdentifierReference()) {
+            PolicyUtils.assertPolicy(aim, new QName(namespace, SPConstants.REQUIRE_KEY_IDENTIFIER_REFERENCE));
         }
     }
     
@@ -98,14 +125,14 @@ public class KerberosTokenPolicyValidator extends AbstractTokenPolicyValidator {
 
         if (apReqTokenType == ApReqTokenType.WssKerberosV5ApReqToken11 
             && kerberosToken.isV5ApReq()) {
-            assertPolicy(
+            PolicyUtils.assertPolicy(
                 aim, 
                 new QName(kerberosTokenPolicy.getVersion().getNamespace(), "WssKerberosV5ApReqToken11")
             );
             return true;
         } else if (apReqTokenType == ApReqTokenType.WssGssKerberosV5ApReqToken11 
             && kerberosToken.isGssV5ApReq()) {
-            assertPolicy(
+            PolicyUtils.assertPolicy(
                 aim, 
                 new QName(kerberosTokenPolicy.getVersion().getNamespace(), "WssGssKerberosV5ApReqToken11")
             );
@@ -113,5 +140,32 @@ public class KerberosTokenPolicyValidator extends AbstractTokenPolicyValidator {
         }
         
         return false;
+    }
+    
+    private List<WSSecurityEngineResult> findKerberosResults(List<WSSecurityEngineResult> bstResults) {
+        List<WSSecurityEngineResult> results = new ArrayList<>();
+        if (bstResults != null) {
+            for (WSSecurityEngineResult wser : bstResults) {
+                BinarySecurity binarySecurity = 
+                    (BinarySecurity)wser.get(WSSecurityEngineResult.TAG_BINARY_SECURITY_TOKEN);
+                if (binarySecurity instanceof KerberosSecurity) {
+                    results.add(wser);
+                }
+            }
+        }
+        return results;
+    }
+    
+    private SecurityToken createSecurityToken(KerberosSecurity binarySecurityToken) {
+        SecurityToken token = new SecurityToken(binarySecurityToken.getID());
+        token.setToken(binarySecurityToken.getElement());
+        token.setTokenType(binarySecurityToken.getValueType());
+        byte[] tokenBytes = binarySecurityToken.getToken();
+        try {
+            token.setSHA1(Base64.getMimeEncoder().encodeToString(KeyUtils.generateDigest(tokenBytes)));
+        } catch (WSSecurityException e) {
+            // Just consume this for now as it isn't critical...
+        }
+        return token;
     }
 }

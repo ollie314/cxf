@@ -27,14 +27,14 @@
     <http:conduit name="https://localhost:.*">
         <http:tlsClientParameters disableCNCheck="true">
             <sec:trustManagers>
-                <sec:keyStore type="jks" password="password" resource="org/apache/cxf/systest/ws/security/Truststore.jks"/>
+                <sec:keyStore type="jks" password="password" resource="keys/Truststore.jks"/>
             </sec:trustManagers>
         </http:tlsClientParameters>
     </http:conduit>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItSupportingTokenPort" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -44,8 +44,8 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItSupportingTokenPort2" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -55,8 +55,8 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItPlaintextPort" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -66,8 +66,8 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItPlaintextPort2" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -77,8 +77,8 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItPlaintextPort3" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -88,8 +88,8 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItHashPort" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -99,8 +99,8 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItHashPort2" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -110,8 +110,8 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItHashPort3" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -121,8 +121,8 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItCreatedPort" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -132,8 +132,8 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItCreatedPort2" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -143,8 +143,8 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItNoncePort" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -154,8 +154,8 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItNoncePort2" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>

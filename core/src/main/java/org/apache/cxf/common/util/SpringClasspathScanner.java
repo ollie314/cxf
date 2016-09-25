@@ -39,12 +39,25 @@ import org.springframework.core.type.classreading.MetadataReaderFactory;
 import org.springframework.util.ClassUtils;
 
 class SpringClasspathScanner extends ClasspathScanner {
+    
+    private static final Boolean IN_OSGI;
+    static {
+        IN_OSGI = isSpringInOsgi();
+    }
     SpringClasspathScanner() throws Exception {
         Class.forName("org.springframework.core.io.support.PathMatchingResourcePatternResolver");
         Class.forName("org.springframework.core.type.classreading.CachingMetadataReaderFactory");
     }
+    private static boolean isSpringInOsgi() {
+        try {
+            Class.forName("org.springframework.osgi.io.OsgiBundleResourcePatternResolver");
+            Class.forName("org.springframework.osgi.util.BundleDelegatingClassLoader");
+            return true;
+        } catch (Throwable ex) {
+            return false;
+        }    
+    }
     
-
     protected Map< Class< ? extends Annotation >, Collection< Class< ? > > > findClassesInternal(
         Collection< String > basePackages, 
         List<Class< ? extends Annotation > > annotations,
@@ -72,8 +85,8 @@ class SpringClasspathScanner extends ClasspathScanner {
         for (final String basePackage: basePackages) {
             final boolean scanAllPackages = basePackage.equals(WILDCARD);
             final String packageSearchPath = ResourcePatternResolver.CLASSPATH_ALL_URL_PREFIX 
-                + (scanAllPackages ? "" : basePackage.contains(WILDCARD) ? basePackage 
-                    : ClassUtils.convertClassNameToResourcePath(basePackage)) + ALL_CLASS_FILES;
+                + (scanAllPackages ? "" : ClassUtils.convertClassNameToResourcePath(basePackage)) 
+                + ALL_CLASS_FILES;
             
             final Resource[] resources = resolver.getResources(packageSearchPath);    
             
@@ -156,8 +169,15 @@ class SpringClasspathScanner extends ClasspathScanner {
     }
     
     private ResourcePatternResolver getResolver(ClassLoader loader) {
-        return loader != null 
-            ? new PathMatchingResourcePatternResolver(loader) : new PathMatchingResourcePatternResolver();
+        ResourcePatternResolver resolver = null;
+        if (IN_OSGI) {
+            resolver = SpringOsgiUtil.getResolver(loader);
+        } 
+        if (resolver == null) {
+            resolver = loader != null 
+                ? new PathMatchingResourcePatternResolver(loader) : new PathMatchingResourcePatternResolver();
+        }
+        return resolver;
     }
        
     private boolean shouldSkip(final String classname) {

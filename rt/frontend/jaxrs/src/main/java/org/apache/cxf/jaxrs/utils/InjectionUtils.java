@@ -24,6 +24,7 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.GenericArrayType;
+import java.lang.reflect.GenericDeclaration;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -71,6 +72,7 @@ import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.common.util.ClassHelper;
 import org.apache.cxf.common.util.PrimitiveUtils;
 import org.apache.cxf.common.util.ProxyClassLoader;
+import org.apache.cxf.common.util.ReflectionUtil;
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.helpers.CastUtils;
 import org.apache.cxf.jaxrs.ext.MessageContext;
@@ -112,38 +114,72 @@ public final class InjectionUtils {
         
     }
 
+    public static Field getDeclaredField(Class<?> cls, String fieldName) {
+        if (cls == null || cls == Object.class) {
+            return null;
+        }
+        Field f = ReflectionUtil.getDeclaredField(cls, fieldName);
+        if (f != null) {
+            return f;
+        }
+        return getDeclaredField(cls.getSuperclass(), fieldName);
+    }
+    
     public static boolean isConcreteClass(Class<?> cls) {
         return !cls.isInterface() && !Modifier.isAbstract(cls.getModifiers());
+    }
+    
+    private static ParameterizedType findGenericDeclaration(GenericDeclaration declaration, Type scope) {
+        if (scope instanceof ParameterizedType) {
+            ParameterizedType type = (ParameterizedType) scope;
+            if (type.getRawType() == declaration) {
+                return type;
+            } else {
+                scope = type.getRawType();
+            }
+        }
+        if (scope instanceof Class) {
+            Class<?> classScope = (Class<?>)scope;
+            ParameterizedType result = findGenericDeclaration(declaration, classScope.getGenericSuperclass());
+            if (result == null) {
+                for (Type type : classScope.getGenericInterfaces()) {
+                    result = findGenericDeclaration(declaration, type);
+                    if (result != null) {
+                        break;
+                    }
+                }
+            }
+            return result;
+        }
+        return null;
     }
     
     public static Type getSuperType(Class<?> serviceClass, TypeVariable<?> var) {
         
         int pos = 0;
-        TypeVariable<?>[] vars = var.getGenericDeclaration().getTypeParameters();
+        GenericDeclaration genericDeclaration = var.getGenericDeclaration();
+        TypeVariable<?>[] vars = genericDeclaration.getTypeParameters();
         for (; pos < vars.length; pos++) {
             if (vars[pos].getName().equals(var.getName())) {
                 break;
             }
         }
         
-        Type genericSubtype = serviceClass.getGenericSuperclass();
-        if (!(genericSubtype instanceof ParameterizedType)) {
-            Type[] genInterfaces = serviceClass.getGenericInterfaces();
-            for (Type t : genInterfaces) {
-                genericSubtype = t;
-                break;
-            }
+        ParameterizedType genericSubtype = findGenericDeclaration(genericDeclaration, serviceClass);
+        Type result = null;
+        if (genericSubtype != null) {
+            result = genericSubtype.getActualTypeArguments()[pos];
         }
-        if (!(genericSubtype instanceof ParameterizedType)) {
-            genericSubtype = null;
+        if (result instanceof TypeVariable) {
+            result = getSuperType(serviceClass, (TypeVariable<?>) result);
         }
-        Type result = InjectionUtils.getActualType(genericSubtype, pos);
                                              
         if (result == null || result == Object.class) {
-            Type[] bounds = var.getBounds();
-            int boundPos = bounds.length > pos ? pos : 0; 
-            if (bounds.length > boundPos && bounds[boundPos] != Object.class) {
-                result = bounds[boundPos];
+            for (Type bound : var.getBounds()) {
+                if (bound != Object.class) {
+                    result = bound;
+                    break;
+                }
             }
         }
         return result;
@@ -333,6 +369,7 @@ public final class InjectionUtils {
         return null;
     }
     
+    @SuppressWarnings("unchecked")
     public static <T> T handleParameter(String value, 
                                         boolean decoded,
                                         Class<T> pClass,
@@ -354,29 +391,30 @@ public final class InjectionUtils {
         
         value = decodeValue(value, decoded, pType);
         
-        Object result = createFromParameterHandler(value, pClass, genericType, paramAnns, message);
-        if (result != null) {
-            return pClass.cast(result);
+        Object result = null;
+        try {
+            result = createFromParameterHandler(value, pClass, genericType, paramAnns, message);
+        } catch (IllegalArgumentException nfe) {
+            throw createParamConversionException(pType, nfe);
         }
-        
+        if (result != null) {
+            T theResult = null;
+            if (pClass.isPrimitive()) {
+                theResult = (T)result;
+            } else {
+                theResult = pClass.cast(result);
+            }
+            return theResult;
+        }
         if (pClass.isPrimitive()) {
             try {
-                @SuppressWarnings("unchecked")
                 T ret = (T)PrimitiveUtils.read(value, pClass);
                 // cannot us pClass.cast as the pClass is something like
                 // Boolean.TYPE (representing the boolean primitive) and
                 // the object is a Boolean object
                 return ret;
             } catch (NumberFormatException nfe) {
-                //
-                //  For path, query & matrix parameters this is 404,
-                //  for others 400...
-                //
-                if (pType == ParameterType.PATH || pType == ParameterType.QUERY
-                    || pType == ParameterType.MATRIX) {
-                    throw ExceptionUtils.toNotFoundException(nfe, null);
-                }
-                throw ExceptionUtils.toBadRequestException(nfe, null);
+                throw createParamConversionException(pType, nfe);
             }
         }
         
@@ -431,6 +469,17 @@ public final class InjectionUtils {
         return pClass.cast(result);
     }
 
+    private static RuntimeException createParamConversionException(ParameterType pType, Exception ex) {
+        //
+        //  For path, query & matrix parameters this is 404,
+        //  for others 400...
+        //
+        if (pType == ParameterType.PATH || pType == ParameterType.QUERY
+            || pType == ParameterType.MATRIX) {
+            return ExceptionUtils.toNotFoundException(ex, null);
+        }
+        return ExceptionUtils.toBadRequestException(ex, null);
+    }
     public static <T> T createFromParameterHandler(String value, 
                                                     Class<T> pClass,
                                                     Type genericType,
@@ -439,7 +488,7 @@ public final class InjectionUtils {
         T result = null;
         if (message != null) {
             ServerProviderFactory pf = ServerProviderFactory.getInstance(message);
-            ParamConverter<T> pm = pf.createParameterHandler(pClass, genericType, anns);
+            ParamConverter<T> pm = pf.createParameterHandler(pClass, genericType, anns, message);
             if (pm != null) {
                 result = pm.fromString(value);
             }
@@ -840,9 +889,21 @@ public final class InjectionUtils {
      //CHECKSTYLE:ON    
         Class<?> type = getCollectionType(rawType);
 
-        Class<?> realType = rawType.isArray() ? rawType.getComponentType() 
-                : InjectionUtils.getActualType(genericType);
-        
+        Class<?> realType = null;
+        Type realGenericType = null;
+        if (rawType.isArray()) {
+            realType = rawType.getComponentType();
+            realGenericType = realType;
+        } else {
+            Type[] types = getActualTypes(genericType);
+            if (types.length == 0 || !(types[0] instanceof ParameterizedType)) {
+                realType = getActualType(genericType);
+                realGenericType = realType;
+            } else {
+                realType = getRawType(types[0]);
+                realGenericType = types[0] == realType ? realType : types[0];
+            }
+        }
         Object theValues = null;
         if (type != null) {
             try {
@@ -863,7 +924,7 @@ public final class InjectionUtils {
             valuesList = checkPathSegment(valuesList, realType, pathParam);
             for (int ind = 0; ind < valuesList.size(); ind++) {
                 Object o = InjectionUtils.handleParameter(valuesList.get(ind), decoded, 
-                                                          realType, realType, paramAnns, pathParam, message);
+                               realType, realGenericType, paramAnns, pathParam, message);
                 addToCollectionValues(theValues, o, ind);
             }
         }
@@ -1003,12 +1064,15 @@ public final class InjectionUtils {
         } else if (SERVLET_CONFIG_CLASS_NAME.equals(name)) {
             proxyClassName = "org.apache.cxf.jaxrs.impl.tl.ThreadLocalServletConfig";
         }
-        try {
-            return (ThreadLocalProxy<?>)ClassLoaderUtils.loadClass(proxyClassName, InjectionUtils.class)
-                .newInstance();
-        } catch (Throwable t) {
-            throw new RuntimeException(t);
+        if (proxyClassName != null) {
+            try {
+                return (ThreadLocalProxy<?>)ClassLoaderUtils.loadClass(proxyClassName, InjectionUtils.class)
+                    .newInstance();
+            } catch (Throwable t) {
+                throw new RuntimeException(t);
+            }
         }
+        return null;
     }
     
     public static Method getGetterFromSetter(Method setter) throws Exception {
@@ -1187,7 +1251,7 @@ public final class InjectionUtils {
                 } else if (isSupportedCollectionOrArray(value.getClass())) {
                     List<Object> theValues = null;
                     if (value.getClass().isArray()) {
-                        theValues = Arrays.asList(value);
+                        theValues = Arrays.asList((Object[])value);
                     } else if (value instanceof Set) {
                         theValues = new ArrayList<Object>((Set<?>)value);
                     } else {
@@ -1245,13 +1309,15 @@ public final class InjectionUtils {
         }
         return false;
     }
-    
     public static boolean isPrimitive(Class<?> type) {
+        return String.class == type  
+            || isPrimitiveOnly(type);
+    }
+    public static boolean isPrimitiveOnly(Class<?> type) {
         return type.isPrimitive() 
             || Number.class.isAssignableFrom(type)
-            || Boolean.class.isAssignableFrom(type)
-            || Character.class.isAssignableFrom(type)
-            || String.class == type;
+            || Boolean.class == type
+            || Character.class == type;
     }
     
     public static String decodeValue(String value, boolean decode, ParameterType param) {

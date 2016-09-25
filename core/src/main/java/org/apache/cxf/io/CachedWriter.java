@@ -33,6 +33,7 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -52,6 +53,7 @@ public class CachedWriter extends Writer {
     private static int defaultThreshold;
     private static long defaultMaxSize;
     private static String defaultCipherTransformation;
+    
     static {
         
         String s = SystemPropertyAction.getPropertyOrNull("org.apache.cxf.io.CachedOutputStream.OutputDirectory");
@@ -78,6 +80,7 @@ public class CachedWriter extends Writer {
     protected boolean outputLocked;
     protected Writer currentStream;
 
+    private boolean cosClosed;
     private long threshold = defaultThreshold;
     private long maxSize = defaultMaxSize;
 
@@ -98,7 +101,7 @@ public class CachedWriter extends Writer {
 
     
     static class LoadingCharArrayWriter extends CharArrayWriter {
-        public LoadingCharArrayWriter() {
+        LoadingCharArrayWriter() {
             super(1024);
         }
         public char[] rawCharArray() {
@@ -176,7 +179,10 @@ public class CachedWriter extends Writer {
     }
 
     public void flush() throws IOException {
-        currentStream.flush();
+        if (!cosClosed) {
+            currentStream.flush();
+        }
+        
         if (null != callbacks) {
             for (CachedWriterCallback cb : callbacks) {
                 cb.onFlush(this);
@@ -220,7 +226,9 @@ public class CachedWriter extends Writer {
     }
     
     public void close() throws IOException {
-        currentStream.flush();
+        if (!cosClosed) {
+            currentStream.flush();
+        }
         outputLocked = true;
         if (null != callbacks) {
             for (CachedWriterCallback cb : callbacks) {
@@ -304,9 +312,7 @@ public class CachedWriter extends Writer {
             }
         } else {
             // read the file
-            Reader fin = null;
-            try {
-                fin = createInputStreamReader(tempFile);
+            try (Reader fin = createInputStreamReader(tempFile)) {
                 CharArrayWriter out = new CharArrayWriter((int)tempFile.length());
                 char bytes[] = new char[1024];
                 int x = fin.read(bytes);
@@ -315,10 +321,6 @@ public class CachedWriter extends Writer {
                     x = fin.read(bytes);
                 }
                 return out.toCharArray();
-            } finally {
-                if (fin != null) {
-                    fin.close();
-                }
             }
         }
     }
@@ -333,18 +335,12 @@ public class CachedWriter extends Writer {
             }
         } else {
             // read the file
-            Reader fin = null;
-            try {
-                fin = createInputStreamReader(tempFile);
+            try (Reader fin = createInputStreamReader(tempFile)) {
                 char bytes[] = new char[1024];
                 int x = fin.read(bytes);
                 while (x != -1) {
                     out.write(bytes, 0, x);
                     x = fin.read(bytes);
-                }
-            } finally {
-                if (fin != null) {
-                    fin.close();
                 }
             }
         }
@@ -368,9 +364,7 @@ public class CachedWriter extends Writer {
             }
         } else {
             // read the file
-            Reader fin = null;
-            try {
-                fin = createInputStreamReader(tempFile);
+            try (Reader fin = createInputStreamReader(tempFile)) {
                 char bytes[] = new char[1024];
                 long x = fin.read(bytes);
                 while (x != -1) {
@@ -385,10 +379,6 @@ public class CachedWriter extends Writer {
                     } else {
                         x = fin.read(bytes);
                     }
-                }
-            } finally {
-                if (fin != null) {
-                    fin.close();
                 }
             }
         }
@@ -405,17 +395,12 @@ public class CachedWriter extends Writer {
             }
         } else {
             // read the file
-            Reader r = createInputStreamReader(tempFile);
-            try {
+            try (Reader r = createInputStreamReader(tempFile)) {
                 char chars[] = new char[1024];
                 int x = r.read(chars);
                 while (x != -1) {
                     out.append(chars, 0, x);
                     x = r.read(chars);
-                }
-            } finally {
-                if (r != null) {
-                    r.close();
                 }
             }
         }
@@ -533,7 +518,7 @@ public class CachedWriter extends Writer {
                         }
                     };
                 }
-                return new InputStreamReader(fileInputStream, "UTF-8");
+                return new InputStreamReader(fileInputStream, StandardCharsets.UTF_8);
             } catch (FileNotFoundException e) {
                 throw new IOException("Cached file was deleted, " + e.toString());
             }
@@ -621,19 +606,26 @@ public class CachedWriter extends Writer {
                     ciphers = new CipherPair(cipherTransformation);
                 }
             } catch (GeneralSecurityException e) {
+                out.close();
                 throw new IOException(e.getMessage(), e);
             }
             out = new CipherOutputStream(out, ciphers.getEncryptor()) {
-                boolean closed;
                 public void close() throws IOException {
-                    if (!closed) {
+                    if (!cosClosed) {
                         super.close();
-                        closed = true;
+                        cosClosed = true;
                     }
                 }
             };
         }
-        return new OutputStreamWriter(out, "utf-8");
+        return new OutputStreamWriter(out, "utf-8") {
+            public void close() throws IOException {
+                if (!cosClosed) {
+                    super.close();
+                    cosClosed = true;
+                }
+            }
+        };
     }
 
     private InputStreamReader createInputStreamReader(File file) throws IOException {

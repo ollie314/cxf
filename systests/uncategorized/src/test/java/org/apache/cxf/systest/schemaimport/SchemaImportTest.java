@@ -39,18 +39,26 @@ public class SchemaImportTest extends AbstractBusClientServerTestBase {
     public void testImportSchema() throws Exception {
         String schemaURL = "http://localhost:" + PORT + "/schemaimport/sayHi" + "?xsd=sayhi/sayhi/sayhi-schema1.xsd";
         URL url = new URL(schemaURL);
-        InputStream ins = null;
-        try {
-            ins = url.openStream();
+        try (InputStream ins = url.openStream()) {
             String output = IOUtils.toString(ins);
             assertTrue(output.indexOf("sayHiArray") > -1);
         } catch (Exception e) {
             e.printStackTrace();
             fail("Can not access the import schema");
-        } finally {
-            if (ins != null) {
-                ins.close();
-            }
+        }
+    }
+
+    @Test
+    public void testImportSchema2() throws Exception {
+        String schemaURL = "http://localhost:" + PORT + "/schemaimport/sayHi2"
+                           + "?xsd=../sayhi/sayhi/sayhi-schema1.xsd";
+        URL url = new URL(schemaURL);
+        try (InputStream ins = url.openStream()) {
+            String output = IOUtils.toString(ins);
+            assertTrue(output.indexOf("sayHiArray") > -1);
+        } catch (Exception e) {
+            e.printStackTrace();
+            fail("Can not access the import schema");
         }
     }
 
@@ -58,30 +66,35 @@ public class SchemaImportTest extends AbstractBusClientServerTestBase {
     public void testImportWsdl() throws Exception {
         String wsdlURL = "http://localhost:" + PORT + "/schemaimport/sayHi"  + "?wsdl=sayhi/sayhi/a.wsdl";
         URL url = new URL(wsdlURL);
-        InputStream ins = null;
-        try {
-            ins = url.openStream();
+        try (InputStream ins = url.openStream()) {
             String output = IOUtils.toString(ins);
             assertTrue(output.indexOf("sayHiArray") > -1);
         } catch (Exception e) {
             e.printStackTrace();
             fail("Can not access the import wsdl");
 
-        } finally {
-            if (ins != null) {
-                ins.close();
-            }
         }
     }
-    
-    
+
+    @Test
+    public void testImportWsdl2() throws Exception {
+        String wsdlURL = "http://localhost:" + PORT + "/schemaimport/sayHi2" + "?wsdl=../sayhi/sayhi/a.wsdl";
+        URL url = new URL(wsdlURL);
+        try (InputStream ins = url.openStream()) {
+            String output = IOUtils.toString(ins);
+            assertTrue(output.indexOf("sayHiArray") > -1);
+        } catch (Exception e) {
+            e.printStackTrace();
+            fail("Can not access the import wsdl");
+
+        }
+    }
+
     @Test
     public void testAnotherSchemaImportl() throws Exception {
         String schemaURL = "http://localhost:" + PORT + "/schemaimport/service"  + "?xsd=schema1.xsd";
         URL url = new URL(schemaURL);
-        InputStream ins = null;
-        try {
-            ins = url.openStream();
+        try (InputStream ins = url.openStream()) {
             String output = IOUtils.toString(ins);
             assertTrue(output.indexOf("schemaimport/service?xsd=schema2.xsd") > -1);
             assertTrue(output.indexOf("schemaimport/service?xsd=schema5.xsd") > -1);
@@ -89,10 +102,6 @@ public class SchemaImportTest extends AbstractBusClientServerTestBase {
             e.printStackTrace();
             fail("Can not access the import wsdl");
 
-        } finally {
-            if (ins != null) {
-                ins.close();
-            }
         }
     }
     
@@ -101,9 +110,7 @@ public class SchemaImportTest extends AbstractBusClientServerTestBase {
     public void testSchemaInclude() throws Exception {
         String schemaURL = "http://localhost:" + PORT + "/schemainclude/service?xsd=d1/d1/test.xsd";
         URL url = new URL(schemaURL);
-        InputStream ins = null;
-        try {
-            ins = url.openStream();
+        try (InputStream ins = url.openStream()) {
             String output = IOUtils.toString(ins);
             assertTrue(output.indexOf("msg:RequestType") > -1);
             assertTrue(output.indexOf("msg:SomeFeatureType") > -1);
@@ -111,10 +118,6 @@ public class SchemaImportTest extends AbstractBusClientServerTestBase {
             e.printStackTrace();
             fail("Can not access the include schema");
 
-        } finally {
-            if (ins != null) {
-                ins.close();
-            }
         }
     }
 

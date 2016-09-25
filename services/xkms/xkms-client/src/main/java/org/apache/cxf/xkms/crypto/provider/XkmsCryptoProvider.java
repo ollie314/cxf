@@ -107,6 +107,13 @@ public class XkmsCryptoProvider extends CryptoBase {
     }
 
     @Override
+    public PrivateKey getPrivateKey(PublicKey publicKey, CallbackHandler callbackHandler)
+        throws WSSecurityException {
+        assertDefaultCryptoProvider();
+        return fallbackCrypto.getPrivateKey(publicKey, callbackHandler);
+    }
+
+    @Override
     public PrivateKey getPrivateKey(String identifier, String password) throws WSSecurityException {
         assertDefaultCryptoProvider();
         return fallbackCrypto.getPrivateKey(identifier, password);
@@ -164,9 +171,9 @@ public class XkmsCryptoProvider extends CryptoBase {
 
     private X509Certificate[] getX509(CryptoType cryptoType) {
         // Try to get X509 certificate from local keystore if it is configured
-        if (allowX509FromJKS && (fallbackCrypto != null)) {
+        if (allowX509FromJKS && fallbackCrypto != null) {
             X509Certificate[] localCerts = getCertificateLocaly(cryptoType);
-            if ((localCerts != null) && localCerts.length > 0) {
+            if (localCerts != null && localCerts.length > 0) {
                 return localCerts;
             }
         }

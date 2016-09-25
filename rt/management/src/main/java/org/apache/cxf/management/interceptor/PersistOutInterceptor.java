@@ -60,8 +60,8 @@ public class PersistOutInterceptor extends AbstractPhaseInterceptor<Message> {
         private final OutputStream origStream;
         private final ExchangeData exchange;
 
-        public PersistOutInterceptorCallback(final Message msg, final OutputStream os,
-                                             final ExchangeData ex) {
+        PersistOutInterceptorCallback(final Message msg, final OutputStream os,
+                                      final ExchangeData ex) {
             this.message = msg;
             this.origStream = os;
             this.exchange = ex;
@@ -164,10 +164,10 @@ public class PersistOutInterceptor extends AbstractPhaseInterceptor<Message> {
 
             try {
 
-                Service service = message.getExchange().get(Service.class);
+                Service service = message.getExchange().getService();
 
                 String serviceName = String.valueOf(service.getName());
-                OperationInfo opInfo = message.getExchange().get(OperationInfo.class);
+                OperationInfo opInfo = message.getExchange().getBindingOperationInfo().getOperationInfo();
                 String operationName = opInfo == null ? null : opInfo.getName().getLocalPart();
 
                 if (operationName == null) {

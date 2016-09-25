@@ -345,6 +345,11 @@ public class ServiceProcessor extends AbstractProcessor {
                 jf = jf2;
             }
         }
+
+        if (jf == null) {
+            throw new ToolException("No Java Interface available");
+        }
+
         if (isSoapBinding()) {
             SoapBinding soapBinding = (SoapBinding)bindingObj;
             if (SOAPBindingUtil.getSoapStyle(soapBinding.getStyle()) == null) {
@@ -537,11 +542,8 @@ public class ServiceProcessor extends AbstractProcessor {
 
     private boolean isOutOfBandHeader(BindingMessageInfo bmi, ExtensibilityElement ext) {
         SoapHeader soapHeader = SOAPBindingUtil.getSoapHeader(ext);
-        if (soapHeader.getMessage() != null
-            && !bmi.getMessageInfo().getName().equals(soapHeader.getMessage())) {
-            return true;
-        }
-        return false;
+        return soapHeader.getMessage() != null
+            && !bmi.getMessageInfo().getName().equals(soapHeader.getMessage());
     }
 
     private void processSoapHeader(JavaMethod jm, BindingOperationInfo operation, ExtensibilityElement ext) {
@@ -740,7 +742,7 @@ public class ServiceProcessor extends AbstractProcessor {
                 && headerMessage.getNamespaceURI().equalsIgnoreCase(bodyMessage.getName().getNamespaceURI())
                 && headerMessage.getLocalPart().equalsIgnoreCase(bodyMessage.getName().getLocalPart())) {
                 isSameMessage = true;
-                if (bodyMessage.getMessageParts().size() == 1) {
+                if (bodyMessage.getMessagePartsNumber() == 1) {
                     allPartsHeader = true;
                 }
 

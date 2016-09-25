@@ -22,11 +22,9 @@ package org.apache.cxf.ws.security.wss4j.policyvalidators;
 import java.util.Collection;
 import java.util.List;
 
-import org.apache.cxf.message.Message;
 import org.apache.cxf.ws.policy.AssertionInfo;
-import org.apache.cxf.ws.policy.AssertionInfoMap;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
-import org.apache.wss4j.policy.SPConstants;
+import org.apache.wss4j.policy.SP11Constants;
+import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.model.AbstractToken;
 import org.apache.wss4j.policy.model.IssuedToken;
 import org.apache.wss4j.policy.model.KerberosToken;
@@ -43,31 +41,20 @@ import org.apache.wss4j.policy.model.X509Token;
  */
 public class ConcreteSupportingTokenPolicyValidator extends AbstractSupportingTokenPolicyValidator {
     
-    public ConcreteSupportingTokenPolicyValidator() {
-        setSigned(false);
+    /**
+     * Return true if this SecurityPolicyValidator implementation is capable of validating a 
+     * policy defined by the AssertionInfo parameter
+     */
+    public boolean canValidatePolicy(AssertionInfo assertionInfo) {
+        return assertionInfo.getAssertion() != null 
+            && (SP12Constants.SUPPORTING_TOKENS.equals(assertionInfo.getAssertion().getName())
+                || SP11Constants.SUPPORTING_TOKENS.equals(assertionInfo.getAssertion().getName()));
     }
     
-    public boolean validatePolicy(
-        AssertionInfoMap aim, 
-        Message message,
-        List<WSSecurityEngineResult> results,
-        List<WSSecurityEngineResult> signedResults,
-        List<WSSecurityEngineResult> encryptedResults
-    ) {
-        Collection<AssertionInfo> ais = getAllAssertionsByLocalname(aim, SPConstants.SUPPORTING_TOKENS);
-        if (!ais.isEmpty()) {
-            setMessage(message);
-            setResults(results);
-            setSignedResults(signedResults);
-            setEncryptedResults(encryptedResults);
-            
-            parsePolicies(ais, message);
-        }
-        
-        return true;
-    }
-    
-    private void parsePolicies(Collection<AssertionInfo> ais, Message message) {
+    /**
+     * Validate policies. 
+     */
+    public void validatePolicies(PolicyValidatorParameters parameters, Collection<AssertionInfo> ais) {
         for (AssertionInfo ai : ais) {
             SupportingTokens binding = (SupportingTokens)ai.getAssertion();
             ai.setAsserted(true);
@@ -79,34 +66,34 @@ public class ConcreteSupportingTokenPolicyValidator extends AbstractSupportingTo
             
             List<AbstractToken> tokens = binding.getTokens();
             for (AbstractToken token : tokens) {
-                if (!isTokenRequired(token, message)) {
+                if (!isTokenRequired(token, parameters.getMessage())) {
                     continue;
                 }
                 
                 boolean processingFailed = false;
                 if (token instanceof UsernameToken) {
-                    if (!processUsernameTokens()) {
+                    if (!processUsernameTokens(parameters, false)) {
                         processingFailed = true;
                     }
                 } else if (token instanceof SamlToken) {
-                    if (!processSAMLTokens()) {
+                    if (!processSAMLTokens(parameters)) {
                         processingFailed = true;
                     }
                 } else if (token instanceof KerberosToken) {
-                    if (!processKerberosTokens()) {
+                    if (!processKerberosTokens(parameters, false)) {
                         processingFailed = true;
                     }
                 } else if (token instanceof X509Token) {
-                    if (!processX509Tokens()) {
+                    if (!processX509Tokens(parameters, false)) {
                         processingFailed = true;
                     }
                 } else if (token instanceof KeyValueToken) {
-                    if (!processKeyValueTokens()) {
+                    if (!processKeyValueTokens(parameters)) {
                         processingFailed = true;
                     }
                 } else if (token instanceof SecurityContextToken
                     || token instanceof SpnegoContextToken) {
-                    if (!processSCTokens()) {
+                    if (!processSCTokens(parameters, false)) {
                         processingFailed = true;
                     }
                 } else if (!(token instanceof IssuedToken)) {
@@ -123,4 +110,15 @@ public class ConcreteSupportingTokenPolicyValidator extends AbstractSupportingTo
         }
     }
     
+    protected boolean isSigned() {
+        return false;
+    }
+    
+    protected boolean isEncrypted() {
+        return false;
+    }
+    
+    protected boolean isEndorsing() {
+        return false;
+    }
 }

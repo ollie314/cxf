@@ -31,6 +31,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -257,14 +258,17 @@ public class CachedOutputStream extends OutputStream {
                 }
             } else {
                 // read the file
-                currentStream.close();
-                if (copyOldContent) {
-                    InputStream fin = createInputStream(tempFile);
-                    IOUtils.copyAndCloseInput(fin, out);
+                try {
+                    currentStream.close();
+                    if (copyOldContent) {
+                        InputStream fin = createInputStream(tempFile);
+                        IOUtils.copyAndCloseInput(fin, out);
+                    }
+                } finally {
+                    streamList.remove(currentStream);
+                    deleteTempFile();
+                    inmem = true;
                 }
-                streamList.remove(currentStream);
-                deleteTempFile();
-                inmem = true;
             }
         }
         currentStream = out;
@@ -289,8 +293,9 @@ public class CachedOutputStream extends OutputStream {
             }
         } else {
             // read the file
-            InputStream fin = createInputStream(tempFile);
-            return IOUtils.readBytesFromStream(fin);
+            try (InputStream fin = createInputStream(tempFile)) {
+                return IOUtils.readBytesFromStream(fin);
+            }
         }
     }
 
@@ -310,7 +315,7 @@ public class CachedOutputStream extends OutputStream {
     }
     
     public void writeCacheTo(StringBuilder out, long limit) throws IOException {
-        writeCacheTo(out, "UTF-8", limit);
+        writeCacheTo(out, StandardCharsets.UTF_8.name(), limit);
     }
     
     public void writeCacheTo(StringBuilder out, String charsetName, long limit) throws IOException {
@@ -334,11 +339,8 @@ public class CachedOutputStream extends OutputStream {
             }
         } else {
             // read the file
-            InputStream fin = null;
-            Reader reader = null;
-            try {
-                fin = createInputStream(tempFile);
-                reader = new InputStreamReader(fin, charsetName);
+            try (InputStream fin = createInputStream(tempFile);
+                Reader reader = new InputStreamReader(fin, charsetName)) {
                 char bytes[] = new char[1024];
                 long x = reader.read(bytes);
                 while (x != -1) {
@@ -354,19 +356,12 @@ public class CachedOutputStream extends OutputStream {
                         x = reader.read(bytes);
                     }
                 }
-            } finally {
-                if (reader != null) {
-                    reader.close();
-                }
-                if (fin != null) {
-                    fin.close();
-                }
             }
         }
     }
     
     public void writeCacheTo(StringBuilder out) throws IOException {
-        writeCacheTo(out, "UTF-8");
+        writeCacheTo(out, StandardCharsets.UTF_8.name());
     }
     
     public void writeCacheTo(StringBuilder out, String charsetName) throws IOException {
@@ -383,23 +378,13 @@ public class CachedOutputStream extends OutputStream {
             }
         } else {
             // read the file
-            InputStream fin = null;
-            Reader reader = null;
-            try {
-                fin = createInputStream(tempFile);
-                reader = new InputStreamReader(fin, charsetName);
+            try (InputStream fin = createInputStream(tempFile);
+                Reader reader = new InputStreamReader(fin, charsetName)) {
                 char bytes[] = new char[1024];
                 int x = reader.read(bytes);
                 while (x != -1) {
                     out.append(bytes, 0, x);
                     x = reader.read(bytes);
-                }
-            } finally {
-                if (reader != null) {
-                    reader.close();
-                }
-                if (fin != null) {
-                    fin.close();
                 }
             }
         }
@@ -671,7 +656,9 @@ public class CachedOutputStream extends OutputStream {
             if (!transfered) {
                 // Data is in memory, or we failed to rename the file, try copying
                 // the stream instead.
-                IOUtils.transferTo(getInputStream(), destinationFile);
+                try (FileOutputStream fout = new FileOutputStream(destinationFile)) {
+                    IOUtils.copyAndCloseInput(this, fout);
+                }
             }
         }
     }

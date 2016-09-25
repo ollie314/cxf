@@ -48,7 +48,7 @@ public class ServiceInvokerInterceptor extends AbstractPhaseInterceptor<Message>
 
     public void handleMessage(final Message message) {
         final Exchange exchange = message.getExchange();
-        final Endpoint endpoint = exchange.get(Endpoint.class);
+        final Endpoint endpoint = exchange.getEndpoint();
         final Service service = endpoint.getService();
         final Invoker invoker = service.getInvoker();        
 
@@ -58,7 +58,7 @@ public class ServiceInvokerInterceptor extends AbstractPhaseInterceptor<Message>
                 Exchange runableEx = message.getExchange();
                 Object result = invoker.invoke(runableEx, getInvokee(message));
                 if (!exchange.isOneWay()) {
-                    Endpoint ep = exchange.get(Endpoint.class);
+                    Endpoint ep = exchange.getEndpoint();
                     
                     Message outMessage = runableEx.getOutMessage();
                     if (outMessage == null) {
@@ -158,7 +158,6 @@ public class ServiceInvokerInterceptor extends AbstractPhaseInterceptor<Message>
     /**
      * Get the Executor for this invocation.
      * @param endpoint
-     * @return
      */
     private Executor getExecutor(final Endpoint endpoint) {
         return endpoint.getService().getExecutor();

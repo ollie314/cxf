@@ -30,10 +30,12 @@ import javax.xml.soap.SOAPException;
 import org.apache.cxf.binding.soap.SoapMessage;
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.interceptor.Fault;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
 import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
-import org.apache.cxf.ws.security.wss4j.WSS4JUtils;
+import org.apache.cxf.ws.security.tokenstore.TokenStoreUtils;
+import org.apache.cxf.ws.security.wss4j.TokenStoreCallbackHandler;
 import org.apache.wss4j.common.ConfigurationConstants;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.policy.SPConstants;
@@ -88,6 +90,11 @@ public class StaxAsymmetricBindingHandler extends AbstractStaxBindingHandler {
         if (asymSignatureAlgorithm != null && abinding.getAlgorithmSuite() != null) {
             abinding.getAlgorithmSuite().setAsymmetricSignature(asymSignatureAlgorithm);
         }
+        String symSignatureAlgorithm = 
+            (String)getMessage().getContextualProperty(SecurityConstants.SYMMETRIC_SIGNATURE_ALGORITHM);
+        if (symSignatureAlgorithm != null && abinding.getAlgorithmSuite() != null) {
+            abinding.getAlgorithmSuite().setSymmetricSignature(symSignatureAlgorithm);
+        }
         
         if (abinding.getProtectionOrder() 
             == AbstractSymmetricAsymmetricBinding.ProtectionOrder.EncryptBeforeSigning) {
@@ -134,7 +141,7 @@ public class StaxAsymmetricBindingHandler extends AbstractStaxBindingHandler {
                     WSSSecurityProperties properties = getProperties();
                     TokenStoreCallbackHandler callbackHandler = 
                         new TokenStoreCallbackHandler(
-                            properties.getCallbackHandler(), WSS4JUtils.getTokenStore(message)
+                            properties.getCallbackHandler(), TokenStoreUtils.getTokenStore(message)
                         );
                     properties.setCallbackHandler(callbackHandler);
                 } else if (initiatorToken instanceof SamlToken) {
@@ -144,7 +151,7 @@ public class StaxAsymmetricBindingHandler extends AbstractStaxBindingHandler {
             }
             
             // Add timestamp
-            List<SecurePart> sigs = new ArrayList<SecurePart>();
+            List<SecurePart> sigs = new ArrayList<>();
             if (timestampAdded) {
                 SecurePart part = 
                     new SecurePart(new QName(WSSConstants.NS_WSU10, "Timestamp"), Modifier.Element);
@@ -184,7 +191,7 @@ public class StaxAsymmetricBindingHandler extends AbstractStaxBindingHandler {
                 enc.add(part);
                 if (signatureConfirmationAdded) {
                     SecurePart securePart = 
-                        new SecurePart(WSSConstants.TAG_wsse11_SignatureConfirmation, Modifier.Element);
+                        new SecurePart(WSSConstants.TAG_WSSE11_SIG_CONF, Modifier.Element);
                     enc.add(securePart);
                 }
                 assertPolicy(
@@ -261,7 +268,7 @@ public class StaxAsymmetricBindingHandler extends AbstractStaxBindingHandler {
                     WSSSecurityProperties properties = getProperties();
                     TokenStoreCallbackHandler callbackHandler = 
                         new TokenStoreCallbackHandler(
-                            properties.getCallbackHandler(), WSS4JUtils.getTokenStore(message)
+                            properties.getCallbackHandler(), TokenStoreUtils.getTokenStore(message)
                         );
                     properties.setCallbackHandler(callbackHandler);
                 } else if (initiatorToken instanceof SamlToken) {
@@ -296,7 +303,7 @@ public class StaxAsymmetricBindingHandler extends AbstractStaxBindingHandler {
                     encrParts.add(part);
                     if (signatureConfirmationAdded) {
                         SecurePart securePart = 
-                            new SecurePart(WSSConstants.TAG_wsse11_SignatureConfirmation, Modifier.Element);
+                            new SecurePart(WSSConstants.TAG_WSSE11_SIG_CONF, Modifier.Element);
                         encrParts.add(securePart);
                     }
                     assertPolicy(
@@ -356,15 +363,15 @@ public class StaxAsymmetricBindingHandler extends AbstractStaxBindingHandler {
             properties.addAction(actionToPerform);
             
             properties.getEncryptionSecureParts().addAll(encrParts);
-            properties.setEncryptionKeyIdentifier(getKeyIdentifierType(recToken, encrToken));
+            properties.setEncryptionKeyIdentifier(getKeyIdentifierType(encrToken));
             
             // Find out do we also need to include the token as per the Inclusion requirement
             WSSecurityTokenConstants.KeyIdentifier keyIdentifier = properties.getEncryptionKeyIdentifier();
             if (encrToken instanceof X509Token 
                 && isTokenRequired(encrToken.getIncludeTokenType())
                 && (WSSecurityTokenConstants.KeyIdentifier_IssuerSerial.equals(keyIdentifier)
-                    || WSSecurityTokenConstants.KeyIdentifier_ThumbprintIdentifier.equals(keyIdentifier)
-                    || WSSecurityTokenConstants.KeyIdentifier_SecurityTokenDirectReference.equals(
+                    || WSSecurityTokenConstants.KEYIDENTIFIER_THUMBPRINT_IDENTIFIER.equals(keyIdentifier)
+                    || WSSecurityTokenConstants.KEYIDENTIFIER_SECURITY_TOKEN_DIRECT_REFERENCE.equals(
                         keyIdentifier))) {
                 properties.setIncludeEncryptionToken(true);
             } else {
@@ -375,10 +382,15 @@ public class StaxAsymmetricBindingHandler extends AbstractStaxBindingHandler {
                        algorithmSuite.getAlgorithmSuiteType().getAsymmetricKeyWrap());
             properties.setEncryptionSymAlgorithm(
                        algorithmSuite.getAlgorithmSuiteType().getEncryption());
+            properties.setEncryptionKeyTransportDigestAlgorithm(
+                       algorithmSuite.getAlgorithmSuiteType().getEncryptionDigest());
+            properties.setEncryptionKeyTransportMGFAlgorithm(
+                       algorithmSuite.getAlgorithmSuiteType().getMGFAlgo());
 
-            String encUser = (String)message.getContextualProperty(SecurityConstants.ENCRYPT_USERNAME);
+            String encUser = 
+                (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_USERNAME, message);
             if (encUser == null) {
-                encUser = (String)message.getContextualProperty(SecurityConstants.USERNAME);
+                encUser = (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.USERNAME, message);
             }
             if (encUser != null && properties.getEncryptionUser() == null) {
                 properties.setEncryptionUser(encUser);
@@ -424,7 +436,7 @@ public class StaxAsymmetricBindingHandler extends AbstractStaxBindingHandler {
         properties.getSignatureSecureParts().addAll(sigParts);
         
         AbstractToken sigToken = wrapper.getToken();
-        configureSignature(wrapper, sigToken, false);
+        configureSignature(sigToken, false);
         
         if (abinding.isProtectTokens() && (sigToken instanceof X509Token)
             && sigToken.getIncludeTokenType() != IncludeTokenType.INCLUDE_TOKEN_NEVER) {

@@ -281,10 +281,9 @@ public class ServerLauncher {
         }
 
         public void run() {
-            PrintStream ps = null;
+            String outputDir = System.getProperty("server.output.dir", "target/surefire-reports/");
+            FileOutputStream fos = null;
             try {
-                String outputDir = System.getProperty("server.output.dir", "target/surefire-reports/");
-                FileOutputStream fos;
                 try {
                     fos = new FileOutputStream(outputDir + className + ".out");
                 } catch (FileNotFoundException fex) {
@@ -294,12 +293,18 @@ public class ServerLauncher {
                     } else {
                         outputDir += "/target/surefire-reports/";
                     }
-                    
+    
                     File file = new File(outputDir);
                     file.mkdirs();
                     fos = new FileOutputStream(outputDir + className + ".out");
                 }
-                ps = new PrintStream(fos);
+            } catch (IOException ex) {
+                if (!ex.getMessage().contains("Stream closed")) {
+                    ex.printStackTrace();
+                }
+            }
+            
+            try (PrintStream ps = new PrintStream(fos)) {
                 boolean running = true;
                 StringBuilder serverOutput = new StringBuilder();
                 for (int ch = in.read(); ch != -1; ch = in.read()) {
@@ -334,10 +339,6 @@ public class ServerLauncher {
             } catch (IOException ex) {
                 if (!ex.getMessage().contains("Stream closed")) {
                     ex.printStackTrace();
-                }
-            } finally {
-                if (ps != null) {
-                    ps.close();
                 }
             }
         }
@@ -405,7 +406,7 @@ public class ServerLauncher {
         cmd.add("-classpath");
         
         ClassLoader loader = this.getClass().getClassLoader();
-        StringBuffer classpath = new StringBuffer(System.getProperty("java.class.path"));
+        StringBuilder classpath = new StringBuilder(System.getProperty("java.class.path"));
         if (classpath.indexOf("/.compatibility/") != -1) {
             classpath.append(":");
             //on OSX, the compatibility lib brclasspath.indexOf("/.compatibility/")
@@ -461,7 +462,7 @@ public class ServerLauncher {
     static class TimeoutCounter {
         private final long expectedEndTime;
 
-        public TimeoutCounter(long theExpectedTimeout) {
+        TimeoutCounter(long theExpectedTimeout) {
             expectedEndTime = System.currentTimeMillis() + theExpectedTimeout;
         }
 

@@ -56,18 +56,12 @@ public class StringVisitor extends VisitorBase {
     }
 
     public static boolean accept(AST node) {
-        if ((node.getType() == IDLTokenTypes.LITERAL_string)
-            || (node.getType() == IDLTokenTypes.LITERAL_wstring)) {
-            return true;
-        }
-        return false;
+        return (node.getType() == IDLTokenTypes.LITERAL_string)
+            || (node.getType() == IDLTokenTypes.LITERAL_wstring);
     }
 
     public static boolean isBounded(AST node) {
-        if (node.getFirstChild() == null) {
-            return false;
-        }
-        return true;
+        return node.getFirstChild() != null;
     }
 
     public void visit(AST node) {
@@ -135,7 +129,7 @@ public class StringVisitor extends VisitorBase {
             // corba:anonstring
             Anonstring anonstring = new Anonstring();
             anonstring.setQName(new QName(typeMap.getTargetNamespace(), stringScopedName.toString()));
-            anonstring.setBound(new Long(boundNode.toString()));
+            anonstring.setBound(Long.valueOf(boundNode.toString()));
             anonstring.setType(simpleType.getQName());
 
             anon = anonstring;
@@ -144,7 +138,7 @@ public class StringVisitor extends VisitorBase {
             // corba:anonwstring
             Anonwstring anonwstring = new Anonwstring();
             anonwstring.setQName(new QName(typeMap.getTargetNamespace(), stringScopedName.toString()));
-            anonwstring.setBound(new Long(boundNode.toString()));
+            anonwstring.setBound(Long.valueOf(boundNode.toString()));
             anonwstring.setType(simpleType.getQName());
 
             anon = anonwstring;
@@ -180,7 +174,7 @@ public class StringVisitor extends VisitorBase {
             // corba:anonstring
             Anonstring anonstring = new Anonstring();
             anonstring.setQName(new QName(typeMap.getTargetNamespace(), anonstringName));
-            anonstring.setBound(new Long(boundNode.toString()));
+            anonstring.setBound(Long.valueOf(boundNode.toString()));
             anonstring.setType(simpleType.getQName());
 
             anon = anonstring;
@@ -189,7 +183,7 @@ public class StringVisitor extends VisitorBase {
             // corba:anonwstring
             Anonwstring anonwstring = new Anonwstring();
             anonwstring.setQName(new QName(typeMap.getTargetNamespace(), anonstringName));
-            anonwstring.setBound(new Long(boundNode.toString()));
+            anonwstring.setBound(Long.valueOf(boundNode.toString()));
             anonwstring.setType(simpleType.getQName());
 
             anon = anonwstring;

@@ -26,6 +26,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.Writer;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -414,7 +415,7 @@ public class IDLToWSDLProcessor extends IDLProcessor {
             String encoding = env.get(ToolCorbaConstants.CFG_WSDL_ENCODING).toString();            
             return new FileWriterUtil().getWriter(file, encoding); 
         } else {
-            return new FileWriterUtil().getWriter(file, "UTF-8");
+            return new FileWriterUtil().getWriter(file, StandardCharsets.UTF_8.name());
         }       
     }    
 
@@ -636,9 +637,7 @@ public class IDLToWSDLProcessor extends IDLProcessor {
                 }
             } else if (mapping.startsWith(":")) {
                 mapping = mapping.substring(1);
-                BufferedReader reader = null;
-                try {
-                    reader = new BufferedReader(new FileReader(mapping));
+                try (BufferedReader reader = new BufferedReader(new FileReader(mapping))) {
                     String token = reader.readLine();
                     while (token != null) {
                         int pos = token.indexOf("=");
@@ -657,10 +656,6 @@ public class IDLToWSDLProcessor extends IDLProcessor {
                 } catch (Exception ex) {
                     throw new RuntimeException("Incorrect properties file for mns mapping - " + mapping
                                                + ". Cause: " + ex.getMessage());
-                } finally {
-                    if (reader != null) {
-                        reader.close();
-                    }
                 }
             } else {
                 throw new RuntimeException("Option mns should have a start([) & close(]) bracket"

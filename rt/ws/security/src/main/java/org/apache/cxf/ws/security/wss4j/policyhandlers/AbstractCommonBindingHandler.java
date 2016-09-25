@@ -20,8 +20,6 @@
 package org.apache.cxf.ws.security.wss4j.policyhandlers;
 
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -35,13 +33,10 @@ import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
 import org.apache.cxf.ws.policy.PolicyException;
 import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
-import org.apache.cxf.ws.security.wss4j.WSS4JUtils;
+import org.apache.cxf.ws.security.tokenstore.TokenStoreUtils;
 import org.apache.neethi.Assertion;
-import org.apache.wss4j.common.ext.WSSecurityException;
-import org.apache.wss4j.dom.util.WSSecurityUtil;
-import org.apache.wss4j.policy.SP11Constants;
-import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.SP13Constants;
 import org.apache.wss4j.policy.SPConstants;
 import org.apache.wss4j.policy.SPConstants.IncludeTokenType;
@@ -63,7 +58,6 @@ import org.apache.wss4j.policy.model.UsernameToken;
 import org.apache.wss4j.policy.model.Wss10;
 import org.apache.wss4j.policy.model.Wss11;
 import org.apache.wss4j.policy.model.X509Token;
-import org.apache.xml.security.utils.Base64;
 
 /**
  * Some common functionality to be shared between the two binding handlers (DOM + StAX)
@@ -78,11 +72,13 @@ public abstract class AbstractCommonBindingHandler {
         this.message = msg;
     }
 
-    protected void policyNotAsserted(Assertion assertion, String reason) {
+    protected void unassertPolicy(Assertion assertion, String reason) {
         if (assertion == null) {
             return;
         }
-        LOG.log(Level.FINE, "Not asserting " + assertion.getName() + ": " + reason);
+        if (LOG.isLoggable(Level.FINE)) {
+            LOG.log(Level.FINE, "Not asserting " + assertion.getName() + ": " + reason);
+        }
         AssertionInfoMap aim = message.get(AssertionInfoMap.class);
         Collection<AssertionInfo> ais = aim.get(assertion.getName());
         if (ais != null) {
@@ -97,7 +93,7 @@ public abstract class AbstractCommonBindingHandler {
         }
     }
     
-    protected void policyNotAsserted(Assertion assertion, Exception reason) {
+    protected void unassertPolicy(Assertion assertion, Exception reason) {
         if (assertion == null) {
             return;
         }
@@ -123,6 +119,7 @@ public abstract class AbstractCommonBindingHandler {
             return;
         }
         assertPolicy(tokenWrapper.getName());
+        assertToken(tokenWrapper.getToken());
     }
     
     protected void assertToken(AbstractToken token) {
@@ -408,60 +405,13 @@ public abstract class AbstractCommonBindingHandler {
         }
     }
     
-    protected AssertionInfo getFirstAssertionByLocalname(
-        AssertionInfoMap aim, String localname
-    ) {
-        Collection<AssertionInfo> sp11Ais = aim.get(new QName(SP11Constants.SP_NS, localname));
-        if (sp11Ais != null && !sp11Ais.isEmpty()) {
-            return sp11Ais.iterator().next();
-        }
-
-        Collection<AssertionInfo> sp12Ais = aim.get(new QName(SP12Constants.SP_NS, localname));
-        if (sp12Ais != null && !sp12Ais.isEmpty()) {
-            return sp12Ais.iterator().next();
-        }
-
-        return null;
-    }
-    
     protected Collection<AssertionInfo> getAllAssertionsByLocalname(String localname) {
         AssertionInfoMap aim = message.get(AssertionInfoMap.class);
-        return getAllAssertionsByLocalname(aim, localname);
+        return PolicyUtils.getAllAssertionsByLocalname(aim, localname);
     }
     
-    protected Collection<AssertionInfo> getAllAssertionsByLocalname(
-        AssertionInfoMap aim,
-        String localname
-    ) {
-        Collection<AssertionInfo> sp11Ais = aim.get(new QName(SP11Constants.SP_NS, localname));
-        Collection<AssertionInfo> sp12Ais = aim.get(new QName(SP12Constants.SP_NS, localname));
-
-        if ((sp11Ais != null && !sp11Ais.isEmpty()) || (sp12Ais != null && !sp12Ais.isEmpty())) {
-            Collection<AssertionInfo> ais = new HashSet<AssertionInfo>();
-            if (sp11Ais != null) {
-                ais.addAll(sp11Ais);
-            }
-            if (sp12Ais != null) {
-                ais.addAll(sp12Ais);
-            }
-            return ais;
-        }
-
-        return Collections.emptySet();
-    }
-
     protected SoapMessage getMessage() {
         return message;
-    }
-    
-    protected static String getSHA1(byte[] input) {
-        try {
-            byte[] digestBytes = WSSecurityUtil.generateDigest(input);
-            return Base64.encode(digestBytes);
-        } catch (WSSecurityException e) {
-            //REVISIT
-        }
-        return null;
     }
     
     protected boolean isRequestor() {
@@ -487,20 +437,14 @@ public abstract class AbstractCommonBindingHandler {
     
     protected Wss10 getWss10() {
         AssertionInfoMap aim = message.get(AssertionInfoMap.class);
-        Collection<AssertionInfo> ais = getAllAssertionsByLocalname(aim, SPConstants.WSS10);
-        if (!ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                return (Wss10)ai.getAssertion();
-            }            
+        AssertionInfo ai = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.WSS10);
+        if (ai == null) {
+            ai = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.WSS11);
         }
         
-        ais = getAllAssertionsByLocalname(aim, SPConstants.WSS11);
-        if (!ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                return (Wss10)ai.getAssertion();
-            }            
-        }  
-        
+        if (ai != null) {
+            return (Wss10)ai.getAssertion();
+        }
         return null;
     }
     
@@ -509,20 +453,15 @@ public abstract class AbstractCommonBindingHandler {
         if (st == null) {
             String id = (String)message.getContextualProperty(SecurityConstants.TOKEN_ID);
             if (id != null) {
-                st = WSS4JUtils.getTokenStore(message).getToken(id);
+                st = TokenStoreUtils.getTokenStore(message).getToken(id);
             }
         }
         return st;
     }
    
-    protected void assertPolicy(QName n) {
+    protected void assertPolicy(QName name) {
         AssertionInfoMap aim = message.get(AssertionInfoMap.class);
-        Collection<AssertionInfo> ais = aim.getAssertionInfo(n);
-        if (ais != null && !ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                ai.setAsserted(true);
-            }
-        }
+        PolicyUtils.assertPolicy(aim, name);
     } 
     
     protected void assertPolicy(Assertion assertion) {

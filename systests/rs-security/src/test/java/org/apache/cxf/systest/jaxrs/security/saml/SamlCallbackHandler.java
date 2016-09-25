@@ -33,9 +33,9 @@ import org.apache.cxf.helpers.CastUtils;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.phase.PhaseInterceptorChain;
 import org.apache.cxf.rs.security.common.CryptoLoader;
-import org.apache.cxf.rs.security.common.SecurityUtils;
-import org.apache.cxf.rt.security.claims.SAMLClaim;
-import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.cxf.rs.security.common.RSSecurityUtils;
+import org.apache.cxf.rt.security.SecurityConstants;
+import org.apache.cxf.rt.security.saml.claims.SAMLClaim;
 import org.apache.wss4j.common.crypto.Crypto;
 import org.apache.wss4j.common.saml.SAMLCallback;
 import org.apache.wss4j.common.saml.bean.ActionBean;
@@ -48,10 +48,10 @@ import org.apache.wss4j.common.saml.bean.AuthenticationStatementBean;
 import org.apache.wss4j.common.saml.bean.ConditionsBean;
 import org.apache.wss4j.common.saml.bean.KeyInfoBean;
 import org.apache.wss4j.common.saml.bean.SubjectBean;
+import org.apache.wss4j.common.saml.bean.Version;
 import org.apache.wss4j.common.saml.builder.SAML1Constants;
 import org.apache.wss4j.common.saml.builder.SAML2Constants;
 import org.joda.time.DateTime;
-import org.opensaml.common.SAMLVersion;
 
 /**
  * A CallbackHandler instance that is used by the STS to mock up a SAML Attribute Assertion.
@@ -59,6 +59,9 @@ import org.opensaml.common.SAMLVersion;
 public class SamlCallbackHandler implements CallbackHandler {
     private boolean saml2 = true;
     private String confirmationMethod = SAML2Constants.CONF_SENDER_VOUCHES;
+    private String signatureAlgorithm;
+    private String digestAlgorithm;
+    private boolean signAssertion;
     
     public SamlCallbackHandler() {
         //
@@ -79,9 +82,9 @@ public class SamlCallbackHandler implements CallbackHandler {
             if (callbacks[i] instanceof SAMLCallback) {
                 SAMLCallback callback = (SAMLCallback) callbacks[i];
                 if (saml2) {
-                    callback.setSamlVersion(SAMLVersion.VERSION_20);
+                    callback.setSamlVersion(Version.SAML_20);
                 } else {
-                    callback.setSamlVersion(SAMLVersion.VERSION_11);
+                    callback.setSamlVersion(Version.SAML_11);
                 }
                 callback.setIssuer("https://idp.example.org/SAML2");
                 
@@ -105,8 +108,8 @@ public class SamlCallbackHandler implements CallbackHandler {
                                                          SecurityConstants.SIGNATURE_CRYPTO,
                                                          SecurityConstants.SIGNATURE_PROPERTIES);
                         X509Certificate cert = 
-                            SecurityUtils.getCertificates(crypto, 
-                                SecurityUtils.getUserName(m, crypto, "ws-security.signature.username"))[0];
+                            RSSecurityUtils.getCertificates(crypto, 
+                                RSSecurityUtils.getUserName(m, crypto, SecurityConstants.SIGNATURE_USERNAME))[0];
                         
                         KeyInfoBean keyInfo = new KeyInfoBean();
                         keyInfo.setCertificate(cert);
@@ -172,8 +175,37 @@ public class SamlCallbackHandler implements CallbackHandler {
                 
                 attrBean.setSamlAttributes(claims);
                 callback.setAttributeStatementData(Collections.singletonList(attrBean));
+                
+                callback.setSignatureAlgorithm(signatureAlgorithm);
+                callback.setSignatureDigestAlgorithm(digestAlgorithm);
+                
+                callback.setSignAssertion(signAssertion);
             }
         }
+    }
+
+    public String getSignatureAlgorithm() {
+        return signatureAlgorithm;
+    }
+
+    public void setSignatureAlgorithm(String signatureAlgorithm) {
+        this.signatureAlgorithm = signatureAlgorithm;
+    }
+
+    public String getDigestAlgorithm() {
+        return digestAlgorithm;
+    }
+
+    public void setDigestAlgorithm(String digestAlgorithm) {
+        this.digestAlgorithm = digestAlgorithm;
+    }
+
+    public boolean isSignAssertion() {
+        return signAssertion;
+    }
+
+    public void setSignAssertion(boolean signAssertion) {
+        this.signAssertion = signAssertion;
     }
     
 }

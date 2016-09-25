@@ -21,22 +21,10 @@ package org.apache.cxf.systest.ws.saml;
 
 import java.util.List;
 
-import javax.xml.transform.Source;
-import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.dom.DOMResult;
-import javax.xml.transform.dom.DOMSource;
-
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.Node;
-
-import org.apache.cxf.helpers.DOMUtils;
-import org.apache.cxf.rt.security.xacml.XACMLConstants;
-import org.apache.cxf.rt.security.xacml.pdp.api.PolicyDecisionPoint;
-import org.apache.wss4j.common.ext.WSSecurityException;
-import org.apache.wss4j.common.saml.OpenSAMLUtil;
-import org.opensaml.Configuration;
+import org.apache.cxf.rt.security.saml.xacml.XACMLConstants;
+import org.apache.cxf.rt.security.saml.xacml2.PolicyDecisionPoint;
+import org.opensaml.core.xml.XMLObjectBuilderFactory;
+import org.opensaml.core.xml.config.XMLObjectProviderRegistrySupport;
 import org.opensaml.xacml.XACMLObjectBuilder;
 import org.opensaml.xacml.ctx.AttributeType;
 import org.opensaml.xacml.ctx.DecisionType;
@@ -46,7 +34,6 @@ import org.opensaml.xacml.ctx.ResultType;
 import org.opensaml.xacml.ctx.StatusCodeType;
 import org.opensaml.xacml.ctx.StatusType;
 import org.opensaml.xacml.ctx.SubjectType;
-import org.opensaml.xml.XMLObjectBuilderFactory;
 
 /**
  * A test implementation of PolicyDecisionPoint. It just mocks up a Response
@@ -60,10 +47,10 @@ public class PolicyDecisionPointMockImpl implements PolicyDecisionPoint {
     }
     
     @Override
-    public Source evaluate(Source request) {
-        RequestType requestType = requestSourceToRequestType(request);
+    public ResponseType evaluate(RequestType requestType) {
         
-        XMLObjectBuilderFactory builderFactory = Configuration.getBuilderFactory();
+        XMLObjectBuilderFactory builderFactory = 
+            XMLObjectProviderRegistrySupport.getBuilderFactory();
         
         @SuppressWarnings("unchecked")
         XACMLObjectBuilder<ResponseType> responseTypeBuilder = 
@@ -109,35 +96,9 @@ public class PolicyDecisionPointMockImpl implements PolicyDecisionPoint {
         result.setStatus(status);
         
         ResponseType response = responseTypeBuilder.buildObject();
-        response.setResult(result);
+        response.getResults().add(result);
         
-        return responseType2Source(response);
-    }
-    
-    private RequestType requestSourceToRequestType(Source requestSource) {
-        try {
-            Transformer trans = TransformerFactory.newInstance().newTransformer();
-            DOMResult res = new DOMResult();
-            trans.transform(requestSource, res);
-            Node nd = res.getNode();
-            if (nd instanceof Document) {
-                nd = ((Document)nd).getDocumentElement();
-            }
-            return (RequestType)OpenSAMLUtil.fromDom((Element)nd);
-        } catch (Exception e) {
-            throw new RuntimeException("Error converting pdp response to ResponseType", e);
-        }
-    }
-    
-    private Source responseType2Source(ResponseType response) {
-        Document doc = DOMUtils.createDocument();
-        Element responseElement;
-        try {
-            responseElement = OpenSAMLUtil.toDom(response, doc);
-        } catch (WSSecurityException e) {
-            throw new RuntimeException("Error converting PDP RequestType to Dom", e);
-        }
-        return new DOMSource(responseElement);
+        return response;
     }
     
     private String getSubjectRole(RequestType request) {
@@ -147,7 +108,7 @@ public class PolicyDecisionPointMockImpl implements PolicyDecisionPoint {
                 List<AttributeType> attributes = subject.getAttributes();
                 if (attributes != null) {
                     for (AttributeType attribute : attributes) {
-                        if (XACMLConstants.SUBJECT_ROLE.equals(attribute.getAttributeID())) {
+                        if (XACMLConstants.SUBJECT_ROLE.equals(attribute.getAttributeId())) {
                             return attribute.getAttributeValues().get(0).getValue();
                         }
                     }

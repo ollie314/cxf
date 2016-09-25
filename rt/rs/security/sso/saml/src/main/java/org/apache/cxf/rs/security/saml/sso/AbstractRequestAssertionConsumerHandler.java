@@ -22,8 +22,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.UnsupportedEncodingException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.ResourceBundle;
 import java.util.UUID;
@@ -37,7 +37,6 @@ import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 
 import org.w3c.dom.Document;
-
 import org.apache.cxf.Bus;
 import org.apache.cxf.common.i18n.BundleUtils;
 import org.apache.cxf.common.logging.LogUtils;
@@ -46,6 +45,7 @@ import org.apache.cxf.common.util.Base64Utility;
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.jaxrs.ext.MessageContext;
 import org.apache.cxf.jaxrs.utils.ExceptionUtils;
+import org.apache.cxf.jaxrs.utils.JAXRSUtils;
 import org.apache.cxf.rs.security.saml.DeflateEncoderDecoder;
 import org.apache.cxf.rs.security.saml.sso.state.RequestState;
 import org.apache.cxf.rs.security.saml.sso.state.ResponseState;
@@ -53,7 +53,7 @@ import org.apache.cxf.staxutils.StaxUtils;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.common.saml.OpenSAMLUtil;
 import org.apache.wss4j.common.util.DOM2Writer;
-import org.opensaml.xml.XMLObject;
+import org.opensaml.core.xml.XMLObject;
 
 public abstract class AbstractRequestAssertionConsumerHandler extends AbstractSSOSpHandler {
     private static final Logger LOG = 
@@ -66,9 +66,13 @@ public abstract class AbstractRequestAssertionConsumerHandler extends AbstractSS
     private boolean enforceAssertionsSigned = true;
     private boolean enforceKnownIssuer = true;
     private boolean keyInfoMustBeAvailable = true;
+    private boolean enforceResponseSigned;
     private TokenReplayCache<String> replayCache;
 
     private MessageContext messageContext;
+    private String applicationURL;
+    private boolean parseApplicationURLFromRelayState;
+    private String assertionConsumerServiceAddress;
     
     @Context 
     public void setMessageContext(MessageContext mc) {
@@ -162,7 +166,7 @@ public abstract class AbstractRequestAssertionConsumerHandler extends AbstractSS
                                            String relayState,
                                            boolean postBinding) {
            
-        org.opensaml.saml2.core.Response samlResponse = 
+        org.opensaml.saml.saml2.core.Response samlResponse = 
                readSAMLResponse(postBinding, encodedSamlResponse);
 
         // Validate the Response
@@ -201,11 +205,36 @@ public abstract class AbstractRequestAssertionConsumerHandler extends AbstractSS
     }
     
     protected RequestState processRelayState(String relayState) {
+        if (isSupportUnsolicited()) {
+            String urlToForwardTo = applicationURL;
+            if (relayState != null && relayState.getBytes().length > 0 && relayState.getBytes().length < 80) {
+                // First see if we have a valid RequestState
+                RequestState requestState = getStateProvider().removeRequestState(relayState);
+                if (requestState != null && !isStateExpired(requestState.getCreatedAt(), 0)) {
+                    return requestState;
+                }
+                
+                // Otherwise get the application URL from the RelayState if supported
+                if (parseApplicationURLFromRelayState) {
+                    urlToForwardTo = relayState;
+                }
+            }
+            
+            // Otherwise create a new one for the IdP initiated case
+            return new RequestState(urlToForwardTo,
+                                    getIdpServiceAddress(),
+                                    null,
+                                    getIssuerId(JAXRSUtils.getCurrentMessage()),
+                                    "/",
+                                    null,
+                                    new Date().getTime());
+        }
+        
         if (relayState == null) {
             reportError("MISSING_RELAY_STATE");
             throw ExceptionUtils.toBadRequestException(null, null);
         }
-        if (relayState.getBytes().length < 0 || relayState.getBytes().length > 80) {
+        if (relayState.getBytes().length == 0 || relayState.getBytes().length > 80) {
             reportError("INVALID_RELAY_STATE");
             throw ExceptionUtils.toBadRequestException(null, null);
         }
@@ -218,10 +247,11 @@ public abstract class AbstractRequestAssertionConsumerHandler extends AbstractSS
             reportError("EXPIRED_REQUEST_STATE");
             throw ExceptionUtils.toBadRequestException(null, null);
         }
+
         return requestState;
     }
     
-    private org.opensaml.saml2.core.Response readSAMLResponse(
+    private org.opensaml.saml.saml2.core.Response readSAMLResponse(
         boolean postBinding,
         String samlResponse
     ) {
@@ -235,7 +265,7 @@ public abstract class AbstractRequestAssertionConsumerHandler extends AbstractSS
         // URL Decoding only applies for the re-direct binding
         if (!postBinding) {
             try {
-                samlResponseDecoded = URLDecoder.decode(samlResponse, "UTF-8");
+                samlResponseDecoded = URLDecoder.decode(samlResponse, StandardCharsets.UTF_8);
             } catch (UnsupportedEncodingException e) {
                 throw ExceptionUtils.toBadRequestException(null, null);
             }
@@ -254,16 +284,12 @@ public abstract class AbstractRequestAssertionConsumerHandler extends AbstractSS
                 throw ExceptionUtils.toBadRequestException(ex, null);
             }
         } else {
-            try {
-                tokenStream = new ByteArrayInputStream(samlResponseDecoded.getBytes("UTF-8"));
-            } catch (UnsupportedEncodingException ex) {
-                throw ExceptionUtils.toBadRequestException(ex, null);
-            }
+            tokenStream = new ByteArrayInputStream(samlResponseDecoded.getBytes(StandardCharsets.UTF_8));
         }
         
         Document responseDoc = null;
         try {
-            responseDoc = StaxUtils.read(new InputStreamReader(tokenStream, "UTF-8"));
+            responseDoc = StaxUtils.read(new InputStreamReader(tokenStream, StandardCharsets.UTF_8));
         } catch (Exception ex) {
             throw new WebApplicationException(400);
         }
@@ -276,17 +302,17 @@ public abstract class AbstractRequestAssertionConsumerHandler extends AbstractSS
         } catch (WSSecurityException ex) {
             throw ExceptionUtils.toBadRequestException(ex, null);
         }
-        if (!(responseObject instanceof org.opensaml.saml2.core.Response)) {
+        if (!(responseObject instanceof org.opensaml.saml.saml2.core.Response)) {
             throw ExceptionUtils.toBadRequestException(null, null);
         }
-        return (org.opensaml.saml2.core.Response)responseObject;
+        return (org.opensaml.saml.saml2.core.Response)responseObject;
     }
     
     /**
      * Validate the received SAML Response as per the protocol
      */
     protected void validateSamlResponseProtocol(
-        org.opensaml.saml2.core.Response samlResponse
+        org.opensaml.saml.saml2.core.Response samlResponse
     ) {
         try {
             SAMLProtocolResponseValidator protocolValidator = new SAMLProtocolResponseValidator();
@@ -304,13 +330,16 @@ public abstract class AbstractRequestAssertionConsumerHandler extends AbstractSS
      */
     protected SSOValidatorResponse validateSamlSSOResponse(
         boolean postBinding,
-        org.opensaml.saml2.core.Response samlResponse,
+        org.opensaml.saml.saml2.core.Response samlResponse,
         RequestState requestState
     ) {
         try {
             SAMLSSOResponseValidator ssoResponseValidator = new SAMLSSOResponseValidator();
-            ssoResponseValidator.setAssertionConsumerURL(
-                messageContext.getUriInfo().getAbsolutePath().toString());
+            String racsAddress = assertionConsumerServiceAddress;
+            if (racsAddress == null) {
+                racsAddress = messageContext.getUriInfo().getAbsolutePath().toString();
+            }
+            ssoResponseValidator.setAssertionConsumerURL(racsAddress);
 
             ssoResponseValidator.setClientAddress(
                  messageContext.getHttpServletRequest().getRemoteAddr());
@@ -319,8 +348,11 @@ public abstract class AbstractRequestAssertionConsumerHandler extends AbstractSS
             ssoResponseValidator.setRequestId(requestState.getSamlRequestId());
             ssoResponseValidator.setSpIdentifier(requestState.getIssuerId());
             ssoResponseValidator.setEnforceAssertionsSigned(enforceAssertionsSigned);
+            ssoResponseValidator.setEnforceResponseSigned(enforceResponseSigned);
             ssoResponseValidator.setEnforceKnownIssuer(enforceKnownIssuer);
-            ssoResponseValidator.setReplayCache(getReplayCache());
+            if (postBinding) {
+                ssoResponseValidator.setReplayCache(getReplayCache());
+            }
 
             return ssoResponseValidator.validateSamlResponse(samlResponse, postBinding);
         } catch (WSSecurityException ex) {
@@ -338,4 +370,48 @@ public abstract class AbstractRequestAssertionConsumerHandler extends AbstractSS
     public void setKeyInfoMustBeAvailable(boolean keyInfoMustBeAvailable) {
         this.keyInfoMustBeAvailable = keyInfoMustBeAvailable;
     }
+
+    public boolean isEnforceResponseSigned() {
+        return enforceResponseSigned;
+    }
+
+    /**
+     * Enforce that a SAML Response must be signed.
+     */
+    public void setEnforceResponseSigned(boolean enforceResponseSigned) {
+        this.enforceResponseSigned = enforceResponseSigned;
+    }
+
+    public String getApplicationURL() {
+        return applicationURL;
+    }
+
+    /**
+     * Set the Application URL to forward to, for the unsolicited IdP case.
+     * @param applicationURL
+     */
+    public void setApplicationURL(String applicationURL) {
+        this.applicationURL = applicationURL;
+    }
+
+    public boolean isParseApplicationURLFromRelayState() {
+        return parseApplicationURLFromRelayState;
+    }
+
+    /**
+     * Whether to parse the application URL to forward to from the RelayState, for the unsolicted IdP case.
+     * @param parseApplicationURLFromRelayState
+     */
+    public void setParseApplicationURLFromRelayState(boolean parseApplicationURLFromRelayState) {
+        this.parseApplicationURLFromRelayState = parseApplicationURLFromRelayState;
+    }
+
+    public String getAssertionConsumerServiceAddress() {
+        return assertionConsumerServiceAddress;
+    }
+
+    public void setAssertionConsumerServiceAddress(String assertionConsumerServiceAddress) {
+        this.assertionConsumerServiceAddress = assertionConsumerServiceAddress;
+    }
+
 }

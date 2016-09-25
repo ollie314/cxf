@@ -19,20 +19,21 @@
 package org.apache.cxf.sts.request;
 
 import java.security.Principal;
+import java.util.Set;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.xml.bind.JAXBElement;
 import javax.xml.namespace.QName;
 
 import org.w3c.dom.Element;
-
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.sts.QNameConstants;
 import org.apache.cxf.ws.security.sts.provider.STSException;
 
 /**
  * This class contains values that have been extracted from a received Token. The Token can be a
- * JAXB UsernameTokenType/BinarySecurityTokenType or a DOM Element.
+ * JAXB UsernameTokenType/BinarySecurityTokenType, a DOM Element or a String.
  */
 public class ReceivedToken {
     
@@ -45,6 +46,7 @@ public class ReceivedToken {
     private String tokenContext; // WS-Security, OnBehalfOf, ActAs
     private STATE state = STATE.NONE;
     private Principal principal;
+    private Set<Principal> roles;
     
     public enum STATE { VALID, INVALID, CANCELLED, EXPIRED, NONE };
     
@@ -67,7 +69,9 @@ public class ReceivedToken {
             }
             token = ((JAXBElement<?>)receivedToken).getValue();
         } else if (receivedToken instanceof Element) {
-            LOG.fine("Found ValidateTarget element: " + ((Element)receivedToken).getLocalName());
+            if (LOG.isLoggable(Level.FINE)) {
+                LOG.fine("Found ValidateTarget element: " + ((Element)receivedToken).getLocalName());
+            }
             this.token = receivedToken;
             isDOMElement = true;
         } else {
@@ -132,6 +136,14 @@ public class ReceivedToken {
 
     public void setPrincipal(Principal principal) {
         this.principal = principal;
+    }
+    
+    public Set<Principal> getRoles() {
+        return roles;
+    }
+
+    public void setRoles(Set<Principal> roles) {
+        this.roles = roles;
     }
     
 }

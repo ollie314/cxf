@@ -39,8 +39,10 @@ import org.apache.cxf.phase.Phase;
 /**
  * A simple logging handler which outputs the bytes of the message to the
  * Logger.
+ * @deprecated use the logging module rt/features/logging instead
  */
 @NoJSR250Annotations
+@Deprecated
 public class LoggingInInterceptor extends AbstractLoggingInterceptor {
     private static final Logger LOG = LogUtils.getLogger(LoggingInInterceptor.class);
     
@@ -145,6 +147,11 @@ public class LoggingInInterceptor extends AbstractLoggingInterceptor {
         
         if (!isShowBinaryContent() && isBinaryContent(ct)) {
             buffer.getMessage().append(BINARY_CONTENT_MESSAGE).append('\n');
+            log(logger, buffer.toString());
+            return;
+        }
+        if (!isShowMultipartContent() && isMultipartContent(ct)) {
+            buffer.getMessage().append(MULTIPART_CONTENT_MESSAGE).append('\n');
             log(logger, buffer.toString());
             return;
         }

@@ -91,12 +91,16 @@ import org.apache.cxf.helpers.IOUtils;
 import org.apache.cxf.jaxrs.ext.MessageContext;
 import org.apache.cxf.jaxrs.ext.Nullable;
 import org.apache.cxf.jaxrs.ext.Oneway;
+import org.apache.cxf.jaxrs.ext.PATCH;
+import org.apache.cxf.jaxrs.ext.StreamingResponse;
 import org.apache.cxf.jaxrs.ext.search.QueryContext;
 import org.apache.cxf.jaxrs.ext.search.SearchCondition;
 import org.apache.cxf.jaxrs.ext.search.SearchContext;
 import org.apache.cxf.jaxrs.ext.xml.XMLInstruction;
 import org.apache.cxf.jaxrs.ext.xml.XSISchemaLocation;
+import org.apache.cxf.jaxrs.impl.MetadataMap;
 import org.apache.cxf.jaxrs.utils.InjectionUtils;
+import org.apache.cxf.message.Message;
 import org.apache.cxf.phase.PhaseInterceptorChain;
 import org.apache.cxf.systest.jaxrs.BookServer20.CustomHeaderAdded;
 import org.apache.cxf.systest.jaxrs.BookServer20.CustomHeaderAddedAsync;
@@ -107,6 +111,7 @@ import org.junit.Assert;
 @Path("/bookstore")
 @GZIP(threshold = 1)
 public class BookStore {
+    
     private Map<Long, Book> books = new HashMap<Long, Book>();
     private Map<Long, CD> cds = new HashMap<Long, CD>();
     private long bookId = 123;
@@ -127,6 +132,8 @@ public class BookStore {
     private UriInfo uiFromConstructor;
     @Context 
     private ResourceContext resourceContext;
+    @Context 
+    private MessageContext messageContext;
     @Context 
     private Configuration configuration;
     
@@ -152,11 +159,32 @@ public class BookStore {
     public void preDestroy() {
         //System.out.println("PreDestroy called");
     }
-
+    @GET
+    @Path("/booktype")
+    @Produces("application/json")
+    public BookType getBookType() {
+        return new BookType("root", 124L);
+    }
     @GET
     @Path("/")
     public Book getBookRoot() {
         return new Book("root", 124L);
+    }
+    @PUT
+    @Path("/updatebook/{id}")
+    @Consumes("application/xml")
+    @Produces("application/xml")
+    public Book updateEchoBook(Book book) {
+        if (book.getId() != Long.parseLong(ui.getPathParameters().getFirst("id"))) {
+            throw new WebApplicationException(404);
+        }
+        return new Book("root", book.getId());
+    }
+    @GET
+    @Path("/books/wildcard")
+    @Produces("text/*")
+    public String getBookTextWildcard() {
+        return "book";
     }
     
     @GET
@@ -260,11 +288,29 @@ public class BookStore {
         return book;
     }
     
+    @PATCH
+    @Path("/patch")
+    @Produces("application/xml")
+    @Consumes("application/xml")
+    public Response patchBook(Book book) {
+        return Response.ok(book).build();
+    }
+    
     @DELETE
     @Path("/deletebody")
     @Produces("application/xml")
     @Consumes("application/xml")
     public Book deleteBodyBook(Book book) {
+        return book;
+    }
+    
+    @POST
+    @Path("/echoxmlbookquery")
+    @Produces("application/xml")
+    public Book echoXmlBookQuery(@QueryParam("book") Book book, @QueryParam("id") byte id) {
+        if (book.getId() != (long)id) {
+            throw new RuntimeException();
+        }
         return book;
     }
     
@@ -277,6 +323,14 @@ public class BookStore {
             throw new WebApplicationException(400);
         }
         return "empty form";
+    }
+    
+    @POST
+    @Path("/form")
+    @Produces(MediaType.APPLICATION_FORM_URLENCODED)
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Form echoForm(Form form) {
+        return form;
     }
     
     @GET
@@ -293,7 +347,27 @@ public class BookStore {
     public Book getBeanParamBook(@BeanParam BookBean bean) {
         
         long id = bean.getId() + bean.getId2() + bean.getId3(); 
+        if (bean.getNested().getId4() != id) {
+            throw new RuntimeException();
+        }
+        return books.get(id);
+    }
+    
+    @Path("/beanparamsub")
+    public BookStoreSub getBeanParamBookSub() {
+        return new BookStoreSub(this);
+    }
+    
+    @GET
+    @Path("/twoBeanParams/{id}")
+    @Produces("application/xml")
+    public Book getTwoBeanParamsBook(@BeanParam BookBean2 bean1, 
+                                     @BeanParam BookBeanNested bean2) {
         
+        long id = bean1.getId() + bean1.getId2() + bean1.getId3(); 
+        if (bean2.getId4() != id) {
+            throw new RuntimeException();
+        }
         return books.get(id);
     }
     
@@ -365,7 +439,11 @@ public class BookStore {
     
     @PUT
     @Path("emptyput")
+    @Consumes("application/json")
     public void emptyput() {
+        if (!httpHeaders.getMediaType().toString().equals("application/json")) {
+            throw new RuntimeException();
+        }
     }
     
     @POST
@@ -476,7 +554,7 @@ public class BookStore {
     
     @GET
     @Path("books/check/{id}")
-    @Produces("text/plain")
+    @Produces("text/plain,text/boolean")
     public boolean checkBook(@PathParam("id") Long id) {
         return books.containsKey(id);
     }
@@ -540,6 +618,16 @@ public class BookStore {
                             .header("Allow", "GET")
                             .header("Allow", "DELETE")
                             .build();
+    }
+    
+    @GET
+    @Path("/options/2")
+    public Response getOptions2() throws Exception {
+        return getOptions();
+    }
+    @Path("/options/{id}")
+    public int getOptions2Sub(@PathParam("id") int id) {
+        throw new RuntimeException();
     }
     
     @POST
@@ -720,7 +808,8 @@ public class BookStore {
         @HeaderParam("BOOK") String headerBook,
         @HeaderParam("Simple") String headerSimple,
         @HeaderParam("ServerReaderInterceptor") String serverInterceptorHeader,
-        @HeaderParam("ClientWriterInterceptor") String clientInterceptorHeader) throws Exception {
+        @HeaderParam("ClientWriterInterceptor") String clientInterceptorHeader,
+        @HeaderParam("EmptyRequestStreamDetected") String emptyStreamHeader) throws Exception {
         if (!"application/xml".equals(ct)) {
             throw new RuntimeException();
         }
@@ -730,6 +819,9 @@ public class BookStore {
         }
         if (clientInterceptorHeader != null) {
             builder.header("ClientWriterInterceptor", clientInterceptorHeader);
+        }
+        if (emptyStreamHeader != null) {
+            builder.header("EmptyRequestStreamDetected", emptyStreamHeader);
         }
         return builder.build();
     }
@@ -773,7 +865,7 @@ public class BookStore {
         throws Exception {
         
         return echoBookByHeaderSimple(book, ct, headerBook, headerSimple, serverInterceptorHeader, 
-                                      clientInterceptorHeader);
+                                      clientInterceptorHeader, null);
     }
     
     private ResponseBuilder getBookByHeaderSimpleBuilder(@HeaderParam("BOOK") String headerBook,
@@ -782,6 +874,10 @@ public class BookStore {
         ResponseBuilder builder = Response.ok(doGetBook(headerBook));
         if (headerSimple != null) {
             builder.header("Simple", headerSimple);
+        }
+        String aHeaderValue = httpHeaders.getHeaderString("a");
+        if (aHeaderValue != null) {
+            builder.header("a", aHeaderValue);
         }
         return builder;
     }
@@ -1082,6 +1178,13 @@ public class BookStore {
     public Book echoBookElement(Book element) throws Exception {
         return element;
     }
+    @POST
+    @Path("/books/json/echo")
+    @Consumes("application/json")
+    @Produces("application/json")
+    public Book echoBookElementJson(Book element) throws Exception {
+        return element;
+    }
     
     @SuppressWarnings("unchecked")
     @POST
@@ -1164,6 +1267,29 @@ public class BookStore {
     @Produces("application/bar")
     public StreamingOutput failEarlyInWrite() {
         return new StreamingOutputImpl(true);
+    }
+    
+    @GET
+    @Path("/books/statusFromStream")
+    @Produces("text/xml")
+    public Response statusFromStream() {
+        return Response.ok(new ResponseStreamingOutputImpl()).type("text/plain").build();
+    }
+    
+    @SuppressWarnings("rawtypes")
+    @GET
+    @Path("/books/streamingresponse")
+    @Produces("text/xml")
+    public Response getBookStreamingResponse() {
+        return Response.ok(new StreamingResponse() {
+
+            @SuppressWarnings("unchecked")
+            @Override
+            public void writeTo(Writer writer) throws IOException {
+                writer.write(new Book("stream", 124L));
+            }
+            
+        }).build();
     }
     
     @GET
@@ -1548,11 +1674,11 @@ public class BookStore {
         private String name;
         private long id;
         
-        public BookInfo() {
+        BookInfo() {
             
         }
         
-        public BookInfo(Book b) {
+        BookInfo(Book b) {
             this.name = b.getName();
             this.id = b.getId();
             if (id == 0) {
@@ -1577,11 +1703,11 @@ public class BookStore {
     }
     
     static class BookInfo2 extends BookInfo implements BookInfoInterface {
-        public BookInfo2() {
+        BookInfo2() {
             
         }
         
-        public BookInfo2(Book b) {
+        BookInfo2(Book b) {
             super(b);
         }
     }
@@ -1613,7 +1739,7 @@ public class BookStore {
     }
     
     static class BadBook {
-        public BadBook(String s) {
+        BadBook(String s) {
             throw new RuntimeException("The bad book");
         }
     }
@@ -1622,7 +1748,7 @@ public class BookStore {
 
         private boolean failEarly;
         
-        public StreamingOutputImpl(boolean failEarly) {
+        StreamingOutputImpl(boolean failEarly) {
             this.failEarly = failEarly;
         }
         
@@ -1635,6 +1761,21 @@ public class BookStore {
                 output.write("This is not supposed to go on the wire".getBytes());
                 throw new WebApplicationException(410);
             }
+        } 
+        
+    }
+    private class ResponseStreamingOutputImpl implements StreamingOutput {
+        public void write(OutputStream output) throws IOException, WebApplicationException {
+            if (!"text/plain".equals(BookStore.this.messageContext.get("Content-Type"))) {
+                throw new RuntimeException();
+            }
+            BookStore.this.messageContext.put(Message.RESPONSE_CODE, 503);
+            MultivaluedMap<String, String> headers = new MetadataMap<String, String>();
+            headers.putSingle("Content-Type", "text/custom+plain");
+            headers.putSingle("CustomHeader", "CustomValue");
+            BookStore.this.messageContext.put(Message.PROTOCOL_HEADERS, headers);
+            
+            output.write("Response is not available".getBytes());
         } 
         
     }
@@ -1652,11 +1793,80 @@ public class BookStore {
                                     handler);
     }
     
-    public static class BookBean {
+    public abstract static class AbstractBookBean {
+        @QueryParam("id_2")
+        private long id2;
+        public long getId2() {
+            return id2;
+        }
+
+        public void setId2(long id2) {
+            this.id2 = id2;
+        }
+    }
+    
+    public static class BookBean extends AbstractBookBean {
         private long id;
+        
+        
+        private long id3;
+        private BookBeanNested nested;
+
+        public long getId() {
+            return id;
+        }
+
+        @PathParam("id")
+        public void setId(long id) {
+            this.id = id;
+        }
+        
+        @Context
+        public void setUriInfo(UriInfo ui) {
+            String id3Value = ui.getQueryParameters().getFirst("id3");
+            if (id3Value != null) {
+                this.id3 = Long.valueOf(id3Value);
+            }
+        }
+
+        public long getId3() {
+            return id3;
+        }
+
+        public BookBeanNested getNested() {
+            return nested;
+        }
+
+        @BeanParam
+        public void setNested(BookBeanNested nested) {
+            this.nested = nested;
+        }
+
+        
+    }
+    
+    public static class BookBeanExtended extends BookBean {
+        
+    }
+    
+    public static class BookBeanNested {
+        private long id4;
+
+        public long getId4() {
+            return id4;
+        }
+        @QueryParam("id4")
+        public void setId4(long id4) {
+            this.id4 = id4;
+        }
+        
+    }
+    
+    public static class BookBean2 {
+        private long id;
+        @QueryParam("id_2")
         private long id2;
         private long id3;
-
         public long getId() {
             return id;
         }
@@ -1670,7 +1880,6 @@ public class BookStore {
             return id2;
         }
 
-        @QueryParam("id_2")
         public void setId2(long id2) {
             this.id2 = id2;
         }
@@ -1686,8 +1895,6 @@ public class BookStore {
         public long getId3() {
             return id3;
         }
-
-        
     }
     
     public static class BookNotReturnedException extends RuntimeException {
@@ -1849,7 +2056,19 @@ public class BookStore {
             arg6.write(sb.toString().getBytes());
         }
     
-    }    
+    }
+    public static class BookStoreSub {
+        BookStore bookStore;
+        public BookStoreSub(BookStore bookStore) {
+            this.bookStore = bookStore;
+        }
+        @GET
+        @Path("/beanparam/{id}")
+        @Produces("application/xml")
+        public Book getBeanParamBook(@BeanParam BookBeanExtended bean) {
+            return bookStore.getBeanParamBook(bean);
+        }
+    }
 }
 
 

@@ -34,15 +34,16 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import com.ning.http.client.AsyncHttpClient;
-import com.ning.http.client.websocket.WebSocket;
-import com.ning.http.client.websocket.WebSocketByteListener;
-import com.ning.http.client.websocket.WebSocketTextListener;
-import com.ning.http.client.websocket.WebSocketUpgradeHandler;
+import com.ning.http.client.ws.WebSocket;
+import com.ning.http.client.ws.WebSocketByteListener;
+import com.ning.http.client.ws.WebSocketTextListener;
+import com.ning.http.client.ws.WebSocketUpgradeHandler;
 
 import org.apache.cxf.Bus;
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.service.model.EndpointInfo;
+import org.apache.cxf.transport.http.Address;
 import org.apache.cxf.transport.http.Headers;
 import org.apache.cxf.transport.http.URLConnectionHTTPConduit;
 import org.apache.cxf.transport.https.HttpsURLConnectionInfo;
@@ -72,9 +73,10 @@ public class AhcWebSocketConduit extends URLConnectionHTTPConduit {
     }
 
     @Override
-    protected void setupConnection(Message message, URI currentURL, HTTPClientPolicy csPolicy)
+    protected void setupConnection(Message message, Address address, HTTPClientPolicy csPolicy)
         throws IOException {
 
+        URI currentURL = address.getURI();
         String s = currentURL.getScheme();
         if (!"ws".equals(s) && !"wss".equals(s)) {
             throw new MalformedURLException("unknown protocol: " + s);
@@ -373,7 +375,7 @@ public class AhcWebSocketConduit extends URLConnectionHTTPConduit {
         private String id;
         private Object entity;
 
-        public Response(String idKey, Object data) {
+        Response(String idKey, Object data) {
             this.data = data;
             String line;
             boolean first = true;
@@ -445,7 +447,15 @@ public class AhcWebSocketConduit extends URLConnectionHTTPConduit {
         }
 
         private int length(Object o) {
-            return o instanceof char[] ? ((String)o).length() : (o instanceof byte[] ? ((byte[])o).length : 0);
+            if (o instanceof String) {
+                return ((String)o).length();
+            } else if (o instanceof char[]) {
+                return ((char[])o).length;
+            } else if (o instanceof byte[]) {
+                return ((byte[])o).length;
+            } else {
+                return 0;
+            }
         }
 
         private int getchar(Object o, int p) {
@@ -460,7 +470,7 @@ public class AhcWebSocketConduit extends URLConnectionHTTPConduit {
     static class RequestResponse {
         private AhcWebSocketConduitRequest request;
         private Response response;
-        public RequestResponse(AhcWebSocketConduitRequest request) {
+        RequestResponse(AhcWebSocketConduitRequest request) {
             this.request = request;
         }
         public AhcWebSocketConduitRequest getRequest() {

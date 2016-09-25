@@ -32,17 +32,17 @@ import javax.xml.stream.XMLStreamReader;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
-import org.w3c.dom.Node;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.rs.security.common.CryptoLoader;
-import org.apache.cxf.rs.security.common.SecurityUtils;
+import org.apache.cxf.rs.security.common.RSSecurityUtils;
 import org.apache.cxf.rs.security.common.TrustValidator;
+import org.apache.cxf.rt.security.SecurityConstants;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.security.SecurityContext;
 import org.apache.cxf.staxutils.W3CDOMStreamReader;
-import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.wss4j.common.crypto.Crypto;
-import org.apache.wss4j.dom.WSConstants;
+import org.apache.wss4j.common.util.XMLUtils;
 import org.apache.xml.security.exceptions.XMLSecurityException;
 import org.apache.xml.security.keys.KeyInfo;
 import org.apache.xml.security.signature.Reference;
@@ -61,7 +61,7 @@ public class AbstractXmlSigInHandler extends AbstractXmlSecInHandler {
     /**
      * a collection of compiled regular expression patterns for the subject DN
      */
-    private Collection<Pattern> subjectDNPatterns = new ArrayList<Pattern>();
+    private final Collection<Pattern> subjectDNPatterns = new ArrayList<>();
     
     public void setRemoveSignature(boolean remove) {
         this.removeSignature = remove;
@@ -86,7 +86,7 @@ public class AbstractXmlSigInHandler extends AbstractXmlSecInHandler {
         
         String cryptoKey = null; 
         String propKey = null;
-        if (SecurityUtils.isSignedAndEncryptedTwoWay(message)) {
+        if (RSSecurityUtils.isSignedAndEncryptedTwoWay(message)) {
             cryptoKey = SecurityConstants.ENCRYPT_CRYPTO;
             propKey = SecurityConstants.ENCRYPT_PROPERTIES;
         } else {
@@ -146,15 +146,20 @@ public class AbstractXmlSigInHandler extends AbstractXmlSecInHandler {
                 } 
             } else if (!keyInfoMustBeAvailable) {
                 String user = getUserName(crypto, message);
-                cert = SecurityUtils.getCertificates(crypto, user)[0];
+                cert = RSSecurityUtils.getCertificates(crypto, user)[0];
                 publicKey = cert.getPublicKey();
                 valid = signature.checkSignatureValue(cert);
             }
             
             // validate trust 
-            new TrustValidator().validateTrust(crypto, cert, publicKey, subjectDNPatterns);
+            new TrustValidator().validateTrust(crypto, cert, publicKey, getSubjectContraints(message));
             if (valid && persistSignature) {
-                message.setContent(XMLSignature.class, signature);
+                if (signature.getKeyInfo() != null) {
+                    message.put(SIGNING_CERT, signature.getKeyInfo().getX509Certificate());
+                }
+                if (signature.getKeyInfo() != null) {
+                    message.put(SIGNING_PUBLIC_KEY, signature.getKeyInfo().getPublicKey());
+                }
                 message.setContent(Element.class, signedElement);
             }
         } catch (Exception ex) {
@@ -186,7 +191,7 @@ public class AbstractXmlSigInHandler extends AbstractXmlSecInHandler {
         if (sc != null && sc.getUserPrincipal() != null) {
             return sc.getUserPrincipal().getName();
         } else {
-            return SecurityUtils.getUserName(crypto, null);
+            return RSSecurityUtils.getUserName(crypto, null);
         }
         
     }
@@ -291,84 +296,10 @@ public class AbstractXmlSigInHandler extends AbstractXmlSecInHandler {
         String expectedID = ref.getURI().substring(1);
         
         if (!expectedID.equals(rootId)) {
-            return findElementById(root, expectedID, true);
+            return XMLUtils.findElementById(root, expectedID, true);
         } else {
             return root;
         }
-    }
-    
-    /**
-     * Returns the single element that contains an Id with value
-     * <code>uri</code> and <code>namespace</code>. The Id can be either a wsu:Id or an Id
-     * with no namespace. This is a replacement for a XPath Id lookup with the given namespace. 
-     * It's somewhat faster than XPath, and we do not deal with prefixes, just with the real
-     * namespace URI
-     * 
-     * If checkMultipleElements is true and there are multiple elements, we log a 
-     * warning and return null as this can be used to get around the signature checking.
-     * 
-     * @param startNode Where to start the search
-     * @param value Value of the Id attribute
-     * @param checkMultipleElements If true then go through the entire tree and return 
-     *        null if there are multiple elements with the same Id
-     * @return The found element if there was exactly one match, or
-     *         <code>null</code> otherwise
-     */
-    private static Element findElementById(
-        Node startNode, String value, boolean checkMultipleElements
-    ) {
-        //
-        // Replace the formerly recursive implementation with a depth-first-loop lookup
-        //
-        Node startParent = startNode.getParentNode();
-        Node processedNode = null;
-        Element foundElement = null;
-        String id = value;
-
-        while (startNode != null) {
-            // start node processing at this point
-            if (startNode.getNodeType() == Node.ELEMENT_NODE) {
-                Element se = (Element) startNode;
-                // Try the wsu:Id first
-                String attributeNS = se.getAttributeNS(WSConstants.WSU_NS, "Id");
-                if ("".equals(attributeNS) || !id.equals(attributeNS)) {
-                    attributeNS = se.getAttributeNS(null, "Id");
-                }
-                if ("".equals(attributeNS) || !id.equals(attributeNS)) {
-                    attributeNS = se.getAttributeNS(null, "ID");
-                }
-                if (!"".equals(attributeNS) && id.equals(attributeNS)) {
-                    if (!checkMultipleElements) {
-                        return se;
-                    } else if (foundElement == null) {
-                        foundElement = se; // Continue searching to find duplicates
-                    } else {
-                        // Multiple elements with the same 'Id' attribute value
-                        return null;
-                    }
-                }
-            }
-
-            processedNode = startNode;
-            startNode = startNode.getFirstChild();
-
-            // no child, this node is done.
-            if (startNode == null) {
-                // close node processing, get sibling
-                startNode = processedNode.getNextSibling();
-            }
-            // no more siblings, get parent, all children
-            // of parent are processed.
-            while (startNode == null) {
-                processedNode = processedNode.getParentNode();
-                if (processedNode == startParent) {
-                    return foundElement;
-                }
-                // close parent node processing (processed node now)
-                startNode = processedNode.getNextSibling();
-            }
-        }
-        return foundElement;
     }
     
     public void setSignatureProperties(SignatureProperties properties) {
@@ -385,7 +316,7 @@ public class AbstractXmlSigInHandler extends AbstractXmlSecInHandler {
      */
     public void setSubjectConstraints(List<String> constraints) {
         if (constraints != null) {
-            subjectDNPatterns = new ArrayList<Pattern>();
+            subjectDNPatterns.clear();
             for (String constraint : constraints) {
                 try {
                     subjectDNPatterns.add(Pattern.compile(constraint.trim()));
@@ -394,6 +325,23 @@ public class AbstractXmlSigInHandler extends AbstractXmlSecInHandler {
                 }
             }
         }
+    }
+    
+    private Collection<Pattern> getSubjectContraints(Message msg) throws PatternSyntaxException {
+        String certConstraints = 
+            (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.SUBJECT_CERT_CONSTRAINTS, msg);
+        // Check the message property first. If this is not null then use it. Otherwise pick up
+        // the constraints set as a property
+        if (certConstraints != null) {
+            String[] certConstraintsList = certConstraints.split(",");
+            if (certConstraintsList != null) {
+                subjectDNPatterns.clear();
+                for (String certConstraint : certConstraintsList) {
+                    subjectDNPatterns.add(Pattern.compile(certConstraint.trim()));
+                }
+            }
+        }
+        return subjectDNPatterns;
     }
     
 }

@@ -18,6 +18,7 @@
  */
 package org.apache.cxf.transport.http.auth;
 
+import java.net.InetAddress;
 import java.net.URI;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
@@ -62,6 +63,7 @@ public abstract class AbstractSpnegoAuthSupplier {
     private boolean credDelegation;
     private Configuration loginConfig;
     private Oid serviceNameType;
+    private boolean useCanonicalHostname;
     
     public String getAuthorization(AuthorizationPolicy authPolicy,
                                    URI currentURI,
@@ -86,50 +88,6 @@ public abstract class AbstractSpnegoAuthSupplier {
     }
 
     /**
-     * Create and return service ticket token
-     * 
-     * @param authPolicy
-     * @param context
-     * @return
-     * @throws GSSException
-     * @throws LoginException
-     */
-    private byte[] getToken(AuthorizationPolicy authPolicy,
-                            final GSSContext context) throws GSSException,
-        LoginException {
-        
-        final byte[] token = new byte[0];
-        if (authPolicy == null) {
-            return context.initSecContext(token, 0, token.length);
-        }
-
-        String contextName = authPolicy.getAuthorization();
-        if (contextName == null) {
-            contextName = "";
-        }
-        
-        if (StringUtils.isEmpty(authPolicy.getUserName())
-            && StringUtils.isEmpty(contextName) && loginConfig == null) {
-            return context.initSecContext(token, 0, token.length);
-        }
-        
-        CallbackHandler callbackHandler = getUsernamePasswordHandler(
-            authPolicy.getUserName(), authPolicy.getPassword());
-        LoginContext lc = new LoginContext(contextName, null, callbackHandler, loginConfig);
-        lc.login();
-        
-        try {
-            return (byte[])Subject.doAs(lc.getSubject(), new CreateServiceTicketAction(context, token));
-        } catch (PrivilegedActionException e) {
-            if (e.getCause() instanceof GSSException) {
-                throw (GSSException) e.getCause();
-            }
-            LOG.log(Level.SEVERE, "initSecContext", e);
-            return null;
-        }
-    }
-
-    /**
      * Create and return a service ticket token for a given service principal
      * name
      * 
@@ -144,11 +102,29 @@ public abstract class AbstractSpnegoAuthSupplier {
                             Oid oid,
                             Message message) throws GSSException, 
         LoginException {
-        GSSManager manager = GSSManager.getInstance();
-        GSSName serverName = manager.createName(spn, serviceNameType);
-
+        
         GSSCredential delegatedCred = 
             (GSSCredential)message.getContextualProperty(GSSCredential.class.getName());
+        
+        Subject subject = null;
+        if (authPolicy != null && delegatedCred == null) {
+            String contextName = authPolicy.getAuthorization();
+            if (contextName == null) {
+                contextName = "";
+            }
+        
+            if (!(StringUtils.isEmpty(authPolicy.getUserName())
+                && StringUtils.isEmpty(contextName) && loginConfig == null)) {
+                CallbackHandler callbackHandler = getUsernamePasswordHandler(
+                    authPolicy.getUserName(), authPolicy.getPassword());
+                LoginContext lc = new LoginContext(contextName, null, callbackHandler, loginConfig);
+                lc.login();
+                subject = lc.getSubject();
+            }
+        }
+        
+        GSSManager manager = GSSManager.getInstance();
+        GSSName serverName = manager.createName(spn, serviceNameType);
         
         GSSContext context = manager
                 .createContext(serverName.canonicalize(oid), oid, delegatedCred, GSSContext.DEFAULT_LIFETIME);
@@ -158,8 +134,20 @@ public abstract class AbstractSpnegoAuthSupplier {
         // If the delegated cred is not null then we only need the context to
         // immediately return a ticket based on this credential without attempting
         // to log on again 
-        return getToken(delegatedCred == null ? authPolicy : null, 
-                        context);
+        final byte[] token = new byte[0];
+        if (delegatedCred != null) {
+            return context.initSecContext(token, 0, token.length);
+        }
+        
+        try {
+            return (byte[])Subject.doAs(subject, new CreateServiceTicketAction(context, token));
+        } catch (PrivilegedActionException e) {
+            if (e.getCause() instanceof GSSException) {
+                throw (GSSException) e.getCause();
+            }
+            LOG.log(Level.SEVERE, "initSecContext", e);
+            return null;
+        }
     }
     
     protected boolean isCredDelegationRequired(Message message) { 
@@ -168,8 +156,17 @@ public abstract class AbstractSpnegoAuthSupplier {
     }
 
     protected String getCompleteServicePrincipalName(URI currentURI) {
-        String name = servicePrincipalName == null 
-            ? "HTTP/" + currentURI.getHost() : servicePrincipalName;
+        String name;
+
+        if (servicePrincipalName == null) {
+            String host = currentURI.getHost();
+            if (useCanonicalHostname) {
+                host = getCanonicalHostname(host);
+            }
+            name = "HTTP/" + host;
+        } else {
+            name = servicePrincipalName;
+        }
         if (realm != null) {            
             name += "@" + realm;
         }
@@ -177,10 +174,20 @@ public abstract class AbstractSpnegoAuthSupplier {
             LOG.fine("Service Principal Name is " + name);
         }
         return name;
-            
-            
     }
-    
+
+    private String getCanonicalHostname(String hostname) {
+        String canonicalHostname = hostname;
+        try {
+            InetAddress in = InetAddress.getByName(hostname);
+            canonicalHostname = in.getCanonicalHostName();
+            LOG.fine("resolved hostname=" + hostname + " to canonicalHostname=" + canonicalHostname);
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "unable to resolve canonical hostname", e);
+        }
+        return canonicalHostname;
+    }
+
     public void setServicePrincipalName(String servicePrincipalName) {
         this.servicePrincipalName = servicePrincipalName;
     }
@@ -225,6 +232,14 @@ public abstract class AbstractSpnegoAuthSupplier {
 
     public void setServiceNameType(Oid serviceNameType) {
         this.serviceNameType = serviceNameType;
+    }
+
+    public boolean isUseCanonicalHostname() {
+        return useCanonicalHostname;
+    }
+
+    public void setUseCanonicalHostname(boolean useCanonicalHostname) {
+        this.useCanonicalHostname = useCanonicalHostname;
     }
 
 }

@@ -20,6 +20,7 @@
 package org.apache.cxf.ws.security.policy.interceptors;
 
 import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
 import java.util.Date;
 import java.util.logging.Logger;
 
@@ -30,7 +31,6 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.apache.cxf.common.logging.LogUtils;
-import org.apache.cxf.endpoint.Endpoint;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.message.Exchange;
@@ -44,16 +44,16 @@ import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
 import org.apache.cxf.ws.security.tokenstore.TokenStore;
 import org.apache.cxf.ws.security.trust.STSUtils;
+import org.apache.wss4j.common.bsp.BSPEnforcer;
+import org.apache.wss4j.common.derivedKey.ConversationConstants;
 import org.apache.wss4j.common.derivedKey.P_SHA1;
 import org.apache.wss4j.common.ext.WSSecurityException;
+import org.apache.wss4j.common.token.Reference;
+import org.apache.wss4j.common.token.SecurityTokenReference;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.bsp.BSPEnforcer;
-import org.apache.wss4j.dom.message.token.Reference;
 import org.apache.wss4j.dom.message.token.SecurityContextToken;
-import org.apache.wss4j.dom.message.token.SecurityTokenReference;
 import org.apache.wss4j.dom.util.WSSecurityUtil;
 import org.apache.wss4j.dom.util.XmlSchemaDateFormat;
-import org.apache.xml.security.utils.Base64;
 
 /**
  * An abstract Invoker used by the Spnego and SecureConversationInInterceptors.
@@ -84,7 +84,7 @@ abstract class STSInvoker implements Invoker {
         }
         String namespace = requestEl.getNamespaceURI();
         String prefix = requestEl.getPrefix();
-        SecurityToken cancelToken = null;
+        SecurityToken cancelOrRenewToken = null;
         if ("RequestSecurityToken".equals(requestEl.getLocalName())) {
             try {
                 String requestType = null;
@@ -96,8 +96,8 @@ abstract class STSInvoker implements Invoker {
                     if (namespace.equals(el.getNamespaceURI())) {
                         if ("RequestType".equals(localName)) {
                             requestType = el.getTextContent();
-                        } else if ("CancelTarget".equals(localName)) {
-                            cancelToken = findCancelToken(exchange, el);
+                        } else if ("CancelTarget".equals(localName) || "RenewTarget".equals(localName)) {
+                            cancelOrRenewToken = findCancelOrRenewToken(exchange, el);
                         } else if ("BinaryExchange".equals(localName)) {
                             binaryExchange = el;
                         } else if ("TokenType".equals(localName)) {
@@ -121,10 +121,10 @@ abstract class STSInvoker implements Invoker {
                 if (requestType.endsWith("/Issue")) { 
                     doIssue(requestEl, exchange, binaryExchange, writer, prefix, namespace);
                 } else if (requestType.endsWith("/Cancel")) {
-                    doCancel(exchange, cancelToken, writer, prefix, namespace);
-                } //else if (requestType.endsWith("/Renew")) {
-                //REVISIT - implement
-                //}
+                    doCancel(exchange, cancelOrRenewToken, writer, prefix, namespace);
+                } else if (requestType.endsWith("/Renew")) {
+                    doRenew(requestEl, exchange, cancelOrRenewToken, binaryExchange, writer, prefix, namespace);
+                }
 
                 return new MessageContentsList(new DOMSource(writer.getDocument()));
             } catch (RuntimeException ex) {
@@ -146,9 +146,19 @@ abstract class STSInvoker implements Invoker {
         String namespace
     ) throws Exception;
 
+    abstract void doRenew(
+            Element requestEl,
+            Exchange exchange,
+            SecurityToken renewToken,
+            Element binaryExchange,
+            W3CDOMStreamWriter writer,
+            String prefix,
+            String namespace
+    ) throws Exception;
+
     private void doCancel(
         Exchange exchange, 
-        SecurityToken cancelToken, 
+        SecurityToken cancelToken,
         W3CDOMStreamWriter writer,
         String prefix, 
         String namespace
@@ -158,7 +168,7 @@ abstract class STSInvoker implements Invoker {
         }
         writer.writeStartElement(prefix, "RequestSecurityTokenResponse", namespace);
         
-        TokenStore store = (TokenStore)exchange.get(Endpoint.class).getEndpointInfo()
+        TokenStore store = (TokenStore)exchange.getEndpoint().getEndpointInfo()
                 .getProperty(TokenStore.class.getName());
         store.remove(cancelToken.getId());
         // Put the token on the out message so that we can sign the response
@@ -171,7 +181,7 @@ abstract class STSInvoker implements Invoker {
         }
     }
 
-    private SecurityToken findCancelToken(Exchange exchange, Element el) throws WSSecurityException {
+    private SecurityToken findCancelOrRenewToken(Exchange exchange, Element el) throws WSSecurityException {
         Element childElement = DOMUtils.getFirstElement(el);
         String uri = "";
         if ("SecurityContextToken".equals(childElement.getLocalName())) {
@@ -182,7 +192,7 @@ abstract class STSInvoker implements Invoker {
                 new SecurityTokenReference(childElement, new BSPEnforcer());
             uri = ref.getReference().getURI();
         }
-        TokenStore store = (TokenStore)exchange.get(Endpoint.class).getEndpointInfo()
+        TokenStore store = (TokenStore)exchange.getEndpoint().getEndpointInfo()
                 .getProperty(TokenStore.class.getName());
         return store.getToken(uri);
     }
@@ -200,7 +210,7 @@ abstract class STSInvoker implements Invoker {
 
             writer.writeStartElement(prefix, "BinarySecret", namespace);
             writer.writeAttribute("Type", namespace + "/Nonce");
-            writer.writeCharacters(Base64.encode(secret));
+            writer.writeCharacters(Base64.getMimeEncoder().encodeToString(secret));
             writer.writeEndElement();
         } else {
             byte entropy[] = WSSecurityUtil.generateNonce(keySize / 8);
@@ -215,7 +225,7 @@ abstract class STSInvoker implements Invoker {
             writer.writeStartElement(prefix, "Entropy", namespace);
             writer.writeStartElement(prefix, "BinarySecret", namespace);
             writer.writeAttribute("Type", namespace + "/Nonce");
-            writer.writeCharacters(Base64.encode(entropy));
+            writer.writeCharacters(Base64.getMimeEncoder().encodeToString(entropy));
             writer.writeEndElement();
 
         }
@@ -236,6 +246,39 @@ abstract class STSInvoker implements Invoker {
         SecurityTokenReference str = new SecurityTokenReference(writer.getDocument());
         str.addWSSENamespace();
         str.setReference(ref);
+
+        writer.getCurrentNode().appendChild(str.getElement());
+        return str.getElement();
+    }
+    
+    Element writeSecurityTokenReference(
+        W3CDOMStreamWriter writer,
+        String id,
+        String instance,
+        String refValueType
+    ) {
+        Reference ref = new Reference(writer.getDocument());
+        ref.setURI(id);
+        if (refValueType != null) {
+            ref.setValueType(refValueType);
+        }
+        SecurityTokenReference str = new SecurityTokenReference(writer.getDocument());
+        str.addWSSENamespace();
+        str.setReference(ref);
+        
+        if (instance != null) {
+            try {
+                Element firstChildElement = str.getFirstElement();
+                if (firstChildElement != null) {
+                    int version = NegotiationUtils.getWSCVersion(refValueType);
+                    String ns = ConversationConstants.getWSCNs(version);
+                    firstChildElement.setAttributeNS(ns, "wsc:" + ConversationConstants.INSTANCE_LN,
+                                                     instance);
+                }
+            } catch (WSSecurityException e) {
+                //just return without wsc:Instance
+            }
+        }
 
         writer.getCurrentNode().appendChild(str.getElement());
         return str.getElement();

@@ -19,6 +19,7 @@
 package org.apache.cxf.ws.security.wss4j;
 
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.Provider;
 import java.util.LinkedList;
 import java.util.List;
@@ -39,17 +40,18 @@ import org.apache.cxf.message.Exchange;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.phase.AbstractPhaseInterceptor;
 import org.apache.cxf.phase.Phase;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.wss4j.common.ConfigurationConstants;
 import org.apache.wss4j.common.WSSPolicyException;
 import org.apache.wss4j.common.crypto.Crypto;
 import org.apache.wss4j.common.crypto.ThreadLocalSecurityProvider;
 import org.apache.wss4j.common.ext.WSSecurityException;
-import org.apache.wss4j.stax.ConfigurationConverter;
-import org.apache.wss4j.stax.WSSec;
-import org.apache.wss4j.stax.ext.OutboundWSSec;
 import org.apache.wss4j.stax.ext.WSSSecurityProperties;
 import org.apache.wss4j.stax.securityEvent.WSSecurityEventConstants;
+import org.apache.wss4j.stax.setup.ConfigurationConverter;
+import org.apache.wss4j.stax.setup.OutboundWSSec;
+import org.apache.wss4j.stax.setup.WSSec;
 import org.apache.xml.security.exceptions.XMLSecurityException;
 import org.apache.xml.security.stax.ext.OutboundSecurityContext;
 import org.apache.xml.security.stax.impl.OutboundSecurityContextImpl;
@@ -185,14 +187,14 @@ public class WSS4JStaxOutInterceptor extends AbstractWSS4JStaxInterceptor {
     protected SecurityEventListener configureSecurityEventListener(
         final SoapMessage msg, WSSSecurityProperties securityProperties
     ) throws WSSPolicyException {
-        final List<SecurityEvent> outgoingSecurityEventList = new LinkedList<SecurityEvent>();
+        final List<SecurityEvent> outgoingSecurityEventList = new LinkedList<>();
         msg.getExchange().put(SecurityEvent.class.getName() + ".out", outgoingSecurityEventList);
         msg.put(SecurityEvent.class.getName() + ".out", outgoingSecurityEventList);
         
         final SecurityEventListener securityEventListener = new SecurityEventListener() {
             @Override
             public void registerSecurityEvent(SecurityEvent securityEvent) throws XMLSecurityException {
-                if (securityEvent.getSecurityEventType() == WSSecurityEventConstants.SamlToken) {
+                if (securityEvent.getSecurityEventType() == WSSecurityEventConstants.SAML_TOKEN) {
                     // Store SAML keys in case we need them on the inbound side
                     TokenSecurityEvent<?> tokenSecurityEvent = (TokenSecurityEvent<?>)securityEvent;
                     WSS4JUtils.parseAndStoreStreamingSecurityToken(tokenSecurityEvent.getSecurityToken(), msg);
@@ -210,15 +212,17 @@ public class WSS4JStaxOutInterceptor extends AbstractWSS4JStaxInterceptor {
         SoapMessage msg, OutboundSecurityContext outboundSecurityContext,
         WSSSecurityProperties securityProperties
     ) throws WSSecurityException {
-        String user = (String)msg.getContextualProperty(SecurityConstants.USERNAME);
+        String user = (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.USERNAME, msg);
         if (user != null) {
             securityProperties.setTokenUser(user);
         }
-        String sigUser = (String)msg.getContextualProperty(SecurityConstants.SIGNATURE_USERNAME);
+        String sigUser = 
+            (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_USERNAME, msg);
         if (sigUser != null) {
             securityProperties.setSignatureUser(sigUser);
         }
-        String encUser = (String)msg.getContextualProperty(SecurityConstants.ENCRYPT_USERNAME);
+        String encUser = 
+            (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_USERNAME, msg);
         if (encUser != null) {
             securityProperties.setEncryptionUser(encUser);
         }
@@ -295,14 +299,14 @@ public class WSS4JStaxOutInterceptor extends AbstractWSS4JStaxInterceptor {
         }
 
         if (encoding == null) {
-            encoding = "UTF-8";
+            encoding = StandardCharsets.UTF_8.name();
             message.put(Message.ENCODING, encoding);
         }
         return encoding;
     }
     
     final class WSS4JStaxOutInterceptorInternal extends AbstractPhaseInterceptor<Message> {
-        public WSS4JStaxOutInterceptorInternal() {
+        WSS4JStaxOutInterceptorInternal() {
             super(Phase.PRE_STREAM_ENDING);
             getBefore().add(AttachmentOutInterceptor.AttachmentOutEndingInterceptor.class.getName());
         }

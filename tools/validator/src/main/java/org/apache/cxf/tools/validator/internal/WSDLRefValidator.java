@@ -19,9 +19,7 @@
 
 package org.apache.cxf.tools.validator.internal;
 
-import java.net.MalformedURLException;
 import java.net.URISyntaxException;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -137,11 +135,11 @@ public class WSDLRefValidator extends AbstractDefinitionValidator {
     private Collection<Import> getImports(final Definition wsdlDef) {
         Collection<Import> importList = new ArrayList<Import>();
         Map<?, ?> imports = wsdlDef.getImports();
-        for (Iterator<?> iter = imports.keySet().iterator(); iter.hasNext();) {
-            String uri = (String)iter.next();
-            List<Import> lst = CastUtils.cast((List<?>)imports.get(uri));
+        for (Map.Entry<?, ?> entry : imports.entrySet()) {
+            List<Import> lst = CastUtils.cast((List<?>)entry.getValue());
             importList.addAll(lst);
         }
+        
         return importList;
     }
     private void parseImports(Definition def) {
@@ -155,13 +153,7 @@ public class WSDLRefValidator extends AbstractDefinitionValidator {
 
     
     private void checkTargetNamespace(String path) {
-        try {
-            if (new URL(path).getPath().indexOf(":") != -1) {
-                throw new ToolException(": is not a valid char in the targetNamespace");
-            }
-        } catch (MalformedURLException e) {
-            // do nothing
-        }
+        // no check as any namespace URI is already a valid target namespace string.
     }
 
     public void setSuppressWarnings(boolean s) {
@@ -415,7 +407,8 @@ public class WSDLRefValidator extends AbstractDefinitionValidator {
             vBindingNodes.putAll(getBindings(service));
         }
 
-        for (QName bName : vBindingNodes.keySet()) {
+        for (Map.Entry<QName, XNode> entry : vBindingNodes.entrySet()) {
+            QName bName = entry.getKey();
             Binding binding = this.definition.getBinding(bName);
             if (binding == null) {
                 LOG.log(Level.SEVERE, bName.toString() 
@@ -424,7 +417,7 @@ public class WSDLRefValidator extends AbstractDefinitionValidator {
                         + " is not correct, please check that the correct namespace is being used");
             }
             XNode vBindingNode = getXNode(binding);
-            vBindingNode.setFailurePoint(vBindingNodes.get(bName));
+            vBindingNode.setFailurePoint(entry.getValue());
             vNodes.add(vBindingNode);
 
             if (binding.getPortType() == null) {

@@ -20,11 +20,11 @@ package org.apache.cxf.sts.token.validator;
 
 import java.security.Principal;
 import java.security.cert.X509Certificate;
+import java.util.Base64;
 import java.util.Properties;
 
 import javax.xml.bind.JAXBElement;
 
-import org.apache.cxf.jaxws.context.WebServiceContextImpl;
 import org.apache.cxf.jaxws.context.WrappedMessageContext;
 import org.apache.cxf.message.MessageImpl;
 import org.apache.cxf.sts.QNameConstants;
@@ -42,7 +42,6 @@ import org.apache.wss4j.common.crypto.CryptoType;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.common.principal.CustomTokenPrincipal;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.xml.security.utils.Base64;
 
 
 /**
@@ -70,7 +69,7 @@ public class X509TokenValidatorTest extends org.junit.Assert {
         Crypto crypto = validatorParameters.getStsProperties().getSignatureCrypto();
         X509Certificate[] certs = crypto.getX509Certificates(cryptoType);
         assertTrue(certs != null && certs.length > 0);
-        binarySecurityToken.setValue(Base64.encode(certs[0].getEncoded()));
+        binarySecurityToken.setValue(Base64.getMimeEncoder().encodeToString(certs[0].getEncoded()));
         
         ReceivedToken validateTarget = new ReceivedToken(tokenType);
         tokenRequirements.setValidateTarget(validateTarget);
@@ -121,7 +120,7 @@ public class X509TokenValidatorTest extends org.junit.Assert {
         X509Certificate[] certs = crypto.getX509Certificates(cryptoType);
         assertTrue(certs != null && certs.length > 0);
         
-        binarySecurityToken.setValue(Base64.encode(certs[0].getEncoded()));
+        binarySecurityToken.setValue(Base64.getMimeEncoder().encodeToString(certs[0].getEncoded()));
         binarySecurityToken.setValueType(X509TokenValidator.X509_V3_TYPE);
         binarySecurityToken.setEncodingType(WSConstants.SOAPMESSAGE_NS + "#Base64Binary");
         
@@ -151,8 +150,7 @@ public class X509TokenValidatorTest extends org.junit.Assert {
         // Mock up message context
         MessageImpl msg = new MessageImpl();
         WrappedMessageContext msgCtx = new WrappedMessageContext(msg);
-        WebServiceContextImpl webServiceContext = new WebServiceContextImpl(msgCtx);
-        parameters.setWebServiceContext(webServiceContext);
+        parameters.setMessageContext(msgCtx);
         
         // Add STSProperties object
         StaticSTSProperties stsProperties = new StaticSTSProperties();
@@ -174,7 +172,7 @@ public class X509TokenValidatorTest extends org.junit.Assert {
             "org.apache.wss4j.crypto.provider", "org.apache.wss4j.common.crypto.Merlin"
         );
         properties.put("org.apache.wss4j.crypto.merlin.keystore.password", "stsspass");
-        properties.put("org.apache.wss4j.crypto.merlin.keystore.file", "stsstore.jks");
+        properties.put("org.apache.wss4j.crypto.merlin.keystore.file", "keys/stsstore.jks");
         
         return properties;
     }

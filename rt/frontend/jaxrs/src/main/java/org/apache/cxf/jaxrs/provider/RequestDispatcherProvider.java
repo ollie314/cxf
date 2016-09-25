@@ -45,6 +45,7 @@ import javax.ws.rs.ext.Provider;
 
 import org.apache.cxf.common.i18n.BundleUtils;
 import org.apache.cxf.common.logging.LogUtils;
+import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.jaxrs.ext.MessageContext;
 import org.apache.cxf.jaxrs.utils.ExceptionUtils;
 import org.apache.cxf.jaxrs.utils.ResourceUtils;
@@ -91,6 +92,7 @@ public class RequestDispatcherProvider extends AbstractConfigurableProvider
     private boolean strictPathCheck;
     private String locationPrefix;
     private String resourceExtension;
+    private boolean includeResource; 
     
     private MessageContext mc; 
 
@@ -112,23 +114,34 @@ public class RequestDispatcherProvider extends AbstractConfigurableProvider
     }
 
     private String getClassResourceName(Class<?> type) {
-        String simpleName = type.getSimpleName();
-        StringBuilder sb = new StringBuilder();
-        sb.append(Character.toLowerCase(simpleName.charAt(0)));
-        if (simpleName.length() > 1) {
-            sb.append(simpleName.substring(1));
+        String resourceName = doGetClassResourceName(type);
+        if (resourceName == null) {
+            for (Class<?> in : type.getInterfaces()) {
+                resourceName = doGetClassResourceName(in);
+                if (resourceName != null) {
+                    break;
+                }
+            }
         }
+        return resourceName;
+    }
+    private String doGetClassResourceName(Class<?> type) {
+        String simpleName = StringUtils.uncapitalize(type.getSimpleName());
         String thePrefix = locationPrefix == null ? DEFAULT_LOCATION_PREFIX : locationPrefix;
         String theExtension = resourceExtension == null ? DEFAULT_RESOURCE_EXTENSION : resourceExtension;
-        return thePrefix + sb.toString() + theExtension;  
+        String resourceName = thePrefix + simpleName + theExtension;
+        if (ResourceUtils.getClasspathResourceURL(resourceName,
+                                                  RequestDispatcherProvider.class,
+                                                  getBus()) != null) {
+            return resourceName;
+        } else {
+            return null;
+        }
     }
     
     public boolean isWriteable(Class<?> type, Type genericType, Annotation[] annotations, MediaType mt) {
         
-        if (useClassNames 
-            && ResourceUtils.getClasspathResourceURL(getClassResourceName(type),
-                                                     RequestDispatcherProvider.class,
-                                                     getBus()) != null) {
+        if (useClassNames && getClassResourceName(type) != null) {
             return true;
         }
         if (resourcePath != null || classResourceSupported(type)) {
@@ -143,10 +156,7 @@ public class RequestDispatcherProvider extends AbstractConfigurableProvider
                 }
             }
         }
-        if (mc != null && mc.get(MESSAGE_RESOURCE_PATH_PROPERTY) != null) {
-            return true;
-        }
-        return false;
+        return mc != null && mc.get(MESSAGE_RESOURCE_PATH_PROPERTY) != null;
     }
 
     private boolean classResourceSupported(Class<?> type) {
@@ -191,7 +201,9 @@ public class RequestDispatcherProvider extends AbstractConfigurableProvider
         RequestDispatcher rd = getRequestDispatcher(sc, clazz, theServletPath + path);
         
         try {
-            mc.put(AbstractHTTPDestination.REQUEST_REDIRECTED, Boolean.TRUE);
+            if (!includeResource) {
+                mc.put(AbstractHTTPDestination.REQUEST_REDIRECTED, Boolean.TRUE);
+            }
             
             HttpServletRequestFilter requestFilter = new HttpServletRequestFilter(
                 servletRequest, path, theServletPath, saveParametersAsAttributes);
@@ -203,10 +215,14 @@ public class RequestDispatcherProvider extends AbstractConfigurableProvider
             } 
             setRequestParameters(requestFilter);
             logRedirection(path, attributeName, o);
-            rd.forward(requestFilter, mc.getHttpServletResponse());
+            if (includeResource) {
+                rd.include(requestFilter, mc.getHttpServletResponse());
+            } else {
+                rd.forward(requestFilter, mc.getHttpServletResponse());
+            }
         } catch (Throwable ex) {
             mc.put(AbstractHTTPDestination.REQUEST_REDIRECTED, Boolean.FALSE);
-            ex.printStackTrace();
+            LOG.warning(ExceptionUtils.getStackTrace(ex));
             throw ExceptionUtils.toInternalServerErrorException(ex, null); 
         }
     }
@@ -222,49 +238,57 @@ public class RequestDispatcherProvider extends AbstractConfigurableProvider
     }
     
     String getResourcePath(Class<?> cls, Object o) {
+        String currentResourcePath = getPathFromMessageContext();
+        if (currentResourcePath != null) {
+            return currentResourcePath;
+        }
+        
+        if (!resourcePaths.isEmpty()) {
+            
+            String path = getRequestPath();
+            for (Map.Entry<String, String> entry : resourcePaths.entrySet()) {
+                if (path.endsWith(entry.getKey())) {
+                    return entry.getValue();
+                }
+            }
+        }
+        if (!enumResources.isEmpty() || !classResources.isEmpty()) {
+            String name = cls.getName();
+            if (cls.isEnum()) {
+                String enumResource = enumResources.get(o);
+                if (enumResource != null) {
+                    return enumResource;
+                }
+                name += "." + o.toString();     
+            }
+            
+            String clsResourcePath = classResources.get(name);
+            if (clsResourcePath != null) {
+                return clsResourcePath;
+            }
+        }
+        
         if (useClassNames) {
             return getClassResourceName(cls);     
         }
         
-        String name = cls.getName();
-        if (cls.isEnum()) {
-            String enumResource = enumResources.get(o);
-            if (enumResource != null) {
-                return enumResource;
-            }
-            name += "." + o.toString();     
-        }
-        
-        String clsResourcePath = classResources.get(name);
-        if (clsResourcePath != null) {
-            return clsResourcePath;
-        }
-        if (resourcePath != null) {
-            return resourcePath;
-        }
-        String path = getRequestPath();
-        for (String requestPath : resourcePaths.keySet()) {
-            if (path.endsWith(requestPath)) {
-                return resourcePaths.get(requestPath);
-            }
-        }
-        
-        return getPathFromMessageContext();
-        
+        return resourcePath;
     }
     
     private String getPathFromMessageContext() {
-        Object resourcePathProp = (String)mc.get(MESSAGE_RESOURCE_PATH_PROPERTY);
-        if (resourcePathProp != null) {
-            StringBuilder sb = new StringBuilder();
-            if (locationPrefix != null) {
-                sb.append(locationPrefix);
+        if (mc != null) {
+            Object resourcePathProp = (String)mc.get(MESSAGE_RESOURCE_PATH_PROPERTY);
+            if (resourcePathProp != null) {
+                StringBuilder sb = new StringBuilder();
+                if (locationPrefix != null) {
+                    sb.append(locationPrefix);
+                }
+                sb.append(resourcePathProp.toString());
+                if (resourceExtension != null) {
+                    sb.append(resourceExtension);
+                }
+                return sb.toString();
             }
-            sb.append(resourcePathProp.toString());
-            if (resourceExtension != null) {
-                sb.append(resourceExtension);
-            }
-            return sb.toString();
         }
         return null;
     }
@@ -332,7 +356,20 @@ public class RequestDispatcherProvider extends AbstractConfigurableProvider
             return beanName;
         }
         String name = beanNames.get(bean.getClass().getName());
-        return name != null ? name : bean.getClass().getSimpleName().toLowerCase();
+        if (name != null) {
+            return name;
+        } 
+        Class<?> resourceClass = bean.getClass();
+        if (useClassNames && doGetClassResourceName(resourceClass) == null) {
+            for (Class<?> cls : bean.getClass().getInterfaces()) {
+                if (doGetClassResourceName(cls) != null) {
+                    resourceClass = cls;
+                    break;
+                }
+            }
+        }
+        
+        return resourceClass.getSimpleName().toLowerCase();
     }
 
     protected void setRequestParameters(HttpServletRequestFilter request) {
@@ -393,6 +430,18 @@ public class RequestDispatcherProvider extends AbstractConfigurableProvider
 
     public void setUseCurrentServlet(boolean useCurrentServlet) {
         this.useCurrentServlet = useCurrentServlet;
+    }
+
+    public void setIncludeResource(boolean includeResource) {
+        this.includeResource = includeResource;
+    }
+
+    public void setLocationPrefix(String locationPrefix) {
+        this.locationPrefix = locationPrefix;
+    }
+
+    public void setResourceExtension(String resourceExtension) {
+        this.resourceExtension = resourceExtension;
     }
 
     protected static class HttpServletRequestFilter extends HttpServletRequestWrapper {

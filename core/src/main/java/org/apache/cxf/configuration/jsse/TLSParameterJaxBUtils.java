@@ -125,37 +125,25 @@ public final class TLSParameterJaxBUtils {
                     : KeyStore.getInstance(type, provider);
 
         if (kst.isSetFile()) {
-            FileInputStream kstInputStream = null;
-            try {
-                kstInputStream = new FileInputStream(kst.getFile());
+            try (FileInputStream kstInputStream = new FileInputStream(kst.getFile())) {
                 keyStore.load(kstInputStream, password);
-            } finally {
-                if (kstInputStream != null) {
-                    kstInputStream.close();
-                }
             }
         } else if (kst.isSetResource()) {
-            final java.io.InputStream is = getResourceAsStream(kst.getResource());
+            final InputStream is = getResourceAsStream(kst.getResource());
             if (is == null) {
                 final String msg =
                     "Could not load keystore resource " + kst.getResource();
                 LOG.severe(msg);
-                throw new java.io.IOException(msg);
+                throw new IOException(msg);
             }
             keyStore.load(is, password);
         } else if (kst.isSetUrl()) {
             keyStore.load(new URL(kst.getUrl()).openStream(), password);
         } else {
             String loc = SSLUtils.getKeystore(null, LOG);
-            InputStream ins = null;
-            try {
-                if (loc != null) {
-                    ins = new FileInputStream(loc);
-                }
-                keyStore.load(ins, password);
-            } finally {
-                if (ins != null) {
-                    ins.close();
+            if (loc != null) {
+                try (InputStream ins = new FileInputStream(loc)) {
+                    keyStore.load(ins, password);
                 }
             }
         }
@@ -171,22 +159,27 @@ public final class TLSParameterJaxBUtils {
         if (pst == null) {
             return null;
         }
-
+        String type;
+        if (pst.isSetType()) {
+            type = pst.getType();
+        } else {
+            type = KeyStore.getDefaultType();
+        }
         if (pst.isSetFile()) {
-            return createTrustStore(new FileInputStream(pst.getFile()));
+            return createTrustStore(new FileInputStream(pst.getFile()), type);
         }
         if (pst.isSetResource()) {
-            final java.io.InputStream is = getResourceAsStream(pst.getResource());
+            final InputStream is = getResourceAsStream(pst.getResource());
             if (is == null) {
                 final String msg =
                     "Could not load truststore resource " + pst.getResource();
                 LOG.severe(msg);
-                throw new java.io.IOException(msg);
+                throw new IOException(msg);
             }
-            return createTrustStore(is);
+            return createTrustStore(is, type);
         }
         if (pst.isSetUrl()) {
-            return createTrustStore(new URL(pst.getUrl()).openStream());
+            return createTrustStore(new URL(pst.getUrl()).openStream(), type);
         }
         // TODO error?
         return null;
@@ -208,12 +201,12 @@ public final class TLSParameterJaxBUtils {
      * Create a KeyStore containing the trusted CA certificates contained
      * in the supplied input stream.
      */
-    private static KeyStore createTrustStore(final java.io.InputStream is)
+    private static KeyStore createTrustStore(final InputStream is, String type)
         throws IOException, CertificateException, KeyStoreException, NoSuchAlgorithmException {
 
         final Collection<? extends Certificate> certs = loadCertificates(is);
         final KeyStore keyStore =
-            KeyStore.getInstance(KeyStore.getDefaultType());
+            KeyStore.getInstance(type);
         keyStore.load(null, null);
         for (Certificate cert : certs) {
             final X509Certificate xcert = (X509Certificate) cert;
@@ -228,8 +221,7 @@ public final class TLSParameterJaxBUtils {
     /**
      * load the certificates as X.509 certificates
      */
-    private static Collection<? extends Certificate>
-    loadCertificates(final java.io.InputStream is)
+    private static Collection<? extends Certificate> loadCertificates(final InputStream is)
         throws IOException, CertificateException {
 
         final CertificateFactory factory = CertificateFactory.getInstance("X.509");
@@ -299,10 +291,11 @@ public final class TLSParameterJaxBUtils {
         try {
             ch = (CallbackHandler)ClassLoaderUtils.loadClass(callbackHandlerClass, TLSParameterJaxBUtils.class)
                 .newInstance();
-            if (ch == null) {
-                return null;
+            String prompt = kmc.getKeyStore().getFile();
+            if (prompt == null) {
+                prompt = kmc.getKeyStore().getResource();
             }
-            PasswordCallback pwCb = new PasswordCallback(kmc.getKeyStore().getFile(), false);
+            PasswordCallback pwCb = new PasswordCallback(prompt, false);
             PasswordCallback[] callbacks = new PasswordCallback[] {pwCb};
             ch.handle(callbacks);
             keyPass = callbacks[0].getPassword();

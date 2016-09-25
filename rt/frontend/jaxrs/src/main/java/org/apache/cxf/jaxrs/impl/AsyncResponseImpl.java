@@ -49,11 +49,12 @@ public class AsyncResponseImpl implements AsyncResponse, ContinuationCallback {
     
     private Continuation cont;
     private Message inMessage;
-    private boolean initialSuspend;
-    private boolean cancelled;
-    private volatile boolean done;
-    private boolean resumedByApplication;
     private TimeoutHandler timeoutHandler;
+    private volatile boolean initialSuspend;
+    private volatile boolean cancelled;
+    private volatile boolean done;
+    private volatile boolean resumedByApplication;
+    private volatile Long pendingTimeout;
     
     private List<CompletionCallback> completionCallbacks = new LinkedList<CompletionCallback>();
     private List<ConnectionCallback> connectionCallbacks = new LinkedList<ConnectionCallback>();
@@ -81,10 +82,13 @@ public class AsyncResponseImpl implements AsyncResponse, ContinuationCallback {
         return isCancelled() || !isSuspended();
     }
     
-    private synchronized boolean doResume(Object response) {
+    private boolean doResume(Object response) {
         if (isCancelledOrNotSuspended()) {
             return false;
         }
+        return doResumeFinal(response);
+    }
+    private boolean doResumeFinal(Object response) {
         inMessage.getExchange().put(AsyncResponse.class, this);
         cont.setObject(response);
         resumedByApplication = true;
@@ -111,21 +115,27 @@ public class AsyncResponseImpl implements AsyncResponse, ContinuationCallback {
         return doCancel(HttpUtils.getHttpDateFormat().format(retryAfter));
     }
     
-    private synchronized boolean doCancel(String retryAfterHeader) {
+    private boolean doCancel(String retryAfterHeader) {
         if (!isSuspended()) {
             return false;
         }
+        if (cancelled) {
+            return true;
+        }
+        cancelled = true;
         ResponseBuilder rb = Response.status(503);
         if (retryAfterHeader != null) {
             rb.header(HttpHeaders.RETRY_AFTER, retryAfterHeader);
         }
-        doResume(rb.build());
-        cancelled = true;
+        doResumeFinal(rb.build());
         return cancelled;
     }
 
     @Override
-    public synchronized boolean isSuspended() {
+    public boolean isSuspended() {
+        if (cancelled || resumedByApplication) {
+            return false;
+        }
         return initialSuspend || cont.isPending();
     }
 
@@ -140,15 +150,24 @@ public class AsyncResponseImpl implements AsyncResponse, ContinuationCallback {
     }
 
     @Override
-    public synchronized boolean setTimeout(long time, TimeUnit unit) throws IllegalStateException {
+    public boolean setTimeout(long time, TimeUnit unit) throws IllegalStateException {
         if (isCancelledOrNotSuspended()) {
             return false;
         }
-        inMessage.getExchange().put(AsyncResponse.class, this);
+        setAsyncResponseOnExchange();
         long timeout = TimeUnit.MILLISECONDS.convert(time, unit);
         initialSuspend = false;
-        cont.suspend(timeout);
+        if (!cont.isPending()) {
+            cont.suspend(timeout);
+        } else {
+            pendingTimeout = timeout;
+            cont.resume();
+        }
         return true;
+    }
+
+    private void setAsyncResponseOnExchange() {
+        inMessage.getExchange().put(AsyncResponse.class, this);
     }
 
     @Override
@@ -170,6 +189,8 @@ public class AsyncResponseImpl implements AsyncResponse, ContinuationCallback {
                 extraCallbacks[i] = callbacks[i].newInstance();
             }
             return register(callback.newInstance(), extraCallbacks);    
+        } catch (NullPointerException e) {
+            throw e;
         } catch (Throwable t) {
             return Collections.emptyMap();
         }
@@ -189,7 +210,7 @@ public class AsyncResponseImpl implements AsyncResponse, ContinuationCallback {
     
         Object[] allCallbacks = new Object[1 + callbacks.length];
         allCallbacks[0] = callback;
-        System.arraycopy(allCallbacks, 1, callbacks, 0, callbacks.length);
+        System.arraycopy(callbacks, 0, allCallbacks, 1, callbacks.length);
         
         for (int i = 0; i < allCallbacks.length; i++) {
             if (allCallbacks[i] == null) {
@@ -238,31 +259,39 @@ public class AsyncResponseImpl implements AsyncResponse, ContinuationCallback {
         }
     }
     
-    public synchronized boolean suspendContinuationIfNeeded() {
-        if (!cont.isPending() && !resumedByApplication) {
-            initialSuspend = false;
+    public boolean suspendContinuationIfNeeded() {
+        if (!resumedByApplication && !cont.isPending() && !cont.isResumed()) {
             cont.suspend(AsyncResponse.NO_TIMEOUT);
+            initialSuspend = false;
             return true;
         } else {
             return false;
         }
     }
     
-    public synchronized Object getResponseObject() {
+    public Object getResponseObject() {
         Object obj = cont.getObject();
         if (!(obj instanceof Response) && !(obj instanceof Throwable)) {
-            obj = Response.ok().entity(obj).build();    
+            if (obj == null) {
+                obj = Response.noContent().build();
+            } else {
+                obj = Response.ok().entity(obj).build();
+            }
         }
         return obj;
     }
     
-    public synchronized boolean isResumedByApplication() {
+    public boolean isResumedByApplication() {
         return resumedByApplication;
     }
     
     public synchronized void handleTimeout() {
         if (!resumedByApplication) {
-            if (timeoutHandler != null) {
+            if (pendingTimeout != null) {
+                setAsyncResponseOnExchange();
+                cont.suspend(pendingTimeout);
+                pendingTimeout = null;
+            } else if (timeoutHandler != null) {
                 timeoutHandler.handleTimeout(this);
             } else {
                 cont.setObject(new ServiceUnavailableException());

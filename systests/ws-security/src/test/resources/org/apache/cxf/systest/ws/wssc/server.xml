@@ -32,32 +32,22 @@
     <!-- Transport Layer Security (TLS) settings -->
     <!-- -->
     <httpj:engine-factory id="tls-settings">
-        <httpj:engine port="${testutil.ports.Server.2}">
+        <httpj:engine port="${testutil.ports.wssc.Server.2}">
             <httpj:tlsServerParameters>
                 <sec:keyManagers keyPassword="password">
-                    <sec:keyStore type="jks" password="password" resource="org/apache/cxf/systest/ws/security/Bethal.jks"/>
+                    <sec:keyStore type="jks" password="password" resource="keys/Bethal.jks"/>
                 </sec:keyManagers>
-                <sec:cipherSuitesFilter>
-                    <sec:include>.*_EXPORT_.*</sec:include>
-                    <sec:include>.*_EXPORT1024_.*</sec:include>
-                    <sec:include>.*_WITH_AES_.*</sec:include>
-                </sec:cipherSuitesFilter>
                 <sec:clientAuthentication want="true" required="false"/>
             </httpj:tlsServerParameters>
         </httpj:engine>
     </httpj:engine-factory>
     
     <httpj:engine-factory id="tls-settings-stax">
-        <httpj:engine port="${testutil.ports.StaxServer.2}">
+        <httpj:engine port="${testutil.ports.wssc.StaxServer.2}">
             <httpj:tlsServerParameters>
                 <sec:keyManagers keyPassword="password">
-                    <sec:keyStore type="jks" password="password" resource="org/apache/cxf/systest/ws/security/Bethal.jks"/>
+                    <sec:keyStore type="jks" password="password" resource="keys/Bethal.jks"/>
                 </sec:keyManagers>
-                <sec:cipherSuitesFilter>
-                    <sec:include>.*_EXPORT_.*</sec:include>
-                    <sec:include>.*_EXPORT1024_.*</sec:include>
-                    <sec:include>.*_WITH_AES_.*</sec:include>
-                </sec:cipherSuitesFilter>
                 <sec:clientAuthentication want="true" required="false"/>
             </httpj:tlsServerParameters>
         </httpj:engine>

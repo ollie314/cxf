@@ -36,6 +36,7 @@ import org.apache.cxf.endpoint.Endpoint;
 import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.message.MessageUtils;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.service.model.BindingInfo;
 import org.apache.cxf.service.model.BindingOperationInfo;
 import org.apache.cxf.service.model.EndpointInfo;
@@ -44,6 +45,7 @@ import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
 import org.apache.cxf.ws.policy.EffectivePolicy;
 import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.wss4j.common.WSSPolicyException;
 import org.apache.wss4j.common.crypto.Crypto;
 import org.apache.wss4j.common.ext.WSSecurityException;
@@ -51,8 +53,8 @@ import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.SPConstants;
 import org.apache.wss4j.policy.model.AlgorithmSuite;
 import org.apache.wss4j.policy.stax.OperationPolicy;
-import org.apache.wss4j.policy.stax.PolicyEnforcer;
-import org.apache.wss4j.policy.stax.PolicyInputProcessor;
+import org.apache.wss4j.policy.stax.enforcer.PolicyEnforcer;
+import org.apache.wss4j.policy.stax.enforcer.PolicyInputProcessor;
 import org.apache.wss4j.stax.ext.WSSSecurityProperties;
 import org.apache.wss4j.stax.impl.securityToken.HttpsSecurityTokenImpl;
 import org.apache.wss4j.stax.securityEvent.HttpsTokenSecurityEvent;
@@ -65,8 +67,6 @@ import org.apache.xml.security.stax.securityEvent.SecurityEventListener;
  * 
  */
 public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
-    public static final PolicyBasedWSS4JStaxInInterceptor INSTANCE 
-        = new PolicyBasedWSS4JStaxInInterceptor();
     private static final Logger LOG = LogUtils.getL7dLogger(PolicyBasedWSS4JStaxInInterceptor.class);
 
     public void handleMessage(SoapMessage msg) throws Fault {
@@ -86,18 +86,18 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
     private void checkAsymmetricBinding(
         AssertionInfoMap aim, SoapMessage message, WSSSecurityProperties securityProperties
     ) throws WSSecurityException {
-        AssertionInfo ais = getFirstAssertionByLocalname(aim, SPConstants.ASYMMETRIC_BINDING);
+        AssertionInfo ais = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.ASYMMETRIC_BINDING);
         if (ais == null) {
             return;
         }
         
-        Object s = message.getContextualProperty(SecurityConstants.SIGNATURE_CRYPTO);
+        Object s = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_CRYPTO, message);
         if (s == null) {
-            s = message.getContextualProperty(SecurityConstants.SIGNATURE_PROPERTIES);
+            s = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_PROPERTIES, message);
         }
-        Object e = message.getContextualProperty(SecurityConstants.ENCRYPT_CRYPTO);
+        Object e = SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_CRYPTO, message);
         if (e == null) {
-            e = message.getContextualProperty(SecurityConstants.ENCRYPT_PROPERTIES);
+            e = SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_PROPERTIES, message);
         }
         
         Crypto encrCrypto = getEncryptionCrypto(e, message, securityProperties);
@@ -123,10 +123,10 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
         AssertionInfoMap aim, SoapMessage message, WSSSecurityProperties securityProperties
     ) throws XMLSecurityException {
         boolean transportPolicyInEffect = 
-            getFirstAssertionByLocalname(aim, SPConstants.TRANSPORT_BINDING) != null;
+            PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.TRANSPORT_BINDING) != null;
         if (!transportPolicyInEffect 
-            && !(getFirstAssertionByLocalname(aim, SPConstants.SYMMETRIC_BINDING) == null
-                && getFirstAssertionByLocalname(aim, SPConstants.ASYMMETRIC_BINDING) == null)) {
+            && !(PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.SYMMETRIC_BINDING) == null
+                && PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.ASYMMETRIC_BINDING) == null)) {
             return;
         }
         
@@ -138,7 +138,7 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
             );
             HttpsSecurityTokenImpl httpsSecurityToken = new HttpsSecurityTokenImpl();
             try {
-                httpsSecurityToken.addTokenUsage(WSSecurityTokenConstants.TokenUsage_MainSignature);
+                httpsSecurityToken.addTokenUsage(WSSecurityTokenConstants.TOKENUSAGE_MAIN_SIGNATURE);
             } catch (XMLSecurityException e) {
                 LOG.fine(e.getMessage());
             }
@@ -148,13 +148,13 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
             securityEvents.add(httpsTokenSecurityEvent);
         }
         
-        Object s = message.getContextualProperty(SecurityConstants.SIGNATURE_CRYPTO);
+        Object s = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_CRYPTO, message);
         if (s == null) {
-            s = message.getContextualProperty(SecurityConstants.SIGNATURE_PROPERTIES);
+            s = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_PROPERTIES, message);
         }
-        Object e = message.getContextualProperty(SecurityConstants.ENCRYPT_CRYPTO);
+        Object e = SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_CRYPTO, message);
         if (e == null) {
-            e = message.getContextualProperty(SecurityConstants.ENCRYPT_PROPERTIES);
+            e = SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_PROPERTIES, message);
         }
 
         Crypto encrCrypto = getEncryptionCrypto(e, message, securityProperties);
@@ -181,7 +181,7 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
         List<SecurityEvent> securityEvents = 
             (List<SecurityEvent>) message.getExchange().get(SecurityEvent.class.getName() + ".out");
         if (securityEvents == null) {
-            securityEvents = new ArrayList<SecurityEvent>();
+            securityEvents = new ArrayList<>();
             message.getExchange().put(SecurityEvent.class.getName() + ".out", securityEvents);
         }
         
@@ -191,18 +191,18 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
     private void checkSymmetricBinding(
         AssertionInfoMap aim, SoapMessage message, WSSSecurityProperties securityProperties
     ) throws WSSecurityException {
-        AssertionInfo ais = getFirstAssertionByLocalname(aim, SPConstants.SYMMETRIC_BINDING);
+        AssertionInfo ais = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.SYMMETRIC_BINDING);
         if (ais == null) {
             return;
         }
         
-        Object s = message.getContextualProperty(SecurityConstants.SIGNATURE_CRYPTO);
+        Object s = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_CRYPTO, message);
         if (s == null) {
-            s = message.getContextualProperty(SecurityConstants.SIGNATURE_PROPERTIES);
+            s = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_PROPERTIES, message);
         }
-        Object e = message.getContextualProperty(SecurityConstants.ENCRYPT_CRYPTO);
+        Object e = SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_CRYPTO, message);
         if (e == null) {
-            e = message.getContextualProperty(SecurityConstants.ENCRYPT_PROPERTIES);
+            e = SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_PROPERTIES, message);
         }
         
         Crypto encrCrypto = getEncryptionCrypto(e, message, securityProperties);
@@ -257,16 +257,23 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
         checkSymmetricBinding(aim, msg, securityProperties);
         checkTransportBinding(aim, msg, securityProperties);
         
-        // Allow for setting non-standard asymmetric signature algorithms
+        // Allow for setting non-standard signature algorithms
         String asymSignatureAlgorithm = 
             (String)msg.getContextualProperty(SecurityConstants.ASYMMETRIC_SIGNATURE_ALGORITHM);
-        if (asymSignatureAlgorithm != null) {
+        String symSignatureAlgorithm = 
+            (String)msg.getContextualProperty(SecurityConstants.SYMMETRIC_SIGNATURE_ALGORITHM);
+        if (asymSignatureAlgorithm != null || symSignatureAlgorithm != null) {
             Collection<AssertionInfo> algorithmSuites = 
                 aim.get(SP12Constants.ALGORITHM_SUITE);
             if (algorithmSuites != null && !algorithmSuites.isEmpty()) {
                 for (AssertionInfo algorithmSuite : algorithmSuites) {
                     AlgorithmSuite algSuite = (AlgorithmSuite)algorithmSuite.getAssertion();
-                    algSuite.setAsymmetricSignature(asymSignatureAlgorithm);
+                    if (asymSignatureAlgorithm != null) {
+                        algSuite.setAsymmetricSignature(asymSignatureAlgorithm);
+                    }
+                    if (symSignatureAlgorithm != null) {
+                        algSuite.setSymmetricSignature(symSignatureAlgorithm);
+                    }
                 }
             }
         }
@@ -281,7 +288,7 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
     protected boolean isNonceCacheRequired(SoapMessage msg, WSSSecurityProperties securityProperties) {
         AssertionInfoMap aim = msg.get(AssertionInfoMap.class);
         if (aim != null) {
-            AssertionInfo ais = getFirstAssertionByLocalname(aim, SPConstants.USERNAME_TOKEN);
+            AssertionInfo ais = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.USERNAME_TOKEN);
             if (ais != null) {
                 return true;
             }
@@ -297,7 +304,7 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
     protected boolean isTimestampCacheRequired(SoapMessage msg, WSSSecurityProperties securityProperties) {
         AssertionInfoMap aim = msg.get(AssertionInfoMap.class);
         if (aim != null) {
-            AssertionInfo ais = getFirstAssertionByLocalname(aim, SPConstants.INCLUDE_TIMESTAMP);
+            AssertionInfo ais = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.INCLUDE_TIMESTAMP);
             if (ais != null) {
                 return true;
             }
@@ -313,7 +320,7 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
     protected boolean isSamlCacheRequired(SoapMessage msg, WSSSecurityProperties securityProperties) {
         AssertionInfoMap aim = msg.get(AssertionInfoMap.class);
         if (aim != null) {
-            AssertionInfo ais = getFirstAssertionByLocalname(aim, SPConstants.SAML_TOKEN);
+            AssertionInfo ais = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.SAML_TOKEN);
             if (ais != null) {
                 return true;
             }
@@ -326,10 +333,10 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
     protected List<SecurityEventListener> configureSecurityEventListeners(
         SoapMessage msg, WSSSecurityProperties securityProperties
     ) throws WSSPolicyException {
-        final List<SecurityEventListener> securityEventListeners = new ArrayList<SecurityEventListener>(2);
+        final List<SecurityEventListener> securityEventListeners = new ArrayList<>(2);
         securityEventListeners.addAll(super.configureSecurityEventListeners(msg, securityProperties));
         
-        Endpoint endoint = msg.getExchange().get(Endpoint.class);
+        Endpoint endoint = msg.getExchange().getEndpoint();
         
         PolicyEnforcer policyEnforcer = createPolicyEnforcer(endoint.getEndpointInfo(), msg);
         securityProperties.addInputProcessor(new PolicyInputProcessor(policyEnforcer, securityProperties));
@@ -342,7 +349,7 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
         EndpointInfo endpointInfo, SoapMessage msg
     ) throws WSSPolicyException {
         EffectivePolicy dispatchPolicy = null;
-        List<OperationPolicy> operationPolicies = new ArrayList<OperationPolicy>();
+        List<OperationPolicy> operationPolicies = new ArrayList<>();
         Collection<BindingOperationInfo> bindingOperationInfos = endpointInfo.getBinding().getOperations();
         for (Iterator<BindingOperationInfo> bindingOperationInfoIterator =
                      bindingOperationInfos.iterator(); bindingOperationInfoIterator.hasNext();) {
@@ -368,18 +375,22 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
                 if (bindingOperationInfo.getOutput() != null) {
                     MessageInfo messageInfo = bindingOperationInfo.getOutput().getMessageInfo();
                     operationName = messageInfo.getName();
-                    if (!messageInfo.getMessageParts().isEmpty()
-                        && messageInfo.getMessagePart(0).getConcreteName() != null) {
-                        operationName = messageInfo.getMessagePart(0).getConcreteName();
+                    if (messageInfo.getMessagePartsNumber() > 0) {
+                        QName cn = messageInfo.getFirstMessagePart().getConcreteName();
+                        if (cn != null) {
+                            operationName = cn;
+                        }
                     }
                 }
             } else {
                 if (bindingOperationInfo.getInput() != null) {
                     MessageInfo messageInfo = bindingOperationInfo.getInput().getMessageInfo();
                     operationName = messageInfo.getName();
-                    if (!messageInfo.getMessageParts().isEmpty()
-                        && messageInfo.getMessagePart(0).getConcreteName() != null) {
-                        operationName = messageInfo.getMessagePart(0).getConcreteName();
+                    if (messageInfo.getMessagePartsNumber() > 0) {
+                        QName cn = messageInfo.getFirstMessagePart().getConcreteName();
+                        if (cn != null) {
+                            operationName = cn;
+                        }
                     }
                 }
             }
@@ -415,8 +426,7 @@ public class PolicyBasedWSS4JStaxInInterceptor extends WSS4JStaxInInterceptor {
         }
         
         String actor = (String)msg.getContextualProperty(SecurityConstants.ACTOR);
-        final Collection<org.apache.cxf.message.Attachment> attachments = 
-            msg.getAttachments();
+        final Collection<org.apache.cxf.message.Attachment> attachments = msg.getAttachments();
         int attachmentCount = 0;
         if (attachments != null && !attachments.isEmpty()) {
             attachmentCount = attachments.size();

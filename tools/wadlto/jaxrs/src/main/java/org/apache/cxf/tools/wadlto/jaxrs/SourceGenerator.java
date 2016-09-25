@@ -31,6 +31,7 @@ import java.io.StringReader;
 import java.io.Writer;
 import java.net.URI;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -133,6 +134,8 @@ public class SourceGenerator {
     private static final Map<String, Class<?>> HTTP_METHOD_ANNOTATIONS;
     private static final Map<String, Class<?>> PARAM_ANNOTATIONS;
     private static final String PLAIN_PARAM_STYLE = "plain";
+    private static final String BEAN_VALID_SIMPLE_NAME = "Valid";
+    private static final String BEAN_VALID_FULL_NAME = "javax.validation." + BEAN_VALID_SIMPLE_NAME;
     private static final Set<String> RESOURCE_LEVEL_PARAMS;
     private static final Map<String, String> AUTOBOXED_PRIMITIVES_MAP;
     private static final Map<String, String> XSD_SPECIFIC_TYPE_MAP;
@@ -169,7 +172,7 @@ public class SourceGenerator {
         XSD_SPECIFIC_TYPE_MAP.put("string", "String");
         XSD_SPECIFIC_TYPE_MAP.put("integer", "long");
         XSD_SPECIFIC_TYPE_MAP.put("float", "float");
-        XSD_SPECIFIC_TYPE_MAP.put("doable", "doable");
+        XSD_SPECIFIC_TYPE_MAP.put("double", "double");
         XSD_SPECIFIC_TYPE_MAP.put("int", "int");
         XSD_SPECIFIC_TYPE_MAP.put("long", "long");
         XSD_SPECIFIC_TYPE_MAP.put("byte", "byte");
@@ -217,10 +220,12 @@ public class SourceGenerator {
     private Map<String, String> schemaTypeMap = Collections.emptyMap();
     private Map<String, String> mediaTypesMap = Collections.emptyMap();
     private Bus bus;
-    private boolean supportMultipleXmlReps;
+    private boolean supportMultipleRepsWithElements;
+    private boolean supportBeanValidation;
     private boolean validateWadl;    
     private SchemaCollection schemaCollection = new SchemaCollection();
     private String encoding;
+    private boolean createJavaDocs;
     
     public SourceGenerator() {
         this(Collections.<String, String>emptyMap());
@@ -231,7 +236,7 @@ public class SourceGenerator {
     }
     
     public void setSupportMultipleXmlReps(boolean support) {
-        supportMultipleXmlReps = support;
+        supportMultipleRepsWithElements = support;
     }
     
     public void setWadlNamespace(String ns) {
@@ -491,7 +496,10 @@ public class SourceGenerator {
         sbImports.append(getClassComment()).append(getLineSep());
         sbImports.append("package " + classPackage)
             .append(";").append(getLineSep()).append(getLineSep());
-        
+        boolean doCreateJavaDocs = isJavaDocNeeded(info);
+        if (doCreateJavaDocs) {
+            writeClassDocs(rElement, sbCode);
+        }
         if (isRoot && writeAnnotations(info.isInterfaceGenerated())) {
             String path = rElement.getAttribute("path");
             writeAnnotation(sbCode, imports, Path.class, path, true, false);
@@ -501,7 +509,10 @@ public class SourceGenerator {
         writeImplementsInterface(sbCode, qname.getLocalPart(), info.isInterfaceGenerated());              
         sbCode.append(" {" + getLineSep() + getLineSep());
         
-        writeMethods(rElement, classPackage, imports, sbCode, info, resourceId, isRoot, "");
+        Map<String, Integer> methodNameMap = new HashMap<String, Integer>();
+        writeMethods(rElement, classPackage, imports, sbCode, 
+                     info, resourceId, isRoot, "",
+                     methodNameMap);
         
         sbCode.append("}");
         writeImports(sbImports, imports, classPackage);
@@ -606,14 +617,15 @@ public class SourceGenerator {
                               ContextInfo info,
                               String resourceId,
                               boolean isRoot,
-                              String currentPath) {
+                              String currentPath,
+                              Map<String, Integer> methodNameMap) {
     //CHECKSTYLE:ON    
         List<Element> methodEls = getWadlElements(rElement, "method");
         
         List<Element> currentInheritedParams = inheritResourceParams 
             ? new LinkedList<Element>(info.getInheritedParams()) : Collections.<Element>emptyList();
         for (Element methodEl : methodEls) {
-            writeResourceMethod(methodEl, classPackage, imports, sbCode, info, isRoot, currentPath);    
+            writeResourceMethod(methodEl, classPackage, imports, sbCode, info, isRoot, currentPath, methodNameMap);    
         }
         if (inheritResourceParams && methodEls.isEmpty()) {
             info.getInheritedParams().addAll(getWadlElements(rElement, "param"));
@@ -628,9 +640,9 @@ public class SourceGenerator {
             String newPath = currentPath + path.replace("//", "/");
             String id = childEl.getAttribute("id");
             if (id.length() == 0) {
-                writeMethods(childEl, classPackage, imports, sbCode, info, id, false, newPath);
+                writeMethods(childEl, classPackage, imports, sbCode, info, id, false, newPath, methodNameMap);
             } else {
-                writeResourceMethod(childEl, classPackage, imports, sbCode, info, false, newPath);
+                writeResourceMethod(childEl, classPackage, imports, sbCode, info, false, newPath, methodNameMap);
             }
         }
         info.getInheritedParams().clear();
@@ -654,7 +666,7 @@ public class SourceGenerator {
             }
         }
     }
-    
+        
     private void addImport(Set<String> imports, String clsName) {
         if (imports == null || clsName.startsWith("java.lang") || !clsName.contains(".")) {
             return;
@@ -674,13 +686,27 @@ public class SourceGenerator {
         }
     }
     
+    //CHECKSTYLE:OFF
     private void writeResourceMethod(Element methodEl,
                                      String classPackage,
                                      Set<String> imports,
                                      StringBuilder sbCode,
                                      ContextInfo info,
                                      boolean isRoot,
-                                     String currentPath) {
+                                     String currentPath,
+                                     Map<String, Integer> methodNameMap) {
+    //CHECKSTYLE:ON    
+        StringBuilder sbMethodCode = sbCode;
+        StringBuilder sbMethodDocs = null;
+        StringBuilder sbMethodRespDocs = null;
+        
+        boolean doCreateJavaDocs = isJavaDocNeeded(info); 
+        if (doCreateJavaDocs) {
+            sbMethodCode = new StringBuilder();
+            sbMethodDocs = startMethodDocs(methodEl);
+            sbMethodRespDocs = new StringBuilder();
+        }
+        
         boolean isResourceElement = "resource".equals(methodEl.getLocalName());
         Element resourceEl = isResourceElement ? methodEl : (Element)methodEl.getParentNode();
         
@@ -688,58 +714,87 @@ public class SourceGenerator {
         List<Element> requestEls = getWadlElements(methodEl, "request");
         Element firstRequestEl = requestEls.size() >= 1 ? requestEls.get(0) : null;
         List<Element> allRequestReps = getWadlElements(firstRequestEl, "representation");
-        List<Element> xmlRequestReps = getXmlReps(allRequestReps, info.getGrammarInfo());
+        List<Element> requestRepsWithElements = new LinkedList<Element>();
+        boolean duplicatesAvailable = 
+            getRepsWithElements(allRequestReps, requestRepsWithElements, info.getGrammarInfo());
         
-        final String methodNameLowerCase = methodEl.getAttribute("name").toLowerCase();
-        String id = methodEl.getAttribute("id");
-        if (id.length() == 0) {
-            id = methodNameLowerCase;
-        }
+        String methodName = methodEl.getAttribute("name");
+        final String methodNameLowerCase = methodName.toLowerCase();
+        String id = getMethodId(methodEl, methodNameLowerCase);
         final boolean responseRequired = isMethodMatched(responseMethods, methodNameLowerCase, id);
         final boolean suspendedAsync = responseRequired ? false
             : isMethodMatched(suspendedAsyncMethods, methodNameLowerCase, id);
         
-        boolean jaxpSourceRequired = xmlRequestReps.size() > 1 && !supportMultipleXmlReps;
-        int numOfMethods = jaxpSourceRequired ? 1 : xmlRequestReps.size(); 
+        boolean jaxpSourceRequired = requestRepsWithElements.size() > 1 && !supportMultipleRepsWithElements;
+        int numOfMethods = jaxpSourceRequired ? 1 : requestRepsWithElements.size(); 
+         
         for (int i = 0; i < numOfMethods; i++) {
             
-            Element inXmlRep = xmlRequestReps.get(i);
-                        
+            List<Element> requestReps = allRequestReps;
+            
+            Element requestRepWithElement = requestRepsWithElements.get(i);
             String suffixName = "";
-            if (!jaxpSourceRequired && inXmlRep != null && xmlRequestReps.size() > 1) {
-                String value = inXmlRep.getAttribute("element");
-                int index = value.indexOf(":");
-                suffixName = value.substring(index + 1).replace("-", "");
+            if (supportMultipleRepsWithElements && requestRepWithElement != null 
+                && requestRepsWithElements.size() > 1) {
+                String elementRef = requestRepWithElement.getAttribute("element");
+                int index = elementRef.indexOf(":");
+                suffixName = elementRef.substring(index + 1).replace("-", "");
+                if (duplicatesAvailable) {
+                    String mediaType = requestRepWithElement.getAttribute("mediaType");
+                    if (!StringUtils.isEmpty(mediaType)) {
+                        String subType = MediaType.valueOf(mediaType).getSubtype();
+                        String[] parts = StringUtils.split(subType, "\\+");
+                        if (parts.length == 2) {
+                            suffixName += StringUtils.capitalize(parts[1]);    
+                        } else {
+                            suffixName += StringUtils.capitalize(parts[0].replaceAll("[\\.-]", ""));
+                        }
+                    }
+                }
+                requestReps = Collections.singletonList(requestRepWithElement);
             }
             if (writeAnnotations(info.isInterfaceGenerated())) {
-                sbCode.append(TAB);
+                sbMethodCode.append(TAB);
                 
                 if (methodNameLowerCase.length() > 0) {
                     if (HTTP_METHOD_ANNOTATIONS.containsKey(methodNameLowerCase)) {
-                        writeAnnotation(sbCode, imports, 
+                        writeAnnotation(sbMethodCode, imports, 
                                         HTTP_METHOD_ANNOTATIONS.get(methodNameLowerCase), null, true, true);
                     } else {
-                        // TODO : write a custom annotation class name based on HttpMethod    
+                        writeCustomHttpMethod(info, classPackage, methodName, sbMethodCode, imports);    
                     }
-                    writeFormatAnnotations(allRequestReps, sbCode, imports, true);
-                    writeFormatAnnotations(getWadlElements(getOKResponse(responseEls), "representation"),
-                            sbCode, imports, false);
+                    writeFormatAnnotations(requestReps, sbMethodCode, imports, true, null);
+                    List<Element> responseReps = getWadlElements(getOKResponse(responseEls), "representation");
+                    writeFormatAnnotations(responseReps,
+                                           sbMethodCode, imports, false, requestRepWithElement);
+                    if (supportBeanValidation && !responseRequired 
+                        && isRepWithElementAvailable(responseReps, info.getGrammarInfo())) {
+                        addImport(imports, BEAN_VALID_FULL_NAME);
+                        sbMethodCode.append("@").append(BEAN_VALID_SIMPLE_NAME).append(getLineSep()).append(TAB);
+                    }
                 }
                 if (!isRoot && !"/".equals(currentPath)) {
-                    writeAnnotation(sbCode, imports, Path.class, currentPath, true, true);
+                    writeAnnotation(sbMethodCode, imports, Path.class, currentPath, true, true);
                 }
             } else {
-                sbCode.append(getLineSep()).append(TAB);
+                sbMethodCode.append(getLineSep()).append(TAB);
             }
             
             if (!info.isInterfaceGenerated()) {
-                sbCode.append("public ");
+                sbMethodCode.append("public ");
             }
             boolean responseTypeAvailable = true;
             
             if (methodNameLowerCase.length() > 0) {
-                responseTypeAvailable = writeResponseType(responseEls, sbCode, imports, info, 
-                                                          responseRequired, suspendedAsync);
+                responseTypeAvailable = writeResponseType(responseEls,
+                                                          requestRepWithElement,
+                                                          sbMethodCode, 
+                                                          sbMethodRespDocs,
+                                                          imports, 
+                                                          info, 
+                                                          responseRequired, 
+                                                          suspendedAsync);
+                
                 String genMethodName = id + suffixName;
                 if (methodNameLowerCase.equals(genMethodName)) {
                     List<PathSegment> segments = JAXRSUtils.getPathSegments(currentPath, true, true);
@@ -754,46 +809,188 @@ public class SourceGenerator {
                     }
                     genMethodName += firstCharToUpperCase(sb.toString());
                 }
-                sbCode.append(genMethodName.replace("-", ""));
+                genMethodName = genMethodName.replace("-", "");
+                
+                Integer value = methodNameMap.get(genMethodName);
+                if (value == null) {
+                    value = 0;
+                }
+                methodNameMap.put(genMethodName, ++value);
+                if (value > 1) { 
+                    genMethodName = genMethodName + value.toString();
+                }
+                
+                sbMethodCode.append(genMethodName);
             } else {
-                boolean expandedQName = id.startsWith("{");
-                QName qname = convertToQName(id, expandedQName);
-                String packageName = possiblyConvertNamespaceURI(qname.getNamespaceURI(), expandedQName);
-                
-                String clsFullName = getSchemaClassName(packageName, info.getGrammarInfo(), 
-                        qname.getLocalPart(), info.getTypeClassNames());
-                int lastDotIndex = clsFullName == null ? -1 : clsFullName.lastIndexOf(".");
-                String localName = clsFullName == null 
-                    ? getClassName(qname.getLocalPart(), true, info.getTypeClassNames()) 
-                    : clsFullName.substring(lastDotIndex + 1);
-                String subResponseNs = clsFullName == null ? getClassPackageName(packageName) 
-                    : clsFullName.substring(0, lastDotIndex);
-                Object parentNode = resourceEl.getParentNode();
-                String parentId = parentNode instanceof Element 
-                    ? ((Element)parentNode).getAttribute("id")
-                    : ""; 
-                writeSubResponseType(id.equals(parentId), subResponseNs, localName, 
-                        sbCode, imports);
-                
-                sbCode.append("get" + localName + suffixName);
+                writeSubresourceMethod(resourceEl, imports, sbMethodCode, info, id, suffixName);
             }
             
-            sbCode.append("(");
+            sbMethodCode.append("(");
             
             List<Element> inParamElements = getParameters(resourceEl, info.getInheritedParams(),
                         !isRoot && !isResourceElement && resourceEl.getAttribute("id").length() > 0);
             
-            Element repElement = getActualRepElement(allRequestReps, inXmlRep); 
+            Element repElement = getActualRepElement(allRequestReps, requestRepWithElement); 
             writeRequestTypes(firstRequestEl, classPackage, repElement, inParamElements, 
-                    jaxpSourceRequired, sbCode, imports, info, suspendedAsync);
-            sbCode.append(")");
+                    jaxpSourceRequired, sbMethodCode, sbMethodDocs, imports, info, suspendedAsync);
+            sbMethodCode.append(")");
             if (info.isInterfaceGenerated()) {
-                sbCode.append(";");
+                sbMethodCode.append(";");
             } else {
-                generateEmptyMethodBody(sbCode, responseTypeAvailable);
+                generateEmptyMethodBody(sbMethodCode, responseTypeAvailable);
             }
-            sbCode.append(getLineSep()).append(getLineSep());
+            sbMethodCode.append(getLineSep()).append(getLineSep());
         }
+        finalizeMethodDocs(doCreateJavaDocs, sbCode, sbMethodDocs, sbMethodRespDocs, sbMethodCode);
+        
+    }
+    
+    private String getMethodId(Element methodEl, String methodNameLowerCase) {
+        String id = methodEl.getAttribute("id");
+        if (id.length() == 0) {
+            id = methodNameLowerCase;
+        }
+        return id;
+    }
+
+    private void finalizeMethodDocs(boolean doCreateJavaDocs, StringBuilder sbCode, StringBuilder sbJavaDocs, 
+                                    StringBuilder sbRespDocs, StringBuilder sbMethodCode) {
+        if (doCreateJavaDocs) {
+            sbJavaDocs.append(sbRespDocs);
+            if (sbJavaDocs.length() > 0) { 
+                openJavaDocs(sbCode, true);
+                sbCode.append(sbJavaDocs);
+                closeJavaDocs(sbCode);
+            }
+            sbCode.append(sbMethodCode);
+        }
+    }
+
+    private boolean isJavaDocNeeded(ContextInfo info) {
+        return createJavaDocs && (generateInterfaces && !generateImpl
+                || !generateInterfaces && generateImpl
+                || generateImpl && info.isInterfaceGenerated());
+    }
+
+    private void openJavaDocs(StringBuilder sbDoc, boolean tab) {
+        if (tab) {
+            sbDoc.append(TAB);
+        }
+        sbDoc.append("/**").append(getLineSep());
+        if (tab) {
+            sbDoc.append(TAB);
+        }    
+    }
+
+    private void closeJavaDocs(StringBuilder sbDoc) {
+        sbDoc.append(" */").append(getLineSep());    
+    }
+    private void writeClassDocs(Element resourceEl, StringBuilder sbDoc) {
+        String text = getDocText(resourceEl);
+        if (text != null) {
+            openJavaDocs(sbDoc, false);
+            sbDoc.append(" * ").append(text).append(getLineSep());
+            closeJavaDocs(sbDoc);
+        }
+    }
+    private StringBuilder startMethodDocs(Element methodEl) {
+        StringBuilder sbDoc = new StringBuilder();
+        String text = getDocText(methodEl);
+        if (text != null) {
+            sbDoc.append(" * ").append(text).append(getLineSep()).append(TAB);
+        }
+        return sbDoc;
+    }
+    
+    private void writeMethodParamDocs(Element paramEl, String name, StringBuilder sbDoc) {
+        String text = getDocText(paramEl);
+        if (text != null) {
+            sbDoc.append(" * @param ").append(name).append(" ").append(text)
+                .append(getLineSep()).append(TAB);
+        }
+    }
+    
+    private void writeMethodResponseDocs(Element responseEl, StringBuilder sbDoc) {
+        String text = getDocText(responseEl);
+        if (text != null) {
+            sbDoc.append(" * @return ").append(text).append(getLineSep()).append(TAB);
+        }
+    }
+    
+    private String getDocText(Element el) {
+        Element doc = DOMUtils.getFirstChildWithName(el, getWadlNamespace(), "doc");
+        if (doc != null) {
+            return DOMUtils.getContent(doc);
+        } else {
+            return null;
+        }
+    }
+
+    private void writeCustomHttpMethod(ContextInfo info, 
+                                       String classPackage,
+                                       String methodName, 
+                                       StringBuilder mainCode,
+                                       Set<String> mainImports) {
+        
+        mainCode.append("@").append(methodName);
+        mainCode.append(getLineSep());
+        mainCode.append(TAB);
+        
+        final String className = methodName;
+        if (info.getResourceClassNames().contains(className)) {
+            return;
+        }
+        info.getResourceClassNames().add(className);
+        
+        
+        StringBuilder sbMethodClassImports = new StringBuilder();
+        sbMethodClassImports.append(getClassComment()).append(getLineSep());
+        sbMethodClassImports.append("package " + classPackage)
+            .append(";").append(getLineSep()).append(getLineSep());
+        
+        sbMethodClassImports.append("import java.lang.annotation.ElementType;").append(getLineSep());
+        sbMethodClassImports.append("import java.lang.annotation.Retention;").append(getLineSep());
+        sbMethodClassImports.append("import java.lang.annotation.RetentionPolicy;").append(getLineSep());
+        sbMethodClassImports.append("import java.lang.annotation.Target;").append(getLineSep());
+        sbMethodClassImports.append("import javax.ws.rs.HttpMethod;").append(getLineSep());
+        
+        StringBuilder sbMethodClassCode = new StringBuilder();
+        sbMethodClassCode.append("@Target({ElementType.METHOD })").append(getLineSep());
+        sbMethodClassCode.append("@Retention(RetentionPolicy.RUNTIME)").append(getLineSep());
+        sbMethodClassCode.append("@HttpMethod(\"" + methodName + "\")").append(getLineSep());
+        sbMethodClassCode.append("public @interface " + methodName);    
+        sbMethodClassCode.append(" {" + getLineSep() + getLineSep());
+        sbMethodClassCode.append("}");
+        createJavaSourceFile(info.getSrcDir(), new QName(classPackage, className), 
+                             sbMethodClassCode, sbMethodClassImports, true);
+    }
+
+    private void writeSubresourceMethod(Element resourceEl,
+                                        Set<String> imports,
+                                        StringBuilder sbCode,
+                                        ContextInfo info,
+                                        String id,
+                                        String suffixName) {
+        boolean expandedQName = id.startsWith("{");
+        QName qname = convertToQName(id, expandedQName);
+        String packageName = possiblyConvertNamespaceURI(qname.getNamespaceURI(), expandedQName);
+        
+        String clsFullName = getSchemaClassName(packageName, info.getGrammarInfo(), 
+                qname.getLocalPart(), info.getTypeClassNames());
+        int lastDotIndex = clsFullName == null ? -1 : clsFullName.lastIndexOf(".");
+        String localName = clsFullName == null 
+            ? getClassName(qname.getLocalPart(), true, info.getTypeClassNames()) 
+            : clsFullName.substring(lastDotIndex + 1);
+        String subResponseNs = clsFullName == null ? getClassPackageName(packageName) 
+            : clsFullName.substring(0, lastDotIndex);
+        Object parentNode = resourceEl.getParentNode();
+        String parentId = parentNode instanceof Element 
+            ? ((Element)parentNode).getAttribute("id")
+            : ""; 
+        writeSubResponseType(id.equals(parentId), subResponseNs, localName, 
+                sbCode, imports);
+        
+        sbCode.append("get" + localName + suffixName);
     }
     
     private static boolean isMethodMatched(Set<String> methodNames, String methodNameLowerCase, String id) {
@@ -805,22 +1002,37 @@ public class SourceGenerator {
             || methodNames.size() == 1 && "*".equals(methodNames.iterator().next());
     }
 
-    private List<Element> getXmlReps(List<Element> repElements, GrammarInfo gInfo) {
-        Set<String> values = new HashSet<String>(repElements.size());
-        List<Element> xmlReps = new ArrayList<Element>();
+    private boolean getRepsWithElements(List<Element> repElements,
+                                              List<Element> requestRepsWithElements,
+                                              GrammarInfo gInfo) {
+        int duplicatesCount = 0;
+        Set<String> elementRefs = new HashSet<String>();
         for (Element el : repElements) {
             String value = el.getAttribute("element");
             if (value.length() > 0 
-                && (value.contains(":") || gInfo.isSchemaWithoutTargetNamespace()) 
-                && !values.contains(value)) {
-                xmlReps.add(el);
-                values.add(value);
+                && (value.contains(":") || gInfo.isSchemaWithoutTargetNamespace())) {
+                requestRepsWithElements.add(el);
+                if (!elementRefs.add(value)) {
+                    duplicatesCount++;
+                }
             }
         }
-        if (xmlReps.isEmpty()) {
-            xmlReps.add(null);
+        if (requestRepsWithElements.isEmpty()) {
+            requestRepsWithElements.add(null);
         }
-        return xmlReps;
+        return duplicatesCount > 0;
+    }
+    
+    private boolean isRepWithElementAvailable(List<Element> repElements,
+                                              GrammarInfo gInfo) {
+        for (Element el : repElements) {
+            String value = el.getAttribute("element");
+            if (value.length() > 0 
+                && (value.contains(":") || gInfo.isSchemaWithoutTargetNamespace())) {
+                return true;
+            }
+        }
+        return false;
     }
     
     private List<Element> getParameters(Element resourceEl, List<Element> inheritedParams, 
@@ -912,18 +1124,23 @@ public class SourceGenerator {
         }
         return repElements.isEmpty() ? null : repElements.get(0);
     }
-    
+    //CHECKSTYLE:OFF
     private boolean writeResponseType(List<Element> responseEls,
+                                      Element requestRepWithElement,
                                       StringBuilder sbCode,
+                                      StringBuilder sbRespDocs,
                                       Set<String> imports,  
                                       ContextInfo info,
                                       boolean responseRequired,
                                       boolean suspendedAsync) {
-        
+    //CHECKSTYLE:ON    
         Element okResponse = !suspendedAsync ? getOKResponse(responseEls) : null;
         
         List<Element> repElements = null;
         if (okResponse != null) {
+            if (sbRespDocs != null) {
+                writeMethodResponseDocs(okResponse, sbRespDocs);
+            }
             repElements = getWadlElements(okResponse, "representation");    
         } else {
             repElements = CastUtils.cast(Collections.emptyList(), Element.class);
@@ -945,10 +1162,33 @@ public class SourceGenerator {
                 return true;
             }
         }
-        
-        String elementType = responseRequired ? null : getElementRefName(
-                getActualRepElement(repElements, getXmlReps(repElements, info.getGrammarInfo()).get(0)), 
-                info, imports, true);
+        String elementType = null;
+        if (!responseRequired) {
+            List<Element> responseRepWithElements = new LinkedList<Element>();
+            getRepsWithElements(repElements, responseRepWithElements, info.getGrammarInfo());
+            
+            Element responseRepWithElement = null;
+            if (responseRepWithElements.size() == 1) {
+                responseRepWithElement = responseRepWithElements.get(0);
+            } else if (requestRepWithElement != null 
+                && supportMultipleRepsWithElements
+                && responseRepWithElements.size() > 1) {
+                String mediaType = requestRepWithElement.getAttribute("mediaType"); 
+                for (Element el : responseRepWithElements) {
+                    if (el.getAttribute("mediaType").equals(mediaType)) {
+                        responseRepWithElement = el;
+                        break;
+                    }
+                }
+                if (responseRepWithElement == null) {
+                    responseRepWithElement = responseRepWithElements.get(0);
+                }
+            }
+            
+            elementType = getElementRefName(
+                               getActualRepElement(repElements, responseRepWithElement), 
+                               info, imports, true);
+        }
         if (elementType != null) {
             sbCode.append(elementType + " ");
         } else {
@@ -991,7 +1231,8 @@ public class SourceGenerator {
                                    Element repElement,
                                    List<Element> inParamEls, 
                                    boolean jaxpRequired,
-                                   StringBuilder sbCode, 
+                                   StringBuilder sbCode,
+                                   StringBuilder sbMethodDocs,
                                    Set<String> imports, 
                                    ContextInfo info,
                                    boolean suspendedAsync) {
@@ -1000,24 +1241,26 @@ public class SourceGenerator {
         boolean multipart = false;
         boolean formOrMultipartParamsAvailable = false;
         String requestMediaType = null;
+        int currentSize = 0;
         if (requestEl != null) {
             inParamEls.addAll(getWadlElements(requestEl, "param"));
-            int currentSize = inParamEls.size();
+            currentSize = inParamEls.size();
             List<Element> repElements = getWadlElements(requestEl, "representation");
             form = addFormParameters(inParamEls, requestEl, repElements);
             if (form) {
                 formOrMultipartParamsAvailable = currentSize < inParamEls.size();
                 requestMediaType = repElements.get(0).getAttribute("mediaType");
-                multipart = form && requestMediaType.startsWith("multipart/");
+                multipart = requestMediaType.startsWith("multipart/");
             }
         }
                   
+        boolean writeAnnotations = writeAnnotations(info.isInterfaceGenerated());
         for (int i = 0; i < inParamEls.size(); i++) {
     
             Element paramEl = inParamEls.get(i);
             
             Class<?> paramAnn = getParamAnnotation(paramEl.getAttribute("style"));
-            if (paramAnn == QueryParam.class && formOrMultipartParamsAvailable) {
+            if (i >= currentSize && paramAnn == QueryParam.class && formOrMultipartParamsAvailable) {
                 paramAnn = !multipart ? FormParam.class : Multipart.class; 
             } 
             String name = paramEl.getAttribute("name");
@@ -1030,7 +1273,7 @@ public class SourceGenerator {
                     enumCreated = true;
                 }
             }
-            if (writeAnnotations(info.isInterfaceGenerated())) {
+            if (writeAnnotations) {
                 String required = paramEl.getAttribute("required");
                 if (Multipart.class.equals(paramAnn) && "false".equals(required)) {
                     writeAnnotation(sbCode, imports, paramAnn, null, false, false);
@@ -1060,20 +1303,29 @@ public class SourceGenerator {
             } else {
                 paramName = name.replaceAll("[:\\.\\-]", "_");
             }
-            sbCode.append(type).append(" ").append(firstCharToLowerCase(paramName));
+            String javaParamName = firstCharToLowerCase(paramName);
+            sbCode.append(type).append(" ").append(javaParamName);
             if (i + 1 < inParamEls.size()) {
                 sbCode.append(", ");
                 if (i + 1 >= 4 && ((i + 1) % 4) == 0) {
                     sbCode.append(getLineSep()).append(TAB).append(TAB).append(TAB).append(TAB);
                 }
             }
+            if (sbMethodDocs != null) {
+                writeMethodParamDocs(paramEl, javaParamName, sbMethodDocs);
+            }
         }
         String elementParamType = null;
         String elementParamName = null;
+        boolean writeBeanValidation = false;
         if (!form) {
             if (!jaxpRequired) {    
                 elementParamType = getElementRefName(repElement, info, imports, false);
                 if (elementParamType != null) {
+                    if (writeAnnotations && supportBeanValidation 
+                        && isRepWithElementAvailable(Collections.singletonList(repElement), info.getGrammarInfo())) {
+                        writeBeanValidation = true; 
+                    }
                     int lastIndex = elementParamType.lastIndexOf('.');
                     if (lastIndex != -1) {
                         elementParamType = elementParamType.substring(lastIndex + 1);
@@ -1104,16 +1356,26 @@ public class SourceGenerator {
             if (inParamEls.size() > 0) {
                 sbCode.append(", ");
             }
+            if (writeBeanValidation) {
+                addImport(imports, BEAN_VALID_FULL_NAME);
+                sbCode.append("@").append(BEAN_VALID_SIMPLE_NAME).append(" ");
+            }
+            
             sbCode.append(elementParamType).append(" ").append(elementParamName);
+        }
+        if (sbMethodDocs != null && repElement != null) {
+            writeMethodParamDocs(repElement, elementParamName, sbMethodDocs);
         }
         if (suspendedAsync) {
             if (inParamEls.size() > 0 || elementParamType != null) {
                 sbCode.append(", ");
             }
-            addImport(imports, Suspended.class.getName());
+            if (writeAnnotations) {
+                addImport(imports, Suspended.class.getName());
+                sbCode.append("@").append(Suspended.class.getSimpleName()).append(" ");        
+            }
             addImport(imports, AsyncResponse.class.getName());
-            sbCode.append("@").append(Suspended.class.getSimpleName()).append(" ")
-                .append(AsyncResponse.class.getSimpleName()).append(" ").append("async");
+            sbCode.append(AsyncResponse.class.getSimpleName()).append(" ").append("async");
         }
     }
     
@@ -1341,7 +1603,7 @@ public class SourceGenerator {
         } else {
             // try mediaTypesMap first
             String mediaType = repElement.getAttribute("mediaType");
-            if (!StringUtils.isEmpty(mediaType) && mediaTypesMap.containsKey(mediaType)) {
+            if (mediaTypesMap.containsKey(mediaType)) {
                 return addImportsAndGetSimpleName(imports, mediaTypesMap.get(mediaType));
             }
             if (checkPrimitive) {
@@ -1399,7 +1661,9 @@ public class SourceGenerator {
     
     
     private void writeFormatAnnotations(List<Element> repElements, StringBuilder sbCode, 
-                                        Set<String> imports, boolean inRep) {
+                                        Set<String> imports, 
+                                        boolean inRep,
+                                        Element requestRepWithElement) {
         if (repElements.size() == 0) {    
             return;
         }
@@ -1413,7 +1677,15 @@ public class SourceGenerator {
         StringBuilder mediaTypes = new StringBuilder("");
         for (int i = 0; i < repElements.size(); i++) {
             String mediaType = repElements.get(i).getAttribute("mediaType");
-            if (mediaType != null && (mediaTypes.indexOf(mediaType) < 0)) {
+            if (!StringUtils.isEmpty(mediaType) && mediaTypes.indexOf(mediaType) < 0) {
+                if (!inRep
+                    && supportMultipleRepsWithElements
+                    && repElements.size() > 1
+                    && requestRepWithElement != null
+                    && !requestRepWithElement.getAttribute("mediaType").equals(mediaType)) {
+                    continue;
+                }
+                
                 if (!first) { 
                     mediaTypes.append(", ");
                 }
@@ -1446,16 +1718,10 @@ public class SourceGenerator {
         
         try {
             file.createNewFile();
-            Writer writer = null;
-            try {
-                writer = new OutputStreamWriter(new FileOutputStream(file), 
-                                                encoding == null ? "UTF-8" : encoding);
+            try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), 
+                                                encoding == null ? StandardCharsets.UTF_8.name() : encoding)) {
                 writer.write(content);
                 writer.flush();
-            } finally {
-                if (writer != null) {
-                    writer.close();
-                }
             }
         } catch (FileNotFoundException ex) {
             LOG.warning(file.getAbsolutePath() + " is not found");
@@ -1470,7 +1736,7 @@ public class SourceGenerator {
             if (validateWadl) {
                 SchemaFactory factory = SchemaFactory.newInstance(Constants.URI_2001_SCHEMA_XSD);
                 URL schemaURL = ResourceUtils.getResourceURL("classpath:/schemas/wadl/wadl.xsd", bus);
-                Reader r = new BufferedReader(new InputStreamReader(schemaURL.openStream(), "UTF-8"));
+                Reader r = new BufferedReader(new InputStreamReader(schemaURL.openStream(), StandardCharsets.UTF_8));
                 StreamSource source = new StreamSource(r);
                 source.setSystemId(schemaURL.toString());
                 Schema s = factory.newSchema(new Source[]{source});
@@ -1501,7 +1767,8 @@ public class SourceGenerator {
     
     private void generateClassesFromSchema(JCodeModel codeModel, File src) {
         try {
-            Object writer = JAXBUtils.createFileCodeWriter(src, encoding == null ? "UTF-8" : encoding);
+            Object writer = JAXBUtils.createFileCodeWriter(src, encoding == null 
+                ? StandardCharsets.UTF_8.name() : encoding);
             codeModel.build(writer);
             generatedTypeClasses = JAXBUtils.getGeneratedClassNames(codeModel);
         } catch (Exception e) {
@@ -1601,7 +1868,7 @@ public class SourceGenerator {
             if (is == null) {
                 is = URI.create(href).toURL().openStream();
             }
-            return readXmlDocument(new InputStreamReader(is, "UTF-8"));
+            return readXmlDocument(new InputStreamReader(is, StandardCharsets.UTF_8));
         } catch (Exception ex) {
             throw new RuntimeException("Resource " + href + " can not be read");
         }
@@ -1757,17 +2024,25 @@ public class SourceGenerator {
         this.encoding = encoding;
     }
 
+    public void setCreateJavaDocs(boolean createJavaDocs) {
+        this.createJavaDocs = createJavaDocs;
+    }
+
+    public void setSupportBeanValidation(boolean supportBeanValidation) {
+        this.supportBeanValidation = supportBeanValidation;
+    }
+
     private static class GrammarInfo {
         private Map<String, String> nsMap = new HashMap<String, String>();
         private Map<String, String> elementTypeMap = new HashMap<String, String>();
         private boolean noTargetNamespace;
-        public GrammarInfo() {
+        GrammarInfo() {
             
         }
         
-        public GrammarInfo(Map<String, String> nsMap, 
-                           Map<String, String> elementTypeMap,
-                           boolean noTargetNamespace) {
+        GrammarInfo(Map<String, String> nsMap, 
+                    Map<String, String> elementTypeMap,
+                    boolean noTargetNamespace) {
             this.nsMap = nsMap;
             this.elementTypeMap = elementTypeMap;
             this.noTargetNamespace = noTargetNamespace;
@@ -1826,7 +2101,7 @@ public class SourceGenerator {
     private class Application {
         private Element appElement;
         private String wadlPath;
-        public Application(Element appElement, String wadlPath) {
+        Application(Element appElement, String wadlPath) {
             this.appElement = appElement;
             this.wadlPath = wadlPath;
         }
@@ -1849,11 +2124,11 @@ public class SourceGenerator {
         private File srcDir;
         private List<Element> inheritedParams = new LinkedList<Element>();
         
-        public ContextInfo(Application rootApp,
-                           File srcDir,
-                           Set<String> typeClassNames, 
-                           GrammarInfo gInfo, 
-                           boolean interfaceIsGenerated) {
+        ContextInfo(Application rootApp,
+                    File srcDir,
+                    Set<String> typeClassNames, 
+                    GrammarInfo gInfo, 
+                    boolean interfaceIsGenerated) {
             this.interfaceIsGenerated = interfaceIsGenerated;
             this.typeClassNames = typeClassNames;
             this.gInfo = gInfo;

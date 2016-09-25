@@ -22,6 +22,7 @@ package org.apache.cxf.rs.security.xml;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 
@@ -32,20 +33,18 @@ import javax.xml.stream.XMLStreamReader;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
-
 import org.apache.cxf.common.util.Base64Exception;
 import org.apache.cxf.common.util.Base64Utility;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.rs.security.common.CryptoLoader;
-import org.apache.cxf.rs.security.common.SecurityUtils;
+import org.apache.cxf.rs.security.common.RSSecurityUtils;
 import org.apache.cxf.rs.security.common.TrustValidator;
+import org.apache.cxf.rt.security.SecurityConstants;
 import org.apache.cxf.staxutils.StaxUtils;
 import org.apache.cxf.staxutils.W3CDOMStreamReader;
-import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.wss4j.common.crypto.Crypto;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.common.util.KeyUtils;
-import org.apache.wss4j.dom.WSConstants;
 import org.apache.xml.security.encryption.XMLCipher;
 import org.apache.xml.security.encryption.XMLEncryptionException;
 import org.apache.xml.security.utils.Constants;
@@ -84,7 +83,7 @@ public abstract class AbstractXmlEncInHandler extends AbstractXmlSecInHandler {
         Document payloadDoc = null;
         try {
             payloadDoc = StaxUtils.read(new InputStreamReader(new ByteArrayInputStream(decryptedPayload),
-                                               "UTF-8"));
+                                               StandardCharsets.UTF_8));
         } catch (Exception ex) {
             throwFault("Payload document can not be created", ex);
         }
@@ -98,7 +97,7 @@ public abstract class AbstractXmlEncInHandler extends AbstractXmlSecInHandler {
         
         String cryptoKey = null; 
         String propKey = null;
-        if (SecurityUtils.isSignedAndEncryptedTwoWay(message)) {
+        if (RSSecurityUtils.isSignedAndEncryptedTwoWay(message)) {
             cryptoKey = SecurityConstants.SIGNATURE_CRYPTO;
             propKey = SecurityConstants.SIGNATURE_PROPERTIES;
         } else {
@@ -113,7 +112,7 @@ public abstract class AbstractXmlEncInHandler extends AbstractXmlSecInHandler {
             throwFault("Crypto can not be loaded", ex);
         }
         
-        Element encKeyElement = getNode(encDataElement, WSConstants.ENC_NS, "EncryptedKey", 0);
+        Element encKeyElement = getNode(encDataElement, ENC_NS, "EncryptedKey", 0);
         if (encKeyElement == null) {
             //TODO: support EncryptedData/ds:KeyInfo - the encrypted key is passed out of band
             throwFault("EncryptedKey element is not available", null);
@@ -146,8 +145,7 @@ public abstract class AbstractXmlEncInHandler extends AbstractXmlSecInHandler {
         }
         
         
-        Element cipherValue = getNode(encKeyElement, WSConstants.ENC_NS, 
-                                               "CipherValue", 0);
+        Element cipherValue = getNode(encKeyElement, ENC_NS, "CipherValue", 0);
         if (cipherValue == null) {
             throwFault("CipherValue element is not available", null);
         }
@@ -173,23 +171,23 @@ public abstract class AbstractXmlEncInHandler extends AbstractXmlSecInHandler {
          */
         
         String keyIdentifierType = encProps != null ? encProps.getEncryptionKeyIdType() : null;
-        if (keyIdentifierType == null || keyIdentifierType.equals(SecurityUtils.X509_CERT)) {
+        if (keyIdentifierType == null || keyIdentifierType.equals(RSSecurityUtils.X509_CERT)) {
             Element certNode = getNode(encKeyElement, 
                                        Constants.SignatureSpecNS, "X509Certificate", 0);
             if (certNode != null) {
                 try {
-                    return SecurityUtils.loadX509Certificate(crypto, certNode);
+                    return RSSecurityUtils.loadX509Certificate(crypto, certNode);
                 } catch (Exception ex) {
                     throwFault("X509Certificate can not be created", ex);
                 }
             }
         }
-        if (keyIdentifierType == null || keyIdentifierType.equals(SecurityUtils.X509_ISSUER_SERIAL)) {
+        if (keyIdentifierType == null || keyIdentifierType.equals(RSSecurityUtils.X509_ISSUER_SERIAL)) {
             Element certNode = getNode(encKeyElement, 
                     Constants.SignatureSpecNS, "X509IssuerSerial", 0);
             if (certNode != null) {
                 try {
-                    return SecurityUtils.loadX509IssuerSerial(crypto, certNode);
+                    return RSSecurityUtils.loadX509IssuerSerial(crypto, certNode);
                 } catch (Exception ex) {
                     throwFault("X509Certificate can not be created", ex);
                 }
@@ -200,7 +198,7 @@ public abstract class AbstractXmlEncInHandler extends AbstractXmlSecInHandler {
     }
     
     private String getEncodingMethodAlgorithm(Element parent) {
-        Element encMethod = getNode(parent, WSConstants.ENC_NS, "EncryptionMethod", 0);
+        Element encMethod = getNode(parent, ENC_NS, "EncryptionMethod", 0);
         if (encMethod == null) {
             throwFault("EncryptionMethod element is not available", null);
         }
@@ -208,9 +206,9 @@ public abstract class AbstractXmlEncInHandler extends AbstractXmlSecInHandler {
     }
     
     private String getDigestMethodAlgorithm(Element parent) {
-        Element encMethod = getNode(parent, WSConstants.ENC_NS, "EncryptionMethod", 0);
+        Element encMethod = getNode(parent, ENC_NS, "EncryptionMethod", 0);
         if (encMethod != null) {
-            Element digestMethod = getNode(encMethod, WSConstants.SIG_NS, "DigestMethod", 0);
+            Element digestMethod = getNode(encMethod, SIG_NS, "DigestMethod", 0);
             if (digestMethod != null) {
                 return digestMethod.getAttributeNS(null, "Algorithm");
             }
@@ -234,7 +232,7 @@ public abstract class AbstractXmlEncInHandler extends AbstractXmlSecInHandler {
                                          String keyEncAlgo,
                                          String digestAlgo,
                                          Message message) throws WSSecurityException {
-        CallbackHandler callback = SecurityUtils.getCallbackHandler(message, this.getClass());
+        CallbackHandler callback = RSSecurityUtils.getCallbackHandler(message, this.getClass());
         PrivateKey key = null;
         try {
             key = crypto.getPrivateKey(cert, callback);

@@ -27,11 +27,11 @@
     <parent>
         <groupId>org.apache.cxf</groupId>
         <artifactId>cxf-parent</artifactId>
-        <version>3.1.0-SNAPSHOT</version>
+        <version>3.2.0-SNAPSHOT</version>
         <relativePath>../../../parent/pom.xml</relativePath>
     </parent>
     <properties>
-    	<cxf.bundle.activator>org.apache.cxf.transport.http.asyncclient.Activator</cxf.bundle.activator>
+        <cxf.bundle.activator>org.apache.cxf.transport.http.asyncclient.Activator</cxf.bundle.activator>
         <cxf.osgi.import>
             javax.annotation;version="${cxf.osgi.javax.annotation.version}",
             *
@@ -82,7 +82,6 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>jcl-over-slf4j</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>

@@ -47,10 +47,11 @@ import org.apache.cxf.message.Message;
 import org.apache.cxf.phase.AbstractPhaseInterceptor;
 import org.apache.cxf.phase.Phase;
 import org.apache.cxf.rs.security.common.CryptoLoader;
-import org.apache.cxf.rs.security.common.SecurityUtils;
+import org.apache.cxf.rs.security.common.RSSecurityUtils;
 import org.apache.cxf.rs.security.common.TrustValidator;
+import org.apache.cxf.rt.security.SecurityConstants;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.staxutils.StaxUtils;
-import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.wss4j.common.crypto.Crypto;
 import org.apache.wss4j.common.crypto.CryptoType;
 import org.apache.wss4j.common.ext.WSPasswordCallback;
@@ -85,7 +86,7 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
     /**
      * a collection of compiled regular expression patterns for the subject DN
      */
-    private Collection<Pattern> subjectDNPatterns = new ArrayList<Pattern>();
+    private Collection<Pattern> subjectDNPatterns = new ArrayList<>();
 
     public XmlSecInInterceptor() {
         super(Phase.POST_STREAM);
@@ -142,7 +143,7 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
         UnsupportedCallbackException, WSSecurityException {
         String cryptoKey = null; 
         String propKey = null;
-        if (SecurityUtils.isSignedAndEncryptedTwoWay(message)) {
+        if (RSSecurityUtils.isSignedAndEncryptedTwoWay(message)) {
             cryptoKey = SecurityConstants.SIGNATURE_CRYPTO;
             propKey = SecurityConstants.SIGNATURE_PROPERTIES;
         } else {
@@ -163,7 +164,7 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
                 alias = crypto.getDefaultX509Identifier();
             }
             if (alias != null) {
-                CallbackHandler callback = SecurityUtils.getCallbackHandler(message, this.getClass());
+                CallbackHandler callback = RSSecurityUtils.getCallbackHandler(message, this.getClass());
                 WSPasswordCallback passwordCallback = 
                     new WSPasswordCallback(alias, WSPasswordCallback.DECRYPT);
                 callback.handle(new Callback[] {passwordCallback});
@@ -177,7 +178,7 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
     private Crypto getSignatureCrypto(Message message) {
         String cryptoKey = null; 
         String propKey = null;
-        if (SecurityUtils.isSignedAndEncryptedTwoWay(message)) {
+        if (RSSecurityUtils.isSignedAndEncryptedTwoWay(message)) {
             cryptoKey = SecurityConstants.ENCRYPT_CRYPTO;
             propKey = SecurityConstants.ENCRYPT_PROPERTIES;
         } else {
@@ -211,7 +212,7 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
     protected SecurityEventListener configureSecurityEventListener(
         final Crypto sigCrypto, final Message msg, XMLSecurityProperties securityProperties
     ) {
-        final List<SecurityEvent> incomingSecurityEventList = new LinkedList<SecurityEvent>();
+        final List<SecurityEvent> incomingSecurityEventList = new LinkedList<>();
         SecurityEventListener securityEventListener = new SecurityEventListener() {
             @Override
             public void registerSecurityEvent(SecurityEvent securityEvent) throws XMLSecurityException {
@@ -240,19 +241,19 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
         if (XMLSecurityConstants.Enc.equals(event.getAlgorithmUsage())
             && encryptionProperties.getEncryptionSymmetricKeyAlgo() != null
             && !encryptionProperties.getEncryptionSymmetricKeyAlgo().equals(event.getAlgorithmURI())) {
-            throw new XMLSecurityException("empty", "The symmetric encryption algorithm "
-                                           + event.getAlgorithmURI() + " is not allowed");
+            throw new XMLSecurityException("empty", new Object[] {"The symmetric encryption algorithm "
+                                           + event.getAlgorithmURI() + " is not allowed"});
         } else if ((XMLSecurityConstants.Sym_Key_Wrap.equals(event.getAlgorithmUsage())
             || XMLSecurityConstants.Asym_Key_Wrap.equals(event.getAlgorithmUsage()))
             && encryptionProperties.getEncryptionKeyTransportAlgo() != null
             && !encryptionProperties.getEncryptionKeyTransportAlgo().equals(event.getAlgorithmURI())) {
-            throw new XMLSecurityException("empty", "The key transport algorithm "
-                + event.getAlgorithmURI() + " is not allowed");
+            throw new XMLSecurityException("empty", new Object[] {"The key transport algorithm "
+                + event.getAlgorithmURI() + " is not allowed"});
         } else if (XMLSecurityConstants.EncDig.equals(event.getAlgorithmUsage())
             && encryptionProperties.getEncryptionDigestAlgo() != null
             && !encryptionProperties.getEncryptionDigestAlgo().equals(event.getAlgorithmURI())) {
-            throw new XMLSecurityException("empty", "The encryption digest algorithm "
-                + event.getAlgorithmURI() + " is not allowed");
+            throw new XMLSecurityException("empty", new Object[] {"The encryption digest algorithm "
+                + event.getAlgorithmURI() + " is not allowed"});
         }
     }
     
@@ -262,24 +263,24 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
             || XMLSecurityConstants.Sym_Sig.equals(event.getAlgorithmUsage()))
             && sigProps.getSignatureAlgo() != null
             && !sigProps.getSignatureAlgo().equals(event.getAlgorithmURI())) {
-            throw new XMLSecurityException("empty", "The signature algorithm "
-                                           + event.getAlgorithmURI() + " is not allowed");
+            throw new XMLSecurityException("empty", new Object[] {"The signature algorithm "
+                                           + event.getAlgorithmURI() + " is not allowed"});
         } else if (XMLSecurityConstants.SigDig.equals(event.getAlgorithmUsage())
             && sigProps.getSignatureDigestAlgo() != null
             && !sigProps.getSignatureDigestAlgo().equals(event.getAlgorithmURI())) {
-            throw new XMLSecurityException("empty", "The signature digest algorithm "
-                + event.getAlgorithmURI() + " is not allowed");
+            throw new XMLSecurityException("empty", new Object[] {"The signature digest algorithm "
+                + event.getAlgorithmURI() + " is not allowed"});
         } else if (XMLSecurityConstants.SigC14n.equals(event.getAlgorithmUsage())
             && sigProps.getSignatureC14nMethod() != null
             && !sigProps.getSignatureC14nMethod().equals(event.getAlgorithmURI())) {
-            throw new XMLSecurityException("empty", "The signature c14n algorithm "
-                + event.getAlgorithmURI() + " is not allowed");
+            throw new XMLSecurityException("empty", new Object[] {"The signature c14n algorithm "
+                + event.getAlgorithmURI() + " is not allowed"});
         } else if (XMLSecurityConstants.SigTransform.equals(event.getAlgorithmUsage())
             && !XMLSecurityConstants.NS_XMLDSIG_ENVELOPED_SIGNATURE.equals(event.getAlgorithmURI())
             && sigProps.getSignatureC14nTransform() != null
             && !sigProps.getSignatureC14nTransform().equals(event.getAlgorithmURI())) {
-            throw new XMLSecurityException("empty", "The signature transformation algorithm "
-                + event.getAlgorithmURI() + " is not allowed");
+            throw new XMLSecurityException("empty", new Object[] {"The signature transformation algorithm "
+                + event.getAlgorithmURI() + " is not allowed"});
         }
     }
     
@@ -297,10 +298,11 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
             
             // validate trust 
             try {
-                new TrustValidator().validateTrust(sigCrypto, cert, publicKey, subjectDNPatterns);
+                new TrustValidator().validateTrust(sigCrypto, cert, publicKey, 
+                                                   getSubjectContraints(msg));
             } catch (WSSecurityException e) {
-                throw new XMLSecurityException("empty", "Error during Signature Trust "
-                                               + "validation: " + e.getMessage());
+                throw new XMLSecurityException("empty", new Object[] {"Error during Signature Trust "
+                                               + "validation: " + e.getMessage()});
             }
             
             if (persistSignature) {
@@ -365,7 +367,7 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
      */
     public void setSubjectConstraints(List<String> constraints) {
         if (constraints != null) {
-            subjectDNPatterns = new ArrayList<Pattern>();
+            subjectDNPatterns = new ArrayList<>();
             for (String constraint : constraints) {
                 try {
                     subjectDNPatterns.add(Pattern.compile(constraint.trim()));
@@ -374,6 +376,23 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
                 }
             }
         }
+    }
+    
+    private Collection<Pattern> getSubjectContraints(Message msg) throws PatternSyntaxException {
+        String certConstraints = 
+            (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.SUBJECT_CERT_CONSTRAINTS, msg);
+        // Check the message property first. If this is not null then use it. Otherwise pick up
+        // the constraints set as a property
+        if (certConstraints != null) {
+            String[] certConstraintsList = certConstraints.split(",");
+            if (certConstraintsList != null) {
+                subjectDNPatterns.clear();
+                for (String certConstraint : certConstraintsList) {
+                    subjectDNPatterns.add(Pattern.compile(certConstraint.trim()));
+                }
+            }
+        }
+        return subjectDNPatterns;
     }
     
     /**
@@ -388,7 +407,7 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
         private final boolean signatureRequired;
         private final boolean encryptionRequired;
         
-        public StaxActionInInterceptor(boolean signatureRequired, boolean encryptionRequired) {
+        StaxActionInInterceptor(boolean signatureRequired, boolean encryptionRequired) {
             super(Phase.PRE_LOGICAL);
             this.signatureRequired = signatureRequired;
             this.encryptionRequired = encryptionRequired;
@@ -408,7 +427,7 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
             if (incomingSecurityEventList == null) {
                 LOG.warning("Security processing failed (actions mismatch)");
                 XMLSecurityException ex = 
-                    new XMLSecurityException("empty", "The request was not signed or encrypted");
+                    new XMLSecurityException("empty", new Object[] {"The request was not signed or encrypted"});
                 throwFault(ex.getMessage(), ex);
             }
             
@@ -417,7 +436,7 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
                 if (!isEventInResults(requiredEvent, incomingSecurityEventList)) {
                     LOG.warning("The request was not signed");
                     XMLSecurityException ex = 
-                        new XMLSecurityException("empty", "The request was not signed");
+                        new XMLSecurityException("empty", new Object[] {"The request was not signed"});
                     throwFault(ex.getMessage(), ex);
                 }
             }
@@ -428,7 +447,7 @@ public class XmlSecInInterceptor extends AbstractPhaseInterceptor<Message> {
                 if (!foundEncryptionPart) {
                     LOG.warning("The request was not encrypted");
                     XMLSecurityException ex = 
-                        new XMLSecurityException("empty", "The request was not encrypted");
+                        new XMLSecurityException("empty", new Object[] {"The request was not encrypted"});
                     throwFault(ex.getMessage(), ex);
                 }
             }

@@ -37,13 +37,7 @@ public class ClasspathScanner {
     
     static final ClasspathScanner HELPER;
     static {
-        ClasspathScanner theHelper = null;
-        try {
-            theHelper = new SpringClasspathScanner();
-        } catch (Throwable ex) {
-            theHelper = new ClasspathScanner();
-        }
-        HELPER = theHelper;
+        HELPER = getClasspathScanner();
     }
     
     // Default packages list to ignore during classpath scanning 
@@ -53,6 +47,22 @@ public class ClasspathScanner {
     protected ClasspathScanner() {
     }    
 
+    private static ClasspathScanner getClasspathScanner() { 
+        boolean useSpring = true;
+        String s = SystemPropertyAction.getPropertyOrNull("org.apache.cxf.useSpringClassHelpers");
+        if (!StringUtils.isEmpty(s)) {
+            useSpring = "1".equals(s) || Boolean.parseBoolean(s);
+        }
+        if (useSpring) {
+            try {
+                return new SpringClasspathScanner();
+            } catch (Throwable ex) {
+                // ignore
+            }
+        }
+        return new ClasspathScanner();
+    }
+    
     /**
      * Scans list of base packages for all classes marked with specific annotations. 
      * @param basePackage base package 
@@ -65,7 +75,7 @@ public class ClasspathScanner {
     public static Map< Class< ? extends Annotation >, Collection< Class< ? > > > findClasses(
         String basePackage, Class< ? extends Annotation > ... annotations) 
         throws IOException, ClassNotFoundException {
-        return findClasses(Collections.singletonList(basePackage), 
+        return findClasses(parsePackages(basePackage), 
                            Collections.unmodifiableList(Arrays.asList(annotations)));
     }
     

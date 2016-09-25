@@ -43,7 +43,7 @@ import org.junit.runners.Parameterized.Parameters;
 /**
  * In this test case, a CXF client requests a Security Token from an STS, passing a username that
  * it has obtained from an unknown client as an "ActAs" element. This username is obtained
- * by parsing the "ws-security.username" property. The client then invokes on the service 
+ * by parsing the "security.username" property. The client then invokes on the service 
  * provider using the returned token from the STS.
  */
 @RunWith(value = org.junit.runners.Parameterized.class)
@@ -57,7 +57,7 @@ public class UsernameActAsTest extends AbstractBusClientServerTestBase {
     private static final String NAMESPACE = "http://www.example.org/contract/DoubleIt";
     private static final QName SERVICE_QNAME = new QName(NAMESPACE, "DoubleItService");
 
-    private static final String PORT = allocatePort(Server.class);
+    private static final String PORT = allocatePort(Server2.class);
     
     final TestParam test;
     
@@ -71,20 +71,15 @@ public class UsernameActAsTest extends AbstractBusClientServerTestBase {
             "Server failed to launch",
             // run the server in the same process
             // set this to false to fork
-            launchServer(Server.class, true)
+            launchServer(Server2.class, true)
         );
-        assertTrue(
-                   "Server failed to launch",
-                   // run the server in the same process
-                   // set this to false to fork
-                   launchServer(STSServer.class, true)
-        );
-        assertTrue(
-                   "Server failed to launch",
-                   // run the server in the same process
-                   // set this to false to fork
-                   launchServer(StaxSTSServer.class, true)
-        );
+        STSServer stsServer = new STSServer();
+        stsServer.setContext("cxf-x509.xml");
+        assertTrue(launchServer(stsServer));
+        
+        StaxSTSServer staxStsServer = new StaxSTSServer();
+        staxStsServer.setContext("stax-cxf-x509.xml");
+        assertTrue(launchServer(staxStsServer));
     }
     
     @Parameters(name = "{0}")
@@ -119,6 +114,8 @@ public class UsernameActAsTest extends AbstractBusClientServerTestBase {
         QName portQName = new QName(NAMESPACE, "DoubleItAsymmetricSAML2BearerPort");
         DoubleItPortType port = 
             service.getPort(portQName, DoubleItPortType.class);
+        ((BindingProvider)port).getRequestContext().put("thread.local.request.context", "true");
+        
         updateAddressPort(port, test.getPort());
         
         TokenTestUtils.updateSTSPort((BindingProvider)port, test.getStsPort());
@@ -129,7 +126,7 @@ public class UsernameActAsTest extends AbstractBusClientServerTestBase {
         
         // Transport port
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "alice"
+            "security.username", "alice"
         );
         doubleIt(port, 25);
         
@@ -137,6 +134,7 @@ public class UsernameActAsTest extends AbstractBusClientServerTestBase {
         
         DoubleItPortType port2 = 
             service.getPort(portQName, DoubleItPortType.class);
+        ((BindingProvider)port2).getRequestContext().put("thread.local.request.context", "true");
         updateAddressPort(port2, test.getPort());
         
         TokenTestUtils.updateSTSPort((BindingProvider)port2, test.getStsPort());
@@ -146,7 +144,7 @@ public class UsernameActAsTest extends AbstractBusClientServerTestBase {
         }
         
         ((BindingProvider)port2).getRequestContext().put(
-            "ws-security.username", "eve"
+            "security.username", "eve"
         );
         // This time we expect a failure as the server validator doesn't accept "eve".
         try {

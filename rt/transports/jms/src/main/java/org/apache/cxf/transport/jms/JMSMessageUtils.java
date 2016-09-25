@@ -24,6 +24,7 @@ import java.io.InputStream;
 import java.io.Reader;
 import java.io.StringReader;
 import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -153,7 +154,6 @@ final class JMSMessageUtils {
         inMessage.put(org.apache.cxf.message.Message.PROTOCOL_HEADERS, protHeaders);
 
         populateIncomingMessageProperties(message, inMessage, messageProperties);
-
     }
 
     /**
@@ -207,6 +207,9 @@ final class JMSMessageUtils {
                 if (endpoint.getTargetService() != null) {
                     headers.put(JMSSpecConstants.TARGET_SERVICE_IN_REQUESTURI,
                                 Collections.singletonList("true"));
+                }
+                if (requestURI != null) {
+                    inMessage.put(org.apache.cxf.message.Message.REQUEST_URI, requestURI);
                 }
             } catch (Exception e) {
                 headers.put(JMSSpecConstants.MALFORMED_REQUESTURI, Collections.singletonList("true"));
@@ -277,7 +280,7 @@ final class JMSMessageUtils {
             }
         }
 
-        String normalizedEncoding = HttpHeaderHelper.mapCharset(enc, "UTF-8");
+        String normalizedEncoding = HttpHeaderHelper.mapCharset(enc, StandardCharsets.UTF_8.name());
         if (normalizedEncoding == null) {
             String m = new org.apache.cxf.common.i18n.Message("INVALID_ENCODING_MSG", LOG, new Object[] {
                 enc

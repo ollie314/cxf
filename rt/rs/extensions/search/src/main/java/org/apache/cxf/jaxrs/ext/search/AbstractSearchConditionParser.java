@@ -37,6 +37,7 @@ import org.apache.cxf.common.util.PropertyUtils;
 import org.apache.cxf.jaxrs.ext.search.Beanspector.TypeInfo;
 import org.apache.cxf.jaxrs.ext.search.collections.CollectionCheck;
 import org.apache.cxf.jaxrs.ext.search.collections.CollectionCheckInfo;
+import org.apache.cxf.jaxrs.provider.ServerProviderFactory;
 import org.apache.cxf.jaxrs.utils.InjectionUtils;
 import org.apache.cxf.jaxrs.utils.JAXRSUtils;
 import org.apache.cxf.message.Message;
@@ -44,13 +45,12 @@ import org.apache.cxf.message.MessageUtils;
 
 public abstract class AbstractSearchConditionParser<T> implements SearchConditionParser<T> {
     
-    
+    private static final Annotation[] EMPTY_ANNOTTAIONS = new Annotation[]{};
     protected final Map<String, String> contextProperties;
     protected final Class<T> conditionClass;
     protected Beanspector<T> beanspector;       
     protected Map<String, String> beanPropertiesMap;
-    
-    
+        
     protected AbstractSearchConditionParser(Class<T> tclass) {
         this(tclass, Collections.<String, String>emptyMap(), null);
     }
@@ -67,6 +67,16 @@ public abstract class AbstractSearchConditionParser<T> implements SearchConditio
     
     protected String getActualSetterName(String setter) {
         String beanPropertyName = beanPropertiesMap == null ? null : beanPropertiesMap.get(setter);
+        if (beanPropertyName == null) {
+            Message m = JAXRSUtils.getCurrentMessage();
+            if (m != null) {
+                Object converterProp = m.getContextualProperty(SearchUtils.BEAN_PROPERTY_CONVERTER);
+                if (converterProp != null) {
+                    PropertyNameConverter converter = (PropertyNameConverter)converterProp;
+                    beanPropertyName = converter.getPropertyName(setter);
+                }
+            }
+        }
         return beanPropertyName != null ? beanPropertyName : setter;
     }
     
@@ -167,7 +177,11 @@ public abstract class AbstractSearchConditionParser<T> implements SearchConditio
                 boolean isPrimitive = !returnCollection 
                     && InjectionUtils.isPrimitive(returnType) || returnType.isEnum();
                 boolean lastTry = names.length == 2 
-                    && (isPrimitive || Date.class.isAssignableFrom(returnType) || returnCollection);
+                    && (isPrimitive 
+                        || 
+                        Date.class.isAssignableFrom(returnType) 
+                        || returnCollection
+                        || paramConverterAvailable(returnType));
                 
                 Object valueObject = ownerBean != null ? ownerBean 
                     : actualType.isInterface() 
@@ -224,6 +238,12 @@ public abstract class AbstractSearchConditionParser<T> implements SearchConditio
                                                + "\" to a value of class " + valueType.getName(), e);
             }
         }
+    }
+
+    private boolean paramConverterAvailable(Class<?> pClass) {
+        Message m = JAXRSUtils.getCurrentMessage();
+        ServerProviderFactory pf = m == null ? null : ServerProviderFactory.getInstance(m);
+        return pf != null && pf.createParameterHandler(pClass, pClass, EMPTY_ANNOTTAIONS, m) != null;
     }
 
     private CollectionCheck getCollectionCheck(String propName, boolean isCollection, Class<?> actualCls) {

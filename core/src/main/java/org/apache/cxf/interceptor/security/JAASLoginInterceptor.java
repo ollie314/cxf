@@ -21,6 +21,7 @@ package org.apache.cxf.interceptor.security;
 import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.security.auth.Subject;
@@ -56,6 +57,7 @@ public class JAASLoginInterceptor extends AbstractPhaseInterceptor<Message> {
     private boolean useDoAs = true;
     private List<CallbackHandlerProvider> callbackHandlerProviders;
     private boolean allowAnonymous = true;
+    private boolean allowNamedPrincipals;
     
     public JAASLoginInterceptor() {
         this(Phase.UNMARSHAL);
@@ -120,6 +122,14 @@ public class JAASLoginInterceptor extends AbstractPhaseInterceptor<Message> {
     }
 
     public void handleMessage(final Message message) throws Fault {
+        if (allowNamedPrincipals) {
+            SecurityContext sc = message.get(SecurityContext.class);
+            if (sc != null && sc.getUserPrincipal() != null 
+                && sc.getUserPrincipal().getName() != null) {
+                return;
+            }
+        }
+        
         CallbackHandler handler = getFirstCallbackHandler(message);
 
         if (handler == null && !allowAnonymous) {
@@ -151,7 +161,7 @@ public class JAASLoginInterceptor extends AbstractPhaseInterceptor<Message> {
 
         } catch (LoginException ex) {
             String errorMessage = "Authentication failed: " + ex.getMessage();
-            LOG.fine(errorMessage);
+            LOG.log(Level.FINE, errorMessage, ex);
             if (reportFault) {
                 AuthenticationException aex = new AuthenticationException(errorMessage);
                 aex.initCause(ex);
@@ -212,6 +222,10 @@ public class JAASLoginInterceptor extends AbstractPhaseInterceptor<Message> {
 
     public void setAllowAnonymous(boolean allowAnonymous) {
         this.allowAnonymous = allowAnonymous;
+    }
+
+    public void setAllowNamedPrincipals(boolean allowNamedPrincipals) {
+        this.allowNamedPrincipals = allowNamedPrincipals;
     }
 
 }

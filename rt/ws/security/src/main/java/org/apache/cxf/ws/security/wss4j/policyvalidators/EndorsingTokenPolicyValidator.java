@@ -22,11 +22,9 @@ package org.apache.cxf.ws.security.wss4j.policyvalidators;
 import java.util.Collection;
 import java.util.List;
 
-import org.apache.cxf.message.Message;
 import org.apache.cxf.ws.policy.AssertionInfo;
-import org.apache.cxf.ws.policy.AssertionInfoMap;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
-import org.apache.wss4j.policy.SPConstants;
+import org.apache.wss4j.policy.SP11Constants;
+import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.model.AbstractToken;
 import org.apache.wss4j.policy.model.AbstractToken.DerivedKeys;
 import org.apache.wss4j.policy.model.IssuedToken;
@@ -44,33 +42,20 @@ import org.apache.wss4j.policy.model.X509Token;
  */
 public class EndorsingTokenPolicyValidator extends AbstractSupportingTokenPolicyValidator {
     
-    public EndorsingTokenPolicyValidator() {
-        setEndorsed(true);
+    /**
+     * Return true if this SecurityPolicyValidator implementation is capable of validating a 
+     * policy defined by the AssertionInfo parameter
+     */
+    public boolean canValidatePolicy(AssertionInfo assertionInfo) {
+        return assertionInfo.getAssertion() != null 
+            && (SP12Constants.ENDORSING_SUPPORTING_TOKENS.equals(assertionInfo.getAssertion().getName())
+                || SP11Constants.ENDORSING_SUPPORTING_TOKENS.equals(assertionInfo.getAssertion().getName()));
     }
     
-    
-    public boolean validatePolicy(
-        AssertionInfoMap aim, 
-        Message message,
-        List<WSSecurityEngineResult> results,
-        List<WSSecurityEngineResult> signedResults,
-        List<WSSecurityEngineResult> encryptedResults
-    ) {
-        Collection<AssertionInfo> ais = 
-            getAllAssertionsByLocalname(aim, SPConstants.ENDORSING_SUPPORTING_TOKENS);
-        if (!ais.isEmpty()) {
-            setMessage(message);
-            setResults(results);
-            setSignedResults(signedResults);
-            setEncryptedResults(encryptedResults);
-            
-            parsePolicies(aim, ais, message);
-        }
-        
-        return true;
-    }
-    
-    private void parsePolicies(AssertionInfoMap aim, Collection<AssertionInfo> ais, Message message) {
+    /**
+     * Validate policies.
+     */
+    public void validatePolicies(PolicyValidatorParameters parameters, Collection<AssertionInfo> ais) {
         for (AssertionInfo ai : ais) {
             SupportingTokens binding = (SupportingTokens)ai.getAssertion();
             ai.setAsserted(true);
@@ -82,37 +67,37 @@ public class EndorsingTokenPolicyValidator extends AbstractSupportingTokenPolicy
             
             List<AbstractToken> tokens = binding.getTokens();
             for (AbstractToken token : tokens) {
-                if (!isTokenRequired(token, message)) {
-                    assertSecurePartsIfTokenNotRequired(binding, aim);
+                if (!isTokenRequired(token, parameters.getMessage())) {
+                    assertSecurePartsIfTokenNotRequired(binding, parameters.getAssertionInfoMap());
                     continue;
                 }
                 
                 DerivedKeys derivedKeys = token.getDerivedKeys();
-                setDerived(derivedKeys == DerivedKeys.RequireDerivedKeys);
+                boolean derived = derivedKeys == DerivedKeys.RequireDerivedKeys;
                 boolean processingFailed = false;
                 if (token instanceof KerberosToken) {
-                    if (!processKerberosTokens()) {
+                    if (!processKerberosTokens(parameters, derived)) {
                         processingFailed = true;
                     }
                 } else if (token instanceof X509Token) {
-                    if (!processX509Tokens()) {
+                    if (!processX509Tokens(parameters, derived)) {
                         processingFailed = true;
                     }
                 } else if (token instanceof KeyValueToken) {
-                    if (!processKeyValueTokens()) {
+                    if (!processKeyValueTokens(parameters)) {
                         processingFailed = true;
                     }
                 } else if (token instanceof UsernameToken) {
-                    if (!processUsernameTokens()) {
+                    if (!processUsernameTokens(parameters, derived)) {
                         processingFailed = true;
                     }
                 } else if (token instanceof SecurityContextToken
                     || token instanceof SpnegoContextToken) {
-                    if (!processSCTokens()) {
+                    if (!processSCTokens(parameters, derived)) {
                         processingFailed = true;
                     }
                 } else if (token instanceof SamlToken) {
-                    if (!processSAMLTokens()) {
+                    if (!processSAMLTokens(parameters)) {
                         processingFailed = true;
                     }
                 } else if (!(token instanceof IssuedToken)) {
@@ -129,4 +114,15 @@ public class EndorsingTokenPolicyValidator extends AbstractSupportingTokenPolicy
         }
     }
     
+    protected boolean isSigned() {
+        return false;
+    }
+    
+    protected boolean isEncrypted() {
+        return false;
+    }
+    
+    protected boolean isEndorsing() {
+        return true;
+    }
 }

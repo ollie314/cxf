@@ -43,7 +43,7 @@ import org.junit.BeforeClass;
 /**
  * In this test case, a CXF client requests a Security Token from an STS, passing a username that
  * it has obtained from an unknown client as an "OnBehalfOf" element. This username is obtained
- * by parsing the "ws-security.username" property. The client then invokes on the service 
+ * by parsing the "security.username" property. The client then invokes on the service 
  * provider using the returned token from the STS. 
  */
 public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBase {
@@ -64,12 +64,9 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
             // set this to false to fork
             launchServer(Server.class, true)
         );
-        assertTrue(
-                   "Server failed to launch",
-                   // run the server in the same process
-                   // set this to false to fork
-                   launchServer(STSServer.class, true)
-        );
+        STSServer stsServer = new STSServer();
+        stsServer.setContext("cxf-x509.xml");
+        assertTrue(launchServer(stsServer));
     }
     
     @org.junit.AfterClass
@@ -111,7 +108,7 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
 
         // Make a successful invocation
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "alice"
+            "security.username", "alice"
         );
         doubleIt(port, 25);
         
@@ -148,7 +145,7 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
         p.getRequestContext().put(TokenStore.class.getName(), tokenStore);
         
         // Make another invocation - this should succeed as the token is cached
-        p.getRequestContext().put("ws-security.username", "alice");
+        p.getRequestContext().put("security.username", "alice");
         doubleIt(port2, 40);
         
         // Reset the cache - this invocation should fail
@@ -195,17 +192,17 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
         
         // Make a successful invocation
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "alice"
+            "security.username", "alice"
         );
         doubleIt(port, 25);
         
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "bob"
+            "security.username", "bob"
         );
         doubleIt(port, 30);
         
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "eve"
+            "security.username", "eve"
         );
         try {
             doubleIt(port, 30);
@@ -220,17 +217,17 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
         
         // Make a successful invocation
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "alice"
+            "security.username", "alice"
         );
         doubleIt(port, 25);
         
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "bob"
+            "security.username", "bob"
         );
         doubleIt(port, 30);
         
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "eve2"
+            "security.username", "eve2"
         );
         try {
             doubleIt(port, 30);
@@ -242,7 +239,7 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
         // Reset the cache - this invocation should fail
         p.getRequestContext().put(TokenStore.class.getName(), new MemoryTokenStore());
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "alice"
+            "security.username", "alice"
         );
         try {
             doubleIt(port, 30);
@@ -285,7 +282,7 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
         
         // Make a successful invocation
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "alice"
+            "security.username", "alice"
         );
         BindingProvider p = (BindingProvider)port;
         p.getRequestContext().put(
@@ -296,7 +293,7 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
         
         // Make a successful invocation
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "bob"
+            "security.username", "bob"
         );
         p.getRequestContext().put(
             SecurityConstants.STS_APPLIES_TO, 
@@ -309,7 +306,7 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
         
         // Make a successful invocation - should work as token is cached
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "alice"
+            "security.username", "alice"
         );
         p.getRequestContext().put(
             SecurityConstants.STS_APPLIES_TO, 
@@ -319,7 +316,7 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
         
         // Make a successful invocation - should work as token is cached
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "bob"
+            "security.username", "bob"
         );
         p.getRequestContext().put(
             SecurityConstants.STS_APPLIES_TO, 
@@ -329,7 +326,7 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
         
         // Change appliesTo - should fail
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "alice"
+            "security.username", "alice"
         );
         p.getRequestContext().put(
             SecurityConstants.STS_APPLIES_TO, 
@@ -376,11 +373,14 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
         
         // Make a successful invocation
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "alice"
+            "security.username", "alice"
         );
         // Disable appliesTo
         BindingProvider p = (BindingProvider)port;
         STSClient stsClient = (STSClient)p.getRequestContext().get(SecurityConstants.STS_CLIENT);
+        if (stsClient == null) {
+            stsClient = (STSClient)p.getRequestContext().get("ws-" + SecurityConstants.STS_CLIENT);
+        }
         stsClient.setEnableAppliesTo(false);
         doubleIt(port, 25);
         
@@ -392,7 +392,7 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
         
         // Bob should fail
         ((BindingProvider)port).getRequestContext().put(
-            "ws-security.username", "bob"
+            "security.username", "bob"
         );
         try {
             doubleIt(port, 30);
@@ -407,6 +407,9 @@ public class UsernameOnBehalfOfCachingTest extends AbstractBusClientServerTestBa
     
     private void clearSTSClient(BindingProvider p) throws BusException, EndpointException {
         STSClient stsClient = (STSClient)p.getRequestContext().get(SecurityConstants.STS_CLIENT);
+        if (stsClient == null) {
+            stsClient = (STSClient)p.getRequestContext().get("ws-" + SecurityConstants.STS_CLIENT);
+        }
         stsClient.getClient().destroy();
         stsClient.setWsdlLocation(null);
         stsClient.setLocation(null);

@@ -28,13 +28,12 @@ import javax.security.auth.callback.CallbackHandler;
 import javax.security.auth.callback.UnsupportedCallbackException;
 
 import org.w3c.dom.Element;
-import org.apache.cxf.endpoint.Endpoint;
+
 import org.apache.cxf.message.Message;
-import org.apache.cxf.service.model.EndpointInfo;
 import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
 import org.apache.cxf.ws.security.tokenstore.TokenStore;
-import org.apache.cxf.ws.security.tokenstore.TokenStoreFactory;
+import org.apache.cxf.ws.security.tokenstore.TokenStoreUtils;
 import org.apache.cxf.ws.security.trust.delegation.DelegationCallback;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.common.principal.SAMLTokenPrincipalImpl;
@@ -45,15 +44,21 @@ import org.apache.wss4j.dom.validate.Validator;
 
 /**
  * A WSS4J-based Validator to validate a received WS-Security credential by dispatching
- * it to a STS via WS-Trust. The default binding is "validate", but "issue" using "OnBehalfOf"
- * is also possible by setting the "useIssueBinding" property.
+ * it to a STS via WS-Trust. The default binding is "validate", but "issue" is also possible
+ * by setting the "useIssueBinding" property. In this case, the credentials are sent via
+ * "OnBehalfOf" unless the "useOnBehalfOf" property is set to "false", in which case the
+ * credentials are used depending on the security policy of the STS endpoint (e.g. in a 
+ * UsernameToken if this is what the policy requires). Setting "useOnBehalfOf" to "false" + 
+ * "useIssueBinding" to "true" only works for validating UsernameTokens.
  */
 public class STSTokenValidator implements Validator {
     private STSSamlAssertionValidator samlValidator = new STSSamlAssertionValidator();
     private boolean alwaysValidateToSts;
     private boolean useIssueBinding;
+    private boolean useOnBehalfOf = true;
     private STSClient stsClient;
     private TokenStore tokenStore;
+    private boolean disableCaching;
     
     public STSTokenValidator() {
     }
@@ -100,17 +105,20 @@ public class STSTokenValidator implements Validator {
             }
             token.setToken(tokenElement);
             
-            TokenStore ts = getTokenStore(message);
-            if (ts == null) {
-                ts = tokenStore;
-            }
-            if (ts != null && hash != 0) {
-                SecurityToken transformedToken = getTransformedToken(ts, hash);
-                if (transformedToken != null && !transformedToken.isExpired()) {
-                    SamlAssertionWrapper assertion = new SamlAssertionWrapper(transformedToken.getToken());
-                    credential.setPrincipal(new SAMLTokenPrincipalImpl(assertion));
-                    credential.setTransformedToken(assertion);
-                    return credential;
+            TokenStore ts = null;
+            if (!disableCaching) {
+                ts = getTokenStore(message);
+                if (ts == null) {
+                    ts = tokenStore;
+                }
+                if (ts != null && hash != 0) {
+                    SecurityToken transformedToken = getTransformedToken(ts, hash);
+                    if (transformedToken != null && !transformedToken.isExpired()) {
+                        SamlAssertionWrapper assertion = new SamlAssertionWrapper(transformedToken.getToken());
+                        credential.setPrincipal(new SAMLTokenPrincipalImpl(assertion));
+                        credential.setTransformedToken(assertion);
+                        return credential;
+                    }
                 }
             }
             token.setTokenHash(hash);
@@ -125,11 +133,19 @@ public class STSTokenValidator implements Validator {
                 
                 SecurityToken returnedToken = null;
                 
-                if (useIssueBinding) {
+                if (useIssueBinding && useOnBehalfOf) {
                     ElementCallbackHandler callbackHandler = new ElementCallbackHandler(tokenElement);
                     c.setOnBehalfOf(callbackHandler);
                     returnedToken = c.requestSecurityToken();
                     c.setOnBehalfOf(null);
+                } else if (useIssueBinding && !useOnBehalfOf && credential.getUsernametoken() != null) {
+                    c.getProperties().put(SecurityConstants.USERNAME, 
+                                          credential.getUsernametoken().getName());
+                    c.getProperties().put(SecurityConstants.PASSWORD, 
+                                          credential.getUsernametoken().getPassword());
+                    returnedToken = c.requestSecurityToken();
+                    c.getProperties().remove(SecurityConstants.USERNAME);
+                    c.getProperties().remove(SecurityConstants.PASSWORD);
                 } else {
                     List<SecurityToken> tokens = c.validateSecurityToken(token);
                     returnedToken = tokens.get(0);
@@ -139,7 +155,7 @@ public class STSTokenValidator implements Validator {
                     SamlAssertionWrapper assertion = new SamlAssertionWrapper(returnedToken.getToken());
                     credential.setTransformedToken(assertion);
                     credential.setPrincipal(new SAMLTokenPrincipalImpl(assertion));
-                    if (hash != 0 && ts != null) {
+                    if (!disableCaching && hash != 0 && ts != null) {
                         ts.add(returnedToken);
                         token.setTransformedTokenIdentifier(returnedToken.getId());
                         ts.add(Integer.toString(hash), token);
@@ -150,7 +166,7 @@ public class STSTokenValidator implements Validator {
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
-            throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, "invalidSAMLsecurity", e);
+            throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, e, "invalidSAMLsecurity");
         }
     }
     
@@ -159,24 +175,7 @@ public class STSTokenValidator implements Validator {
             return null;
         }
         
-        EndpointInfo info = message.getExchange().get(Endpoint.class).getEndpointInfo();
-        synchronized (info) {
-            TokenStore tokenStore = 
-                (TokenStore)message.getContextualProperty(SecurityConstants.TOKEN_STORE_CACHE_INSTANCE);
-            if (tokenStore == null) {
-                tokenStore = (TokenStore)info.getProperty(SecurityConstants.TOKEN_STORE_CACHE_INSTANCE);
-            }
-            if (tokenStore == null) {
-                TokenStoreFactory tokenStoreFactory = TokenStoreFactory.newInstance();
-                String cacheKey = SecurityConstants.TOKEN_STORE_CACHE_INSTANCE;
-                if (info.getName() != null) {
-                    cacheKey += "-" + info.getName().toString().hashCode();
-                }
-                tokenStore = tokenStoreFactory.newTokenStore(cacheKey, message);
-                info.setProperty(SecurityConstants.TOKEN_STORE_CACHE_INSTANCE, tokenStore);
-            }
-            return tokenStore;
-        }
+        return TokenStoreUtils.getTokenStore(message);
     }
     
     protected boolean isValidatedLocally(Credential credential, RequestData data) 
@@ -189,7 +188,7 @@ public class STSTokenValidator implements Validator {
             } catch (RuntimeException e) {
                 throw e;
             } catch (Exception e) {
-                throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, "invalidSAMLsecurity", e);
+                throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, e, "invalidSAMLsecurity");
             }
         }
         return false;
@@ -214,6 +213,14 @@ public class STSTokenValidator implements Validator {
         this.useIssueBinding = useIssueBinding;
     }
     
+    public boolean isUseOnBehalfOf() {
+        return useOnBehalfOf;
+    }
+
+    public void setUseOnBehalfOf(boolean useOnBehalfOf) {
+        this.useOnBehalfOf = useOnBehalfOf;
+    }
+    
     public STSClient getStsClient() {
         return stsClient;
     }
@@ -230,11 +237,19 @@ public class STSTokenValidator implements Validator {
         this.tokenStore = tokenStore;
     }
 
+    public boolean isDisableCaching() {
+        return disableCaching;
+    }
+
+    public void setDisableCaching(boolean disableCaching) {
+        this.disableCaching = disableCaching;
+    }
+
     private static class ElementCallbackHandler implements CallbackHandler {
         
         private final Element tokenElement;
         
-        public ElementCallbackHandler(Element tokenElement) {
+        ElementCallbackHandler(Element tokenElement) {
             this.tokenElement = tokenElement;
         }
         

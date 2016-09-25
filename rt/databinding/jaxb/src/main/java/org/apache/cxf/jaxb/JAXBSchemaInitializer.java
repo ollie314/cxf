@@ -83,11 +83,11 @@ class JAXBSchemaInitializer extends ServiceModelVisitor {
     private JAXBContextProxy context;
     private final boolean qualifiedSchemas;
 
-    public JAXBSchemaInitializer(ServiceInfo serviceInfo,
-                                 SchemaCollection col,
-                                 JAXBContext context,
-                                 boolean q,
-                                 String defaultNs) {
+    JAXBSchemaInitializer(ServiceInfo serviceInfo,
+                          SchemaCollection col,
+                          JAXBContext context,
+                          boolean q,
+                          String defaultNs) {
         super(serviceInfo);
         schemas = col;
         this.context = JAXBUtils.createJAXBContextProxy(context, serviceInfo.getXmlSchemaCollection(), defaultNs);
@@ -382,7 +382,7 @@ class JAXBSchemaInitializer extends ServiceModelVisitor {
     }
 
     public void end(FaultInfo fault) {
-        MessagePartInfo part = fault.getMessageParts().get(0);
+        MessagePartInfo part = fault.getFirstMessagePart();
         Class<?> cls = part.getTypeClass();
         Class<?> cl2 = (Class<?>)fault.getProperty(Class.class.getName());
         if (cls != cl2) {

@@ -22,13 +22,13 @@ package org.apache.cxf.rs.security.saml.sso;
 import java.util.Collections;
 
 import org.apache.cxf.message.Message;
-import org.opensaml.common.SAMLVersion;
-import org.opensaml.saml2.core.AuthnContextClassRef;
-import org.opensaml.saml2.core.AuthnContextComparisonTypeEnumeration;
-import org.opensaml.saml2.core.AuthnRequest;
-import org.opensaml.saml2.core.Issuer;
-import org.opensaml.saml2.core.NameIDPolicy;
-import org.opensaml.saml2.core.RequestedAuthnContext;
+import org.opensaml.saml.common.SAMLVersion;
+import org.opensaml.saml.saml2.core.AuthnContextClassRef;
+import org.opensaml.saml.saml2.core.AuthnContextComparisonTypeEnumeration;
+import org.opensaml.saml.saml2.core.AuthnRequest;
+import org.opensaml.saml.saml2.core.Issuer;
+import org.opensaml.saml.saml2.core.NameIDPolicy;
+import org.opensaml.saml.saml2.core.RequestedAuthnContext;
 
 /**
  * A default implementation of the AuthnRequestBuilder interface to create a SAML 2.0
@@ -39,6 +39,7 @@ public class DefaultAuthnRequestBuilder implements AuthnRequestBuilder {
     private boolean forceAuthn;
     private boolean isPassive;
     private String protocolBinding = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST";
+    private String nameIDFormat = "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent";
     
     /**
      * Create a SAML 2.0 Protocol AuthnRequest
@@ -52,9 +53,7 @@ public class DefaultAuthnRequestBuilder implements AuthnRequestBuilder {
             SamlpRequestComponentBuilder.createIssuer(issuerId);
         
         NameIDPolicy nameIDPolicy =
-            SamlpRequestComponentBuilder.createNameIDPolicy(
-                true, "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent", issuerId
-            );
+            SamlpRequestComponentBuilder.createNameIDPolicy(true, nameIDFormat, issuerId);
         
         AuthnContextClassRef authnCtxClassRef =
             SamlpRequestComponentBuilder.createAuthnCtxClassRef(
@@ -102,6 +101,14 @@ public class DefaultAuthnRequestBuilder implements AuthnRequestBuilder {
 
     public void setProtocolBinding(String protocolBinding) {
         this.protocolBinding = protocolBinding;
+    }
+
+    public String getNameIDFormat() {
+        return nameIDFormat;
+    }
+
+    public void setNameIDFormat(String nameIDFormat) {
+        this.nameIDFormat = nameIDFormat;
     }
     
 }

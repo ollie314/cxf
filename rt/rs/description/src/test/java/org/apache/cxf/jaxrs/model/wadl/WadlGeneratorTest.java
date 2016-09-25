@@ -223,6 +223,28 @@ public class WadlGeneratorTest extends Assert {
     }
     
     @Test
+    public void testSingleRootResourceNoPrefixIncrement() throws Exception {
+        WadlGenerator wg = new WadlGenerator();
+        wg.setApplicationTitle("My Application");
+        wg.setNamespacePrefix("ns");
+        wg.setIncrementNamespacePrefix(false);
+        ClassResourceInfo cri = 
+            ResourceUtils.createClassResourceInfo(BookStore.class, BookStore.class, true, true);
+        Message m = mockMessage("http://localhost:8080/baz", "/bookstore/1", WadlGenerator.WADL_QUERY, cri);
+        Response r = handleRequest(wg, m);
+        checkResponse(r);
+        Document doc = StaxUtils.read(new StringReader(r.getEntity().toString()));
+        checkDocs(doc.getDocumentElement(), "My Application", "", "");
+        checkGrammars(doc.getDocumentElement(), "thebook", "books", "thebook2s", "thebook2", "thechapter");
+        List<Element> els = getWadlResourcesInfo(doc, "http://localhost:8080/baz", 1);
+        checkBookStoreInfo(els.get(0), 
+                           "ns:thebook", 
+                           "ns:thebook2", 
+                           "ns:thechapter",
+                           "ns:books");
+    }
+    
+    @Test
     public void testTwoSchemasSameNs() throws Exception {
         WadlGenerator wg = new WadlGenerator();
         wg.setApplicationTitle("My Application");
@@ -458,17 +480,18 @@ public class WadlGeneratorTest extends Assert {
         
         checkDocs(resource, "book store \"resource\"", "super resource", "en-us");
         
-        List<Element> resourceEls = getElements(resource, "resource", 9);
+        List<Element> resourceEls = getElements(resource, "resource", 10);
         
         assertEquals("/book2", resourceEls.get(0).getAttribute("path"));
         assertEquals("/books/{bookid}", resourceEls.get(1).getAttribute("path"));
         assertEquals("/chapter", resourceEls.get(2).getAttribute("path"));
         assertEquals("/chapter2", resourceEls.get(3).getAttribute("path"));
         assertEquals("/thebooks2", resourceEls.get(4).getAttribute("path"));
-        assertEquals("/books/\"{bookid}\"", resourceEls.get(5).getAttribute("path"));
-        assertEquals("/booksubresource", resourceEls.get(6).getAttribute("path"));
-        assertEquals("/form", resourceEls.get(7).getAttribute("path"));
-        assertEquals("/itself", resourceEls.get(8).getAttribute("path"));
+        assertEquals("/thestore", resourceEls.get(5).getAttribute("path"));
+        assertEquals("/books/\"{bookid}\"", resourceEls.get(6).getAttribute("path"));
+        assertEquals("/booksubresource", resourceEls.get(7).getAttribute("path"));
+        assertEquals("/form", resourceEls.get(8).getAttribute("path"));
+        assertEquals("/itself", resourceEls.get(9).getAttribute("path"));
         
         // verify root resource starting with "/"
         // must have a single template parameter
@@ -534,6 +557,8 @@ public class WadlGeneratorTest extends Assert {
         verifyXmlJsonRepresentations(requestEls.get(0), book2El, "InputBook");
         List<Element> responseEls = getElements(methodEls.get(0), "response", 1);
         checkDocs(responseEls.get(0), "", "Response", "");
+        String status = responseEls.get(0).getAttribute("status");
+        assertTrue("201 200".equals(status) || "200 201".equals(status));
         verifyXmlJsonRepresentations(responseEls.get(0), bookEl, "Requested Book");
         
         // PUT
@@ -549,14 +574,16 @@ public class WadlGeneratorTest extends Assert {
         // verify resource starting with /chapter2
         verifyGetResourceMethod(resourceEls.get(3), chapterEl, null);
         
+        verifyGetResourceMethod(resourceEls.get(5), bookEl, null);
+        
         // verify resource starting from /booksubresource
         // should have 2 parameters
-        verifyParameters(resourceEls.get(6), 2, 
+        verifyParameters(resourceEls.get(7), 2, 
                          new Param("id", "template", "xs:int"),
                          new Param("mid", "matrix", "xs:int"));
-        checkDocs(resourceEls.get(6), "", "Book subresource", ""); 
+        checkDocs(resourceEls.get(7), "", "Book subresource", ""); 
         // should have 4 child resources
-        List<Element> subResourceEls = getElements(resourceEls.get(6), "resource", 6);
+        List<Element> subResourceEls = getElements(resourceEls.get(7), "resource", 6);
 
         assertEquals("/book", subResourceEls.get(0).getAttribute("path"));
         assertEquals("/form1", subResourceEls.get(1).getAttribute("path"));
@@ -588,12 +615,13 @@ public class WadlGeneratorTest extends Assert {
         List<Element> requestEls = getElements(methodEl, "request", 1);
         
         // 6 parameters are expected
-        verifyParameters(requestEls.get(0), 6,
+        verifyParameters(requestEls.get(0), 7,
                          new Param("b", "query", "xs:int"),
                          new Param("aProp", "query", "xs:int"),
                          new Param("c.a", "query", "xs:int"),
                          new Param("c.b", "query", "xs:int"),
                          new Param("c.d.a", "query", "xs:boolean"),
+                         new Param("c.d2.a", "query", "xs:boolean"),
                          new Param("e", "query", "xs:string", Collections.singleton("A")));
         
         assertEquals(0, DOMUtils.getChildrenWithName(requestEls.get(0), 
@@ -817,27 +845,27 @@ public class WadlGeneratorTest extends Assert {
         private String defaultValue = "";
         private boolean repeating;
         private Set<String> options;
-        public Param(String name, String type, String schemaType) {
+        Param(String name, String type, String schemaType) {
             this(name, type, schemaType, false);
         }
         
-        public Param(String name, String type, String schemaType, Set<String> opts) {
+        Param(String name, String type, String schemaType, Set<String> opts) {
             this.name = name;
             this.type = type;
             this.schemaType = schemaType;
             this.options = opts;
         }
         
-        public Param(String name, String type, String schemaType, boolean repeating) {
+        Param(String name, String type, String schemaType, boolean repeating) {
             this(name, type, schemaType, repeating, null);
         }
         
-        public Param(String name, String type, String schemaType, String docs) {
+        Param(String name, String type, String schemaType, String docs) {
             this(name, type, schemaType, false, null);
         }
         
         
-        public Param(String name, String type, String schemaType, boolean repeating, String docs) {
+        Param(String name, String type, String schemaType, boolean repeating, String docs) {
             this.name = name;
             this.type = type;
             this.schemaType = schemaType;
@@ -845,8 +873,8 @@ public class WadlGeneratorTest extends Assert {
             this.repeating = repeating;
         }
         
-        public Param(String name, String type, String schemaType, boolean repeating, String docs,
-                     String defaultValue) {
+        Param(String name, String type, String schemaType, boolean repeating, String docs,
+              String defaultValue) {
             this(name, type, schemaType, repeating, docs);
             this.defaultValue = defaultValue;
         }

@@ -18,12 +18,21 @@
  */
 package org.apache.cxf.rs.security.oauth2.common;
 
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
 import javax.xml.bind.annotation.XmlRootElement;
 
 // Represents the information about the validated ServerAccessToken.
+// It is returned by AccessTokenValidatorService and is checked by CXF OAuthRequestFilter
+// protecting the service resources.
+
+// If the protected resources are not CXF based then use TokenIntrospectionService which
+// returns RFC 7622 compliant TokenIntrospection response. 
+
+
 // The problem with reading specific ServerAccessToken instances is that
 // the (JAXB) reader needs to be specifically aware of the concrete token
 // classes like BearerAccessToken, etc, even though classes like BearerAccessToken
@@ -34,17 +43,22 @@ import javax.xml.bind.annotation.XmlRootElement;
 // (introduce default constructors, etc) 
 @XmlRootElement
 public class AccessTokenValidation {
+    private boolean initialValidationSuccessful = true;
     private String clientId;
+    private String clientIpAddress;
     private UserSubject clientSubject;
-    
+    private boolean isClientConfidential;
     private String tokenKey;
     private String tokenType;
     private String tokenGrantType;
     private long tokenIssuedAt;
     private long tokenLifetime;
+    private String tokenIssuer;
     private UserSubject tokenSubject;
     private List<OAuthPermission> tokenScopes = new LinkedList<OAuthPermission>();
-    private String audience;
+    private List<String> audiences = new LinkedList<String>();
+    private String clientCodeVerifier;
+    private Map<String, String> extraProps = new HashMap<String, String>();
     
     public AccessTokenValidation() {
         
@@ -53,16 +67,19 @@ public class AccessTokenValidation {
     public AccessTokenValidation(ServerAccessToken token) {
         this.clientId = token.getClient().getClientId();
         this.clientSubject = token.getClient().getSubject();
-        
+        this.isClientConfidential = token.getClient().isConfidential();
+        this.clientIpAddress = token.getClient().getClientIpAddress();
         this.tokenKey = token.getTokenKey();
         this.tokenType = token.getTokenType();
         this.tokenGrantType = token.getGrantType();
         this.tokenIssuedAt = token.getIssuedAt();
         this.tokenLifetime = token.getExpiresIn();
-        
+        this.tokenIssuer = token.getIssuer();
         this.tokenSubject = token.getSubject();
         this.tokenScopes = token.getScopes();
-        this.audience = token.getAudience();
+        this.setAudiences(token.getAudiences());
+        this.clientCodeVerifier = token.getClientCodeVerifier();
+        this.extraProps.putAll(token.getExtraProperties());
     }
     
     public String getClientId() {
@@ -122,12 +139,59 @@ public class AccessTokenValidation {
         this.tokenType = tokenType;
     }
 
-    public String getAudience() {
-        return audience;
+    public String getClientIpAddress() {
+        return clientIpAddress;
     }
 
-    public void setAudience(String audience) {
-        this.audience = audience;
+    public void setClientIpAddress(String clientIpAddress) {
+        this.clientIpAddress = clientIpAddress;
+    }
+
+    public Map<String, String> getExtraProps() {
+        return extraProps;
+    }
+
+    public void setExtraProps(Map<String, String> extraProps) {
+        this.extraProps = extraProps;
+    }
+
+    public boolean isClientConfidential() {
+        return isClientConfidential;
+    }
+
+    public void setClientConfidential(boolean isConfidential) {
+        this.isClientConfidential = isConfidential;
+    }
+    public String getClientCodeVerifier() {
+        return clientCodeVerifier;
+    }
+
+    public void setClientCodeVerifier(String clientCodeVerifier) {
+        this.clientCodeVerifier = clientCodeVerifier;
+    }
+
+    public boolean isInitialValidationSuccessful() {
+        return initialValidationSuccessful;
+    }
+
+    public void setInitialValidationSuccessful(boolean localValidationSuccessful) {
+        this.initialValidationSuccessful = localValidationSuccessful;
+    }
+
+    public List<String> getAudiences() {
+        return audiences;
+    }
+
+    public void setAudiences(List<String> audiences) {
+        this.audiences = audiences;
+    }
+
+    public String getTokenIssuer() {
+        return tokenIssuer;
+    }
+
+    public void setTokenIssuer(String tokenIssuer) {
+        this.tokenIssuer = tokenIssuer;
     }
     
 }

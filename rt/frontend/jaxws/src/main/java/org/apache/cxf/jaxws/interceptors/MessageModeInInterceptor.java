@@ -68,7 +68,7 @@ public class MessageModeInInterceptor extends AbstractPhaseInterceptor<Message> 
     }
 
     public void handleMessage(Message message) throws Fault {
-        BindingOperationInfo bop = message.getExchange().get(BindingOperationInfo.class); 
+        BindingOperationInfo bop = message.getExchange().getBindingOperationInfo(); 
         if (bop == null || !bindingName.equals(bop.getBinding().getName())) {
             return;
         }
@@ -102,14 +102,11 @@ public class MessageModeInInterceptor extends AbstractPhaseInterceptor<Message> 
         
         if (StreamSource.class.isAssignableFrom(type)) {
             try {
-                CachedOutputStream out = new CachedOutputStream();
-                try {
+                try (CachedOutputStream out = new CachedOutputStream()) {
                     XMLStreamWriter xsw = StaxUtils.createXMLStreamWriter(out);
                     StaxUtils.copy(new DOMSource(m.getSOAPPart()), xsw);
                     xsw.close();
                     o = new StreamSource(out.getInputStream());
-                } finally {
-                    out.close();
                 }
             } catch (Exception e) {
                 throw new Fault(e);
@@ -136,7 +133,7 @@ public class MessageModeInInterceptor extends AbstractPhaseInterceptor<Message> 
         boolean writingHeaders;
         Attachment att;
         
-        public MultiPartDataSource(Message message, DataSource root) {
+        MultiPartDataSource(Message message, DataSource root) {
             atts = message.getAttachments().iterator();
             String s = (String)message.get(Message.CONTENT_TYPE);
             boundary = findBoundary(s);

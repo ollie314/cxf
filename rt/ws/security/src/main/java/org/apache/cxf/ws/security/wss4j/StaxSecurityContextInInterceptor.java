@@ -19,6 +19,7 @@
 package org.apache.cxf.ws.security.wss4j;
 
 import java.security.Principal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -33,11 +34,13 @@ import org.apache.cxf.interceptor.security.RolePrefixSecurityContextImpl;
 import org.apache.cxf.phase.AbstractPhaseInterceptor;
 import org.apache.cxf.phase.Phase;
 import org.apache.cxf.rt.security.claims.ClaimCollection;
-import org.apache.cxf.rt.security.saml.SAMLSecurityContext;
-import org.apache.cxf.rt.security.saml.SAMLUtils;
+import org.apache.cxf.rt.security.saml.claims.SAMLSecurityContext;
+import org.apache.cxf.rt.security.saml.utils.SAMLUtils;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.security.SecurityContext;
 import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.wss4j.common.ext.WSSecurityException;
+import org.apache.wss4j.common.principal.SAMLTokenPrincipal;
 import org.apache.wss4j.common.saml.SamlAssertionWrapper;
 import org.apache.wss4j.stax.securityEvent.KerberosTokenSecurityEvent;
 import org.apache.wss4j.stax.securityEvent.KeyValueTokenSecurityEvent;
@@ -48,6 +51,7 @@ import org.apache.wss4j.stax.securityEvent.X509TokenSecurityEvent;
 import org.apache.wss4j.stax.securityToken.SubjectAndPrincipalSecurityToken;
 import org.apache.xml.security.exceptions.XMLSecurityException;
 import org.apache.xml.security.stax.securityEvent.SecurityEvent;
+import org.apache.xml.security.stax.securityEvent.SecurityEventConstants.Event;
 import org.apache.xml.security.stax.securityToken.SecurityTokenConstants.TokenUsage;
 
 /**
@@ -84,11 +88,20 @@ public class StaxSecurityContextInInterceptor extends AbstractPhaseInterceptor<S
     }
     
     private void doResults(SoapMessage msg, List<SecurityEvent> incomingSecurityEventList) throws WSSecurityException {
-        for (SecurityEvent event : incomingSecurityEventList) {
+
+        // Now go through the results in a certain order to set up a security context. Highest priority is first.
+
+        List<Event> desiredSecurityEvents = new ArrayList<>();
+        desiredSecurityEvents.add(WSSecurityEventConstants.SAML_TOKEN);
+        desiredSecurityEvents.add(WSSecurityEventConstants.USERNAME_TOKEN);
+        desiredSecurityEvents.add(WSSecurityEventConstants.KERBEROS_TOKEN);
+        desiredSecurityEvents.add(WSSecurityEventConstants.X509Token);
+        desiredSecurityEvents.add(WSSecurityEventConstants.KeyValueToken);
             
+        for (Event desiredEvent : desiredSecurityEvents) {
             SubjectAndPrincipalSecurityToken token = null;
             try {
-                token = getSubjectPrincipalToken(event);
+                token = getSubjectPrincipalToken(incomingSecurityEventList, desiredEvent);
             } catch (XMLSecurityException ex) {
                 // proceed
             }
@@ -117,15 +130,14 @@ public class StaxSecurityContextInInterceptor extends AbstractPhaseInterceptor<S
 
                     Object receivedAssertion = null;
                     
-                    if (event.getSecurityEventType() == WSSecurityEventConstants.SamlToken) {
-                        String roleAttributeName = (String)msg.getContextualProperty(
-                                SecurityConstants.SAML_ROLE_ATTRIBUTENAME);
+                    if (desiredEvent == WSSecurityEventConstants.SAML_TOKEN) {
+                        String roleAttributeName = (String)SecurityUtils.getSecurityPropertyValue(
+                                SecurityConstants.SAML_ROLE_ATTRIBUTENAME, msg);
                         if (roleAttributeName == null || roleAttributeName.length() == 0) {
                             roleAttributeName = SAML_ROLE_ATTRIBUTENAME_DEFAULT;
                         }
                         
-                        SamlTokenSecurityEvent samlEvent = (SamlTokenSecurityEvent)event;
-                        receivedAssertion = samlEvent.getSamlAssertionWrapper();
+                        receivedAssertion =  ((SAMLTokenPrincipal)token.getPrincipal()).getToken();
                         if (receivedAssertion != null) {
                             ClaimCollection claims = 
                                 SAMLUtils.getClaims((SamlAssertionWrapper)receivedAssertion);
@@ -146,22 +158,25 @@ public class StaxSecurityContextInInterceptor extends AbstractPhaseInterceptor<S
         }
     }
     
-    private SubjectAndPrincipalSecurityToken getSubjectPrincipalToken(
-        SecurityEvent event
-    ) throws XMLSecurityException {
-        if (event.getSecurityEventType() == WSSecurityEventConstants.UsernameToken) {
-            return ((UsernameTokenSecurityEvent)event).getSecurityToken();
-        } else if (event.getSecurityEventType() == WSSecurityEventConstants.SamlToken
-            && isSamlEventSigned((SamlTokenSecurityEvent)event)) {
-            return ((SamlTokenSecurityEvent)event).getSecurityToken();
-        } else if (event.getSecurityEventType() == WSSecurityEventConstants.X509Token
-            && isUsedForPublicKeySignature(((X509TokenSecurityEvent)event).getSecurityToken())) {
-            return ((X509TokenSecurityEvent)event).getSecurityToken();
-        } else if (event.getSecurityEventType() == WSSecurityEventConstants.KeyValueToken
-            && isUsedForPublicKeySignature(((KeyValueTokenSecurityEvent)event).getSecurityToken())) {
-            return ((KeyValueTokenSecurityEvent)event).getSecurityToken();
-        } else if (event.getSecurityEventType() == WSSecurityEventConstants.KerberosToken) {
-            return ((KerberosTokenSecurityEvent)event).getSecurityToken();
+    private SubjectAndPrincipalSecurityToken getSubjectPrincipalToken(List<SecurityEvent> incomingSecurityEventList,
+                                                                      Event desiredEvent) throws XMLSecurityException {
+        for (SecurityEvent event : incomingSecurityEventList) {
+            if (desiredEvent == event.getSecurityEventType()) {
+                if (event.getSecurityEventType() == WSSecurityEventConstants.USERNAME_TOKEN) {
+                    return ((UsernameTokenSecurityEvent)event).getSecurityToken();
+                } else if (event.getSecurityEventType() == WSSecurityEventConstants.SAML_TOKEN
+                    && isSamlEventSigned((SamlTokenSecurityEvent)event)) {
+                    return ((SamlTokenSecurityEvent)event).getSecurityToken();
+                } else if (event.getSecurityEventType() == WSSecurityEventConstants.X509Token
+                    && isUsedForPublicKeySignature(((X509TokenSecurityEvent)event).getSecurityToken())) {
+                    return ((X509TokenSecurityEvent)event).getSecurityToken();
+                } else if (event.getSecurityEventType() == WSSecurityEventConstants.KeyValueToken
+                    && isUsedForPublicKeySignature(((KeyValueTokenSecurityEvent)event).getSecurityToken())) {
+                    return ((KeyValueTokenSecurityEvent)event).getSecurityToken();
+                } else if (event.getSecurityEventType() == WSSecurityEventConstants.KERBEROS_TOKEN) {
+                    return ((KerberosTokenSecurityEvent)event).getSecurityToken();
+                }
+            }
         }
         return null;
     }
@@ -191,12 +206,8 @@ public class StaxSecurityContextInInterceptor extends AbstractPhaseInterceptor<S
         }
         
         // Now check that a PublicKey/X509Certificate was used
-        if (token.getPublicKey() != null 
-            || (token.getX509Certificates() != null && token.getX509Certificates().length > 0)) {
-            return true;
-        }
-        
-        return false;
+        return token.getPublicKey() != null 
+            || (token.getX509Certificates() != null && token.getX509Certificates().length > 0);
     }
     
     private boolean isSamlEventSigned(SamlTokenSecurityEvent event) {
@@ -204,13 +215,9 @@ public class StaxSecurityContextInInterceptor extends AbstractPhaseInterceptor<S
             return false;
         }
         
-        if (event.getSecurityToken() != null 
+        return event.getSecurityToken() != null 
             && event.getSecurityToken().getSamlAssertionWrapper() != null
-            && event.getSecurityToken().getSamlAssertionWrapper().isSigned()) {
-            return true;
-        }
-        
-        return false;
+            && event.getSecurityToken().getSamlAssertionWrapper().isSigned();
     }
     
     private SecurityContext createSecurityContext(final Principal p) {
@@ -236,8 +243,7 @@ public class StaxSecurityContextInInterceptor extends AbstractPhaseInterceptor<S
      * Otherwise set the Fault/Code/Value to env:Sender and the Fault/Code/Subcode/Value
      * as the fault code from the WSSecurityException.
      */
-    private SoapFault 
-    createSoapFault(SoapVersion version, WSSecurityException e) {
+    private SoapFault createSoapFault(SoapVersion version, WSSecurityException e) {
         SoapFault fault;
         javax.xml.namespace.QName faultCode = e.getFaultCode();
         if (version.getVersion() == 1.1 && faultCode != null) {

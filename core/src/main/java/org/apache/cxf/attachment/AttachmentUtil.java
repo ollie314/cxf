@@ -24,9 +24,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.AbstractMap;
 import java.util.AbstractSet;
 import java.util.ArrayList;
@@ -154,7 +156,7 @@ public final class AttachmentUtil {
     }
     
     public static boolean isMtomEnabled(Message message) {
-        Object prop = message.getContextualProperty(org.apache.cxf.message.Message.MTOM_ENABLED); 
+        Object prop = message.getContextualProperty(Message.MTOM_ENABLED); 
         return MessageUtils.isTrue(prop);
     }
     
@@ -196,9 +198,20 @@ public final class AttachmentUtil {
         
         String name = ATT_UUID + "-" + String.valueOf(++counter);
         if (ns != null && (ns.length() > 0)) {
-            cid = ns;
+            try {
+                URI uri = new URI(ns);
+                String host = uri.getHost();
+                if (host != null) {
+                    cid = host;
+                } else {
+                    cid = ns;
+                }
+            } catch (Exception e) {
+                cid = ns;
+            }
         }
-        return URLEncoder.encode(name, "UTF-8") + "@" + URLEncoder.encode(cid, "UTF-8");
+        return URLEncoder.encode(name, StandardCharsets.UTF_8.name()) + "@" 
+            + URLEncoder.encode(cid, StandardCharsets.UTF_8.name());
     }
 
     public static String getUniqueBoundaryValue() {
@@ -253,7 +266,7 @@ public final class AttachmentUtil {
     
     static class DHMap extends AbstractMap<String, DataHandler> {
         final Collection<Attachment> list;
-        public DHMap(Collection<Attachment> l) {
+        DHMap(Collection<Attachment> l) {
             list = l;
         }
         public Set<Map.Entry<String, DataHandler>> entrySet() {
@@ -265,7 +278,7 @@ public final class AttachmentUtil {
                         public boolean hasNext() {
                             return it.hasNext();
                         }
-                        public java.util.Map.Entry<String, DataHandler> next() {
+                        public Map.Entry<String, DataHandler> next() {
                             final Attachment a = it.next();
                             return new Map.Entry<String, DataHandler>() {
                                 @Override
@@ -324,7 +337,7 @@ public final class AttachmentUtil {
             }
             // urldecode. Is this bad even without cid:? What does decode do with malformed %-signs, anyhow?
             try {
-                id = URLDecoder.decode(id, "UTF-8");
+                id = URLDecoder.decode(id, StandardCharsets.UTF_8.name());
             } catch (UnsupportedEncodingException e) {
                 //ignore, keep id as is
             }
@@ -515,7 +528,7 @@ public final class AttachmentUtil {
         // Is this right? - DD
         if (contentId.startsWith("cid:")) {
             try {
-                contentId = URLDecoder.decode(contentId.substring(4), "UTF-8");
+                contentId = URLDecoder.decode(contentId.substring(4), StandardCharsets.UTF_8.name());
             } catch (UnsupportedEncodingException ue) {
                 contentId = contentId.substring(4);
             }

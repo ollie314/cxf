@@ -36,13 +36,15 @@ import org.apache.cxf.Bus;
 import org.apache.cxf.BusFactory;
 import org.apache.cxf.helpers.CastUtils;
 import org.apache.cxf.jaxrs.utils.ResourceUtils;
+import org.apache.cxf.rs.security.jose.jwt.JoseJwtConsumer;
 import org.apache.cxf.rs.security.oauth2.common.Client;
 import org.apache.cxf.rs.security.oauth2.common.ServerAccessToken;
+import org.apache.cxf.rs.security.oauth2.common.UserSubject;
 import org.apache.cxf.rs.security.oauth2.tokens.refresh.RefreshToken;
 import org.apache.cxf.rs.security.oauth2.utils.EHCacheUtil;
+import org.apache.cxf.rs.security.oauth2.utils.JwtTokenUtils;
 
-public class DefaultEHCacheOAuthDataProvider extends AbstractOAuthDataProvider 
-    implements ClientRegistrationProvider {
+public class DefaultEHCacheOAuthDataProvider extends AbstractOAuthDataProvider {
     public static final String CLIENT_CACHE_KEY = "cxf.oauth2.client.cache";
     public static final String ACCESS_TOKEN_CACHE_KEY = "cxf.oauth2.accesstoken.cache";
     public static final String REFRESH_TOKEN_CACHE_KEY = "cxf.oauth2.refreshtoken.cache";
@@ -52,9 +54,11 @@ public class DefaultEHCacheOAuthDataProvider extends AbstractOAuthDataProvider
     private Ehcache clientCache;
     private Ehcache accessTokenCache;
     private Ehcache refreshTokenCache;
+    private boolean storeJwtTokenKeyOnly;
+    private JoseJwtConsumer jwtTokenConsumer;
     
     public DefaultEHCacheOAuthDataProvider() {
-        this(DEFAULT_CONFIG_URL, null);
+        this(DEFAULT_CONFIG_URL, BusFactory.getThreadDefaultBus(true));
     }
     
     public DefaultEHCacheOAuthDataProvider(String configFileURL, Bus bus) {
@@ -64,9 +68,9 @@ public class DefaultEHCacheOAuthDataProvider extends AbstractOAuthDataProvider
     public DefaultEHCacheOAuthDataProvider(String configFileURL, 
                                                Bus bus,
                                                String clientCacheKey, 
-                                               String accessTokenKey,
-                                               String refreshTokenKey) {
-        createCaches(configFileURL, bus, clientCacheKey, accessTokenKey, refreshTokenKey);
+                                               String accessTokenCacheKey,
+                                               String refreshTokenCacheKey) {
+        createCaches(configFileURL, bus, clientCacheKey, accessTokenCacheKey, refreshTokenCacheKey);
     }
     
     @Override
@@ -74,56 +78,94 @@ public class DefaultEHCacheOAuthDataProvider extends AbstractOAuthDataProvider
         return getCacheValue(clientCache, clientId, Client.class);
     }
     
-    @Override
     public void setClient(Client client) {
         putCacheValue(clientCache, client.getClientId(), client, 0);
-        
+    }
+    
+    @Override
+    protected void doRemoveClient(Client c) {
+        clientCache.remove(c.getClientId());
     }
 
     @Override
-    public Client removeClient(String clientId) {
-        Client c = getClient(clientId);
-        clientCache.remove(clientId);
-        return c;
-    }
-
-    @Override
-    public List<Client> getClients() {
+    public List<Client> getClients(UserSubject resourceOwner) {
         List<String> keys = CastUtils.cast(clientCache.getKeys());
         List<Client> clients = new ArrayList<Client>(keys.size());
         for (String key : keys) {
-            clients.add(getClient(key));
+            Client c = getClient(key);
+            if (isClientMatched(c, resourceOwner)) {
+                clients.add(c);
+            }
         }
         return clients;
+    }
+
+    @Override
+    public List<ServerAccessToken> getAccessTokens(Client c, UserSubject sub) {
+        List<String> keys = CastUtils.cast(accessTokenCache.getKeys());
+        List<ServerAccessToken> tokens = new ArrayList<ServerAccessToken>(keys.size());
+        for (String key : keys) {
+            ServerAccessToken token = getAccessToken(key);
+            if (isTokenMatched(token, c, sub)) {
+                tokens.add(token);
+            }
+        }
+        return tokens;
+    }
+
+    @Override
+    public List<RefreshToken> getRefreshTokens(Client c, UserSubject sub) {
+        List<String> keys = CastUtils.cast(refreshTokenCache.getKeys());
+        List<RefreshToken> tokens = new ArrayList<RefreshToken>(keys.size());
+        for (String key : keys) {
+            RefreshToken token = getRefreshToken(key);
+            if (isTokenMatched(token, c, sub)) {
+                tokens.add(token);
+            }
+        }
+        return tokens;
     }
     
     @Override
     public ServerAccessToken getAccessToken(String accessToken) throws OAuthServiceException {
-        return getCacheValue(accessTokenCache, accessToken, ServerAccessToken.class);
-    }
-
-    @Override
-    public void removeAccessToken(ServerAccessToken accessToken) throws OAuthServiceException {
-        revokeAccessToken(accessToken.getTokenKey());
-    }
-
-    protected boolean revokeAccessToken(String accessTokenKey) {
-        return accessTokenCache.remove(accessTokenKey);
+        ServerAccessToken at = null;
+        if (isUseJwtFormatForAccessTokens() && isStoreJwtTokenKeyOnly()) {
+            String jose = getCacheValue(accessTokenCache, accessToken, String.class);
+            if (jose != null) {
+                JoseJwtConsumer theConsumer = jwtTokenConsumer == null ? new JoseJwtConsumer() : jwtTokenConsumer;
+                at = JwtTokenUtils.createAccessTokenFromJwt(theConsumer, jose, this, 
+                                                                  super.getJwtAccessTokenClaimMap());
+            }
+        } else {
+            at = getCacheValue(accessTokenCache, accessToken, ServerAccessToken.class);
+        }
+        return at;
     }
     
-    protected RefreshToken revokeRefreshToken(Client client, String refreshTokenKey) { 
-        RefreshToken refreshToken = getCacheValue(refreshTokenCache, refreshTokenKey, RefreshToken.class);
-        if (refreshToken != null) {
-            refreshTokenCache.remove(refreshTokenKey);
-        }
-        return refreshToken;
+    @Override
+    protected void doRevokeAccessToken(ServerAccessToken at) {
+        accessTokenCache.remove(at.getTokenKey());
+    }
+    @Override
+    protected RefreshToken getRefreshToken(String refreshTokenKey) { 
+        return getCacheValue(refreshTokenCache, refreshTokenKey, RefreshToken.class);
+    }
+    @Override
+    protected void doRevokeRefreshToken(RefreshToken rt) { 
+        refreshTokenCache.remove(rt.getTokenKey());
     }
     
     protected void saveAccessToken(ServerAccessToken serverToken) {
-        putCacheValue(accessTokenCache, serverToken.getTokenKey(), serverToken, serverToken.getExpiresIn());
+        Object accessTokenObject = null;
+        if (isUseJwtFormatForAccessTokens() && isStoreJwtTokenKeyOnly()) {
+            accessTokenObject = serverToken.getTokenKey();
+        } else {
+            accessTokenObject = serverToken;
+        }
+        putCacheValue(accessTokenCache, serverToken.getTokenKey(), accessTokenObject, serverToken.getExpiresIn());
     }
     
-    protected void saveRefreshToken(ServerAccessToken at, RefreshToken refreshToken) {
+    protected void saveRefreshToken(RefreshToken refreshToken) {
         putCacheValue(refreshTokenCache, refreshToken.getTokenKey(), refreshToken, refreshToken.getExpiresIn());
     }
     
@@ -193,5 +235,21 @@ public class DefaultEHCacheOAuthDataProvider extends AbstractOAuthDataProvider
         refreshTokenCache = createCache(cacheManager, refreshTokenKey);
     }
 
-    
+    @Override
+    public void close() {
+        cacheManager.shutdown();
+    }
+
+    public boolean isStoreJwtTokenKeyOnly() {
+        return storeJwtTokenKeyOnly;
+    }
+
+    public void setStoreJwtTokenKeyOnly(boolean storeJwtTokenKeyOnly) {
+        this.storeJwtTokenKeyOnly = storeJwtTokenKeyOnly;
+    }
+
+    public void setJwtTokenConsumer(JoseJwtConsumer jwtTokenConsumer) {
+        this.jwtTokenConsumer = jwtTokenConsumer;
+    }
+
 }

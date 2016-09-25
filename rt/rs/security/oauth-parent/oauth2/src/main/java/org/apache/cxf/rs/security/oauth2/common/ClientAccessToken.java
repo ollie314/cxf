@@ -18,6 +18,8 @@
  */
 package org.apache.cxf.rs.security.oauth2.common;
 
+import org.apache.cxf.rs.security.oauth2.utils.OAuthConstants;
+
 
 
 /**
@@ -31,6 +33,10 @@ public class ClientAccessToken extends AccessToken {
     private static final long serialVersionUID = 831870452726298523L;
     private String scope;
         
+    public ClientAccessToken() {
+        
+    }
+    
     public ClientAccessToken(String tokenType, String tokenKey) {
         super(tokenType, tokenKey);
     }
@@ -53,4 +59,12 @@ public class ClientAccessToken extends AccessToken {
         return scope;
     }
 
+    @Override
+    public String toString() {
+        if (OAuthConstants.BEARER_AUTHORIZATION_SCHEME.equalsIgnoreCase(super.getTokenType())) {
+            return OAuthConstants.BEARER_AUTHORIZATION_SCHEME + " " + super.getTokenKey();
+        } else {
+            return super.toString();
+        }
+    }
 }

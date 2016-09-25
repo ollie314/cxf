@@ -33,7 +33,7 @@ public class MemoryTokenStore implements TokenStore {
     public static final long DEFAULT_TTL = 60L * 5L;
     public static final long MAX_TTL = DEFAULT_TTL * 12L;
     
-    private Map<String, CacheEntry> tokens = new ConcurrentHashMap<String, CacheEntry>();
+    private Map<String, CacheEntry> tokens = new ConcurrentHashMap<>();
     private long ttl = DEFAULT_TTL;
     
     public void add(SecurityToken token) {
@@ -86,10 +86,9 @@ public class MemoryTokenStore implements TokenStore {
     protected void processTokenExpiry() {
         Date current = new Date();
         synchronized (tokens) {
-            for (String id : tokens.keySet()) {
-                CacheEntry cacheEntry = tokens.get(id);
-                if (cacheEntry.getExpiry().before(current)) {
-                    tokens.remove(id);
+            for (Map.Entry<String, CacheEntry> entry : tokens.entrySet()) {
+                if (entry.getValue().getExpiry().before(current)) {
+                    tokens.remove(entry.getKey());
                 }
             }
         }
@@ -107,7 +106,7 @@ public class MemoryTokenStore implements TokenStore {
         private final SecurityToken securityToken;
         private final Date expires;
         
-        public CacheEntry(SecurityToken securityToken, Date expires) {
+        CacheEntry(SecurityToken securityToken, Date expires) {
             this.securityToken = securityToken;
             this.expires = expires;
         }

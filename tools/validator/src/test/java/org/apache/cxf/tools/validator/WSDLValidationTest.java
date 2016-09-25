@@ -110,7 +110,7 @@ public class WSDLValidationTest extends ToolTestBase {
                                       getLocation("/validator_wsdl/hello_world_import.wsdl")};
         WSDLValidator.main(args);
         
-        assertTrue("Is not valid wsdl!: " + getStdOut(),
+        assertTrue("Is not valid wsdl!: " + getStdOut() + "\n" + getStdErr(),
                    getStdOut().indexOf("Passed Validation") > -1);
     }
 
@@ -172,6 +172,22 @@ public class WSDLValidationTest extends ToolTestBase {
                              getLocation("/validator_wsdl/header_rpc_lit_2203_out.wsdl")};
         WSDLValidator.main(args);
         assertTrue(getStdErr().indexOf("soapbind:body element(s), only to wsdl:part element(s)") > -1);
+    }
+
+    @Test
+    public void testWSIBPR2203ExcludeMIMEParts() throws Exception {
+        String[] args = new String[] {"-verbose",
+                                      getLocation("/validator_wsdl/cxf6488.wsdl")};
+        WSDLValidator.main(args);
+        assertTrue(getStdOut().indexOf("Passed Validation : Valid WSDL") > -1);
+    }
+
+    @Test
+    public void testWSIBPR2209() throws Exception {
+        String[] args = new String[] {"-verbose",
+                                      getLocation("/validator_wsdl/hello_world_unbound_porttype_elements.wsdl")};
+        WSDLValidator.main(args);
+        assertTrue(getStdErr().indexOf("WSI-BP-1.0 R2209") > -1);
     }
 
     @Test

@@ -18,16 +18,26 @@
  */
 package org.apache.cxf.rs.security.oauth2.common;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+
+import javax.persistence.ElementCollection;
+import javax.persistence.ManyToMany;
+import javax.persistence.ManyToOne;
+import javax.persistence.MapKeyColumn;
+import javax.persistence.MappedSuperclass;
 
 import org.apache.cxf.rs.security.oauth2.provider.OAuthServiceException;
 import org.apache.cxf.rs.security.oauth2.utils.OAuthConstants;
 import org.apache.cxf.rs.security.oauth2.utils.OAuthUtils;
 
+
 /**
  * Server Access Token representation
  */
+@MappedSuperclass
 public abstract class ServerAccessToken extends AccessToken {
     private static final long serialVersionUID = 638776204861456064L;
     
@@ -35,7 +45,12 @@ public abstract class ServerAccessToken extends AccessToken {
     private Client client;
     private List<OAuthPermission> scopes = new LinkedList<OAuthPermission>();
     private UserSubject subject;
-    private String audience;
+    private List<String> audiences = new LinkedList<String>();
+    private String clientCodeVerifier;
+    private String nonce;
+    private String responseType;
+    private String grantCode;
+    private Map<String, String> extraProperties = new LinkedHashMap<String, String>();
     
     protected ServerAccessToken() {
         
@@ -67,14 +82,19 @@ public abstract class ServerAccessToken extends AccessToken {
         this.client = token.getClient();
         this.grantType = token.getGrantType();
         this.scopes = token.getScopes();
-        this.audience = token.getAudience();
+        this.audiences = token.getAudiences();
         this.subject = token.getSubject();
+        this.responseType = token.getResponseType();
+        this.clientCodeVerifier = token.getClientCodeVerifier();
+        this.nonce = token.getNonce();
+        this.grantCode = token.getGrantCode();
     }
 
     /**
      * Returns the Client associated with this token
      * @return the client
      */
+    @ManyToOne
     public Client getClient() {
         return client;
     }
@@ -87,6 +107,7 @@ public abstract class ServerAccessToken extends AccessToken {
      * Returns a list of opaque permissions/scopes
      * @return the scopes
      */
+    @ManyToMany
     public List<OAuthPermission> getScopes() {
         return scopes;
     }
@@ -115,6 +136,7 @@ public abstract class ServerAccessToken extends AccessToken {
      * when authorizing a given client request
      * @return UserSubject
      */
+    @ManyToOne
     public UserSubject getSubject() {
         return subject;
     }
@@ -134,19 +156,77 @@ public abstract class ServerAccessToken extends AccessToken {
     public String getGrantType() {
         return grantType;
     }
-
-    public String getAudience() {
-        return audience;
+    
+    /**
+     * Set the response type
+     * @param responseType the response type
+     */
+    public void setResponseType(String responseType) {
+        this.responseType = responseType;
     }
 
-    public void setAudience(String audience) {
-        this.audience = audience;
+    /**
+     * Get the response type
+     * @return the response type, null if no redirection flow was used
+     */
+    public String getResponseType() {
+        return responseType;
+    }
+    
+    @ElementCollection
+    public List<String> getAudiences() {
+        return audiences;
     }
 
+    public void setAudiences(List<String> audiences) {
+        this.audiences = audiences;
+    }
+    
     protected static ServerAccessToken validateTokenType(ServerAccessToken token, String expectedType) {
         if (!token.getTokenType().equals(expectedType)) {
             throw new OAuthServiceException(OAuthConstants.SERVER_ERROR);
         }
         return token;
+    }
+    
+    public String getClientCodeVerifier() {
+        return clientCodeVerifier;
+    }
+
+    public void setClientCodeVerifier(String clientCodeVerifier) {
+        this.clientCodeVerifier = clientCodeVerifier;
+    }
+
+    public String getNonce() {
+        return nonce;
+    }
+
+    public void setNonce(String nonce) {
+        this.nonce = nonce;
+    }
+
+    @ElementCollection
+    @MapKeyColumn(name = "extraPropName")
+    public Map<String, String> getExtraProperties() {
+        return extraProperties;
+    }
+
+    public void setExtraProperties(Map<String, String> extraProperties) {
+        this.extraProperties = extraProperties;
+    }
+    /**
+     * Set the grant code which was used to request the token
+     * @param grantCode the grant code
+     */
+    public void setGrantCode(String grantCode) {
+        this.grantCode = grantCode;
+    }
+
+    /**
+     * Get the grant code
+     * @return the grant code, null if no authorization code grant was used
+     */
+    public String getGrantCode() {
+        return grantCode;
     }
 }

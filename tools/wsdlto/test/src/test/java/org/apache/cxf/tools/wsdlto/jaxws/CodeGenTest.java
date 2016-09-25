@@ -998,8 +998,7 @@ public class CodeGenTest extends AbstractCodeGenTest {
         assertEquals("void", method.getReturnType().getSimpleName());
         assertEquals("Exception class is not generated ", 1, method.getExceptionTypes().length);
         assertEquals("org.apache.cxf.w2j.hello_world.messages.PingMeFault",
-                     method.getExceptionTypes()[0]
-            .getCanonicalName());
+                     method.getExceptionTypes()[0].getCanonicalName());
     }
 
     @Test
@@ -1263,9 +1262,12 @@ public class CodeGenTest extends AbstractCodeGenTest {
             processor.setContext(env);
             processor.execute();
         } catch (Exception e) {
-            assertTrue("Jaxb databinding can not find the schema error ",
+            boolean english = "en".equals(java.util.Locale.getDefault().getLanguage());
+            if (english) {
+                assertTrue("Jaxb databinding can not find the schema error ",
                        e.getLocalizedMessage().indexOf(" cos-st-restricts.1.1: "
                                                        + "The type 'TpAny' is atomic") > -1);
+            }
         }
     }
 
@@ -1346,15 +1348,29 @@ public class CodeGenTest extends AbstractCodeGenTest {
     }
 
     @Test
-    public void testWrongTNS() {
-        try {
-            env.put(ToolConstants.CFG_WSDLURL, getLocation("/wsdl2java_wsdl/wrong_tns.wsdl"));
-            processor.setContext(env);
-            processor.execute();
-            fail("The targetNamespce is not valid");
-        } catch (Exception e) {
-            assertTrue(e.getMessage().indexOf(": is not a valid char in the targetNamespace") != -1);
-        }
+    public void testURLWithColonTNS() throws Exception {
+        env.put(ToolConstants.CFG_WSDLURL, getLocation("/wsdl2java_wsdl/tns_url_with_colon.wsdl"));
+        processor.setContext(env);
+        processor.execute();
+        
+        Class<?> sei =  classLoader.loadClass("org.apache.cxf.w2j.hello_world_soap_http.tns.soap.Greeter");
+        assertNotNull("Greeter class from wsdl targetNamespace could not be found", sei);
+
+        Class<?> tc =  classLoader.loadClass("org.apache.cxf.w2j.hello_world_soap_http.tns.types.GreetMe");
+        assertNotNull("GreetMe class from schema targetNamespace could not be found", tc);
+    }
+
+    @Test
+    public void testURNTNS() throws Exception {
+        env.put(ToolConstants.CFG_WSDLURL, getLocation("/wsdl2java_wsdl/tns_urn.wsdl"));
+        processor.setContext(env);
+        processor.execute();
+        
+        Class<?> sei =  classLoader.loadClass("apache.cxf.issue._6527.Greeter");
+        assertNotNull("Greeter class from wsdl targetNamespace could not be found", sei);
+
+        Class<?> tc =  classLoader.loadClass("apache.cxf.issue._6527.types.GreetMe");
+        assertNotNull("GreetMe class from schema targetNamespace could not be found", tc);
     }
 
     public void testW3CEPR() throws Exception {
@@ -1364,8 +1380,8 @@ public class CodeGenTest extends AbstractCodeGenTest {
         Class<?> sei = this.classLoader.loadClass("org.apache.w3c.epr.AddNumbersPortType");
         Method method = sei.getMethod("addNumbers", 
                                       new Class[]{javax.xml.ws.wsaddressing.W3CEndpointReference.class});
-        assertNotNull("wsdl2java does not map w3c:EndpointReferenceType to javax.xml.ws.EndpointReference"
-                      , method);
+        assertNotNull("wsdl2java does not map w3c:EndpointReferenceType to javax.xml.ws.EndpointReference",
+                      method);
     }
     
     @Test
@@ -1570,6 +1586,19 @@ public class CodeGenTest extends AbstractCodeGenTest {
         
         Class<?> fault = classLoader.loadClass("org.apache.cxf.w2j.hello_world_soap_http.NoSuchCodeLitFault");
         assertEquals(Exception.class, fault.getSuperclass());
+    }
+    @Test
+    public void testNoTargetNamespaceSchema() throws Exception {
+        env.put(ToolConstants.CFG_WSDLURL, getLocation("/wsdl2java_wsdl/cxf6580/hello_import.wsdl"));
+        env.put(ToolConstants.CFG_CATALOG, getLocation("/wsdl2java_wsdl/cxf6580/catalog.xml"));
+
+        processor.setContext(env);
+        processor.execute();
+
+        File helloFile = new File(output, "org/apache/hello_soap_http/types/Hello.java");
+        assertTrue(helloFile.exists());
+        helloFile = new File(output, "org/apache/hello_soap_http/types/HelloResponse.java");
+        assertTrue(helloFile.exists());
     }
     @Test
     public void testExceptionSuper() throws Exception {

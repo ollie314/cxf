@@ -23,15 +23,17 @@ import java.security.cert.X509Certificate;
 import java.util.Collection;
 import java.util.List;
 
-import org.w3c.dom.Element;
+import javax.xml.namespace.QName;
 
-import org.apache.cxf.message.Message;
 import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
-import org.apache.wss4j.policy.SPConstants;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
+import org.apache.wss4j.policy.SP11Constants;
+import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.model.AbstractToken;
+import org.apache.wss4j.policy.model.AbstractToken.DerivedKeys;
 import org.apache.wss4j.policy.model.AbstractTokenWrapper;
 import org.apache.wss4j.policy.model.AsymmetricBinding;
 import org.apache.wss4j.policy.model.X509Token;
@@ -41,56 +43,42 @@ import org.apache.wss4j.policy.model.X509Token;
  */
 public class AsymmetricBindingPolicyValidator extends AbstractBindingPolicyValidator {
     
-    public boolean validatePolicy(
-        AssertionInfoMap aim,
-        Message message,
-        Element soapBody,
-        List<WSSecurityEngineResult> results,
-        List<WSSecurityEngineResult> signedResults,
-        List<WSSecurityEngineResult> encryptedResults
-    ) {
-        Collection<AssertionInfo> ais = getAllAssertionsByLocalname(aim, SPConstants.ASYMMETRIC_BINDING);
-        if (!ais.isEmpty()) {
-            parsePolicies(aim, ais, message, soapBody, results, signedResults, encryptedResults);
-        }
-        
-        return true;
+    /**
+     * Return true if this SecurityPolicyValidator implementation is capable of validating a 
+     * policy defined by the AssertionInfo parameter
+     */
+    public boolean canValidatePolicy(AssertionInfo assertionInfo) {
+        return assertionInfo.getAssertion() != null 
+            && (SP12Constants.ASYMMETRIC_BINDING.equals(assertionInfo.getAssertion().getName())
+                || SP11Constants.ASYMMETRIC_BINDING.equals(assertionInfo.getAssertion().getName()));
     }
     
-    private void parsePolicies(
-        AssertionInfoMap aim,
-        Collection<AssertionInfo> ais,
-        Message message,
-        Element soapBody,
-        List<WSSecurityEngineResult> results,
-        List<WSSecurityEngineResult> signedResults,
-        List<WSSecurityEngineResult> encryptedResults
-    ) {
-        boolean hasDerivedKeys = false;
-        for (WSSecurityEngineResult result : results) {
-            Integer actInt = (Integer)result.get(WSSecurityEngineResult.TAG_ACTION);
-            if (actInt.intValue() == WSConstants.DKT) {
-                hasDerivedKeys = true;
-                break;
-            }
-        }
+    /**
+     * Validate policies.
+     */
+    public void validatePolicies(PolicyValidatorParameters parameters, Collection<AssertionInfo> ais) {
+        boolean hasDerivedKeys = 
+            parameters.getResults().getActionResults().containsKey(WSConstants.DKT);
         
         for (AssertionInfo ai : ais) {
             AsymmetricBinding binding = (AsymmetricBinding)ai.getAssertion();
             ai.setAsserted(true);
 
             // Check the protection order
-            if (!checkProtectionOrder(binding, aim, ai, results)) {
+            if (!checkProtectionOrder(binding, parameters.getAssertionInfoMap(), ai, 
+                                      parameters.getResults().getResults())) {
                 continue;
             }
             
             // Check various properties of the binding
-            if (!checkProperties(binding, ai, aim, results, signedResults, message)) {
+            if (!checkProperties(binding, ai, parameters.getAssertionInfoMap(), parameters.getResults(), 
+                                 parameters.getSignedResults(), parameters.getMessage())) {
                 continue;
             }
             
             // Check various tokens of the binding
-            if (!checkTokens(binding, ai, aim, hasDerivedKeys, signedResults, encryptedResults)) {
+            if (!checkTokens(binding, ai, parameters.getAssertionInfoMap(), hasDerivedKeys, 
+                             parameters.getSignedResults(), parameters.getEncryptedResults())) {
                 continue;
             }
         }
@@ -158,21 +146,28 @@ public class AsymmetricBindingPolicyValidator extends AbstractBindingPolicyValid
             }
             if (!foundCert && !signedResults.isEmpty()) {
                 String error = "An X.509 certificate was not used for the " + wrapper.getName();
-                notAssertPolicy(aim, wrapper.getName(), error);
+                unassertPolicy(aim, wrapper.getName(), error);
                 ai.setNotAsserted(error);
                 return false;
             }
         }
-        assertPolicy(aim, wrapper);
+        PolicyUtils.assertPolicy(aim, wrapper.getName());
         if (!checkDerivedKeys(wrapper, hasDerivedKeys, signedResults, encryptedResults)) {
             ai.setNotAsserted("Message fails the DerivedKeys requirement");
             return false;
         }
-        assertPolicy(aim, SPConstants.REQUIRE_DERIVED_KEYS);
-        assertPolicy(aim, SPConstants.REQUIRE_IMPLIED_DERIVED_KEYS);
-        assertPolicy(aim, SPConstants.REQUIRE_EXPLICIT_DERIVED_KEYS);
+        assertToken(wrapper, aim);
 
         return true;
+    }
+    
+    private void unassertPolicy(AssertionInfoMap aim, QName q, String msg) {
+        Collection<AssertionInfo> ais = aim.get(q);
+        if (ais != null && !ais.isEmpty()) {
+            for (AssertionInfo ai : ais) {
+                ai.setNotAsserted(msg);
+            }    
+        }
     }
 
     private boolean checkRecipientTokens(
@@ -184,16 +179,24 @@ public class AsymmetricBindingPolicyValidator extends AbstractBindingPolicyValid
         List<WSSecurityEngineResult> signedResults,
         List<WSSecurityEngineResult> encryptedResults) {
 
-        assertPolicy(aim, wrapper);
+        PolicyUtils.assertPolicy(aim, wrapper.getName());
         if (!checkDerivedKeys(wrapper, hasDerivedKeys, signedResults, encryptedResults)) {
             ai.setNotAsserted("Message fails the DerivedKeys requirement");
             return false;
         }
-        assertPolicy(aim, SPConstants.REQUIRE_DERIVED_KEYS);
-        assertPolicy(aim, SPConstants.REQUIRE_IMPLIED_DERIVED_KEYS);
-        assertPolicy(aim, SPConstants.REQUIRE_EXPLICIT_DERIVED_KEYS);
+        assertToken(wrapper, aim);
 
         return true;
+    }
+    
+    private void assertToken(AbstractTokenWrapper tokenWrapper, AssertionInfoMap aim) {
+        String namespace = tokenWrapper.getName().getNamespaceURI();
+        
+        AbstractToken token = tokenWrapper.getToken();
+        DerivedKeys derivedKeys = token.getDerivedKeys();
+        if (derivedKeys != null) {
+            PolicyUtils.assertPolicy(aim, new QName(namespace, derivedKeys.name()));
+        }
     }
     
 }

@@ -83,17 +83,17 @@ public class StaxCryptoCoverageChecker extends AbstractPhaseInterceptor<SoapMess
         final List<SecurityEvent> incomingSecurityEventList = 
             (List<SecurityEvent>)soapMessage.get(SecurityEvent.class.getName() + ".in");
         
-        List<SecurityEvent> results = new ArrayList<SecurityEvent>();
+        List<SecurityEvent> results = new ArrayList<>();
         if (incomingSecurityEventList != null) {
             // Get all Signed/Encrypted Results
             results.addAll(
-                getEventFromResults(WSSecurityEventConstants.SignedPart, incomingSecurityEventList));
+                getEventFromResults(WSSecurityEventConstants.SIGNED_PART, incomingSecurityEventList));
             results.addAll(
                 getEventFromResults(WSSecurityEventConstants.SignedElement, incomingSecurityEventList));
             
             if (encryptBody || encryptUsernameToken) {
                 results.addAll(
-                    getEventFromResults(WSSecurityEventConstants.EncryptedPart, incomingSecurityEventList));
+                    getEventFromResults(WSSecurityEventConstants.ENCRYPTED_PART, incomingSecurityEventList));
                 results.addAll(
                     getEventFromResults(WSSecurityEventConstants.EncryptedElement, incomingSecurityEventList));
             }
@@ -106,7 +106,7 @@ public class StaxCryptoCoverageChecker extends AbstractPhaseInterceptor<SoapMess
             if (signTimestamp) {
                 // We only insist on the Timestamp being signed if it is actually present in the message
                 List<SecurityEvent> timestampResults =
-                    getEventFromResults(WSSecurityEventConstants.Timestamp, incomingSecurityEventList);
+                    getEventFromResults(WSSecurityEventConstants.TIMESTAMP, incomingSecurityEventList);
                 if (!timestampResults.isEmpty()) {
                     checkSignedTimestamp(results);
                 }
@@ -122,7 +122,7 @@ public class StaxCryptoCoverageChecker extends AbstractPhaseInterceptor<SoapMess
                 // We only insist on the UsernameToken being signed/encrypted if it is actually 
                 // present in the message
                 List<SecurityEvent> usernameTokenResults =
-                    getEventFromResults(WSSecurityEventConstants.UsernameToken, incomingSecurityEventList);
+                    getEventFromResults(WSSecurityEventConstants.USERNAME_TOKEN, incomingSecurityEventList);
                 if (!usernameTokenResults.isEmpty()) {
                     if (signUsernameToken) {
                         checkSignedUsernameToken(results);
@@ -139,7 +139,7 @@ public class StaxCryptoCoverageChecker extends AbstractPhaseInterceptor<SoapMess
     }
     
     private List<SecurityEvent> getEventFromResults(Event event, List<SecurityEvent> incomingSecurityEventList) {
-        List<SecurityEvent> results = new ArrayList<SecurityEvent>();
+        List<SecurityEvent> results = new ArrayList<>();
         for (SecurityEvent incomingEvent : incomingSecurityEventList) {
             if (event == incomingEvent.getSecurityEventType()) {
                 results.add(incomingEvent);
@@ -321,90 +321,62 @@ public class StaxCryptoCoverageChecker extends AbstractPhaseInterceptor<SoapMess
     }
     
     private boolean isEnvelope(QName qname) {
-        if ("Envelope".equals(qname.getLocalPart())
+        return "Envelope".equals(qname.getLocalPart())
             && (SOAP_NS.equals(qname.getNamespaceURI()) 
-                || SOAP12_NS.equals(qname.getNamespaceURI()))) {
-            return true;
-        }
-        return false;
+                || SOAP12_NS.equals(qname.getNamespaceURI()));
     }
     
     private boolean isSoapHeader(QName qname) {
-        if ("Header".equals(qname.getLocalPart())
+        return "Header".equals(qname.getLocalPart())
             && (SOAP_NS.equals(qname.getNamespaceURI()) 
-                || SOAP12_NS.equals(qname.getNamespaceURI()))) {
-            return true;
-        }
-        return false;
+                || SOAP12_NS.equals(qname.getNamespaceURI()));
     }
     
     private boolean isSecurityHeader(QName qname) {
-        if ("Security".equals(qname.getLocalPart()) && WSSE_NS.equals(qname.getNamespaceURI())) {
-            return true;
-        }
-        return false;
+        return "Security".equals(qname.getLocalPart()) && WSSE_NS.equals(qname.getNamespaceURI());
     }
     
     private boolean isTimestamp(List<QName> qnames) {
-        if (qnames != null && qnames.size() == 4
+        return qnames != null 
+            && qnames.size() == 4
             && isEnvelope(qnames.get(0))
             && isSoapHeader(qnames.get(1))
             && isSecurityHeader(qnames.get(2))
             && "Timestamp".equals(qnames.get(3).getLocalPart())
-            && WSU_NS.equals(qnames.get(3).getNamespaceURI())) {
-            return true;
-        }
-        
-        return false;
+            && WSU_NS.equals(qnames.get(3).getNamespaceURI());
     }
     
     private boolean isReplyTo(List<QName> qnames) {
-        if (qnames != null && qnames.size() == 3
+        return qnames != null && qnames.size() == 3
             && isEnvelope(qnames.get(0))
             && isSoapHeader(qnames.get(1))
             && "ReplyTo".equals(qnames.get(2).getLocalPart())
-            && WSA_NS.equals(qnames.get(2).getNamespaceURI())) {
-            return true;
-        }
-        
-        return false;
+            && WSA_NS.equals(qnames.get(2).getNamespaceURI());
     }
     
     private boolean isFaultTo(List<QName> qnames) {
-        if (qnames != null && qnames.size() == 3
+        return qnames != null && qnames.size() == 3
             && isEnvelope(qnames.get(0))
             && isSoapHeader(qnames.get(1))
             && "FaultTo".equals(qnames.get(2).getLocalPart())
-            && WSA_NS.equals(qnames.get(2).getNamespaceURI())) {
-            return true;
-        }
-        
-        return false;
+            && WSA_NS.equals(qnames.get(2).getNamespaceURI());
     }
     
     private boolean isBody(List<QName> qnames) {
-        if (qnames != null && qnames.size() == 2
+        return qnames != null && qnames.size() == 2
             && isEnvelope(qnames.get(0))
             && "Body".equals(qnames.get(1).getLocalPart())
             && (SOAP_NS.equals(qnames.get(1).getNamespaceURI()) 
-                || SOAP12_NS.equals(qnames.get(1).getNamespaceURI()))) {
-            return true;
-        }
-
-        return false;
+                || SOAP12_NS.equals(qnames.get(1).getNamespaceURI()));
     }
     
     private boolean isUsernameToken(List<QName> qnames) {
-        if (qnames != null && qnames.size() == 4
+        return qnames != null && qnames.size() == 4
             && isEnvelope(qnames.get(0))
             && isSoapHeader(qnames.get(1))
             && isSecurityHeader(qnames.get(2))
             && "UsernameToken".equals(qnames.get(3).getLocalPart())
-            && WSSE_NS.equals(qnames.get(3).getNamespaceURI())) {
-            return true;
-        }
-        
-        return false;
+            && WSSE_NS.equals(qnames.get(3).getNamespaceURI());
     }
     
     public boolean isSignBody() {
@@ -449,8 +421,7 @@ public class StaxCryptoCoverageChecker extends AbstractPhaseInterceptor<SoapMess
      * Otherwise set the Fault/Code/Value to env:Sender and the Fault/Code/Subcode/Value
      * as the fault code from the WSSecurityException.
      */
-    private SoapFault 
-    createSoapFault(SoapVersion version, WSSecurityException e) {
+    private SoapFault createSoapFault(SoapVersion version, WSSecurityException e) {
         SoapFault fault;
         javax.xml.namespace.QName faultCode = e.getFaultCode();
         if (version.getVersion() == 1.1 && faultCode != null) {

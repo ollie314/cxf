@@ -24,6 +24,7 @@ import java.util.Map;
 import javax.jws.HandlerChain;
 import javax.xml.namespace.QName;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.cxf.annotations.DataBinding;
 import org.apache.cxf.common.i18n.Message;
 import org.apache.cxf.helpers.CastUtils;
@@ -50,15 +51,10 @@ public class SEIGenerator extends AbstractJAXWSGenerator {
         if (env.optionSet(ToolConstants.CFG_GEN_SEI) || env.optionSet(ToolConstants.CFG_ALL)) {
             return false;
         }
-        if (env.optionSet(ToolConstants.CFG_GEN_ANT) || env.optionSet(ToolConstants.CFG_GEN_TYPES)
+        return env.optionSet(ToolConstants.CFG_GEN_ANT) || env.optionSet(ToolConstants.CFG_GEN_TYPES)
             || env.optionSet(ToolConstants.CFG_GEN_CLIENT) || env.optionSet(ToolConstants.CFG_GEN_IMPL)
             || env.optionSet(ToolConstants.CFG_GEN_SERVER) || env.optionSet(ToolConstants.CFG_GEN_SERVICE)
-            || env.optionSet(ToolConstants.CFG_GEN_FAULT)) {
-            return true;
-        }
-
-        return false;
-
+            || env.optionSet(ToolConstants.CFG_GEN_FAULT);
     }
 
     private boolean hasHandlerConfig(JavaInterface intf) {
@@ -121,6 +117,19 @@ public class SEIGenerator extends AbstractJAXWSGenerator {
                 }
                 clearAttributes();
                 setAttributes("intf", intf);
+                String seiSc = "";
+                for (String s : intf.getSuperInterfaces()) {
+                    if (!seiSc.isEmpty()) {
+                        seiSc += ", ";
+                    } else {
+                        seiSc = "extends ";
+                    }
+                    seiSc += s;
+                }
+                if (!StringUtils.isEmpty(seiSc)) {
+                    seiSc += " ";
+                }
+                setAttributes("sei-superinterface-string", seiSc);                        
                 setCommonAttributes();
     
                 doWrite(SEI_TEMPLATE, parseOutputName(intf.getPackageName(), intf.getName()));
@@ -128,8 +137,8 @@ public class SEIGenerator extends AbstractJAXWSGenerator {
             }
         }
     }
-
+    
     public void register(final ClassCollector collector, String packageName, String fileName) {
-        collector.addSeiClassName(packageName , fileName , packageName + "." + fileName);
+        collector.addSeiClassName(packageName, fileName, packageName + "." + fileName);
     }
 }

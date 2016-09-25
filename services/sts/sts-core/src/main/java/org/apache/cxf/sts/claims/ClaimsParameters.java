@@ -22,8 +22,7 @@ package org.apache.cxf.sts.claims;
 
 import java.security.Principal;
 import java.util.Map;
-
-import javax.xml.ws.WebServiceContext;
+import java.util.Set;
 
 import org.apache.cxf.sts.STSPropertiesMBean;
 import org.apache.cxf.sts.request.KeyRequirements;
@@ -41,7 +40,8 @@ public class ClaimsParameters {
     private STSPropertiesMBean stsProperties;
     private EncryptionProperties encryptionProperties;
     private Principal principal;
-    private WebServiceContext webServiceContext;
+    private Set<Principal> roles;
+    private Map<String, Object> messageContext;
     private KeyRequirements keyRequirements;
     private TokenRequirements tokenRequirements;
     private String appliesToAddress;
@@ -97,20 +97,20 @@ public class ClaimsParameters {
         this.encryptionProperties = encryptionProperties;
     }
     
-    public WebServiceContext getWebServiceContext() {
-        return webServiceContext;
-    }
-
-    public void setWebServiceContext(WebServiceContext webServiceContext) {
-        this.webServiceContext = webServiceContext;
-    }
-    
     public void setPrincipal(Principal principal) {
         this.principal = principal;
     }
     
     public Principal getPrincipal() {
         return principal;
+    }
+    
+    public Set<Principal> getRoles() {
+        return roles;
+    }
+
+    public void setRoles(Set<Principal> roles) {
+        this.roles = roles;
     }
     
     public void setAdditionalProperties(Map<String, Object> additionalProperties) {
@@ -127,6 +127,14 @@ public class ClaimsParameters {
     
     public String getRealm() {
         return realm;
+    }
+
+    public Map<String, Object> getMessageContext() {
+        return messageContext;
+    }
+
+    public void setMessageContext(Map<String, Object> messageContext) {
+        this.messageContext = messageContext;
     }
     
 }

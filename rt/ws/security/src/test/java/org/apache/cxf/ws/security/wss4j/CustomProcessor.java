@@ -21,7 +21,7 @@ package org.apache.cxf.ws.security.wss4j;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.dom.WSConstants;
 import org.apache.wss4j.dom.WSDocInfo;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
 import org.apache.wss4j.dom.handler.RequestData;
 import org.apache.wss4j.dom.processor.Processor;
 import org.apache.wss4j.dom.validate.Validator;
@@ -31,8 +31,7 @@ import org.apache.wss4j.dom.validate.Validator;
  */
 public class CustomProcessor implements Processor {
     
-    public final java.util.List<WSSecurityEngineResult> 
-    handleToken(
+    public final java.util.List<WSSecurityEngineResult> handleToken(
         final org.w3c.dom.Element elem, 
         final RequestData data, 
         final WSDocInfo wsDocInfo 
@@ -40,6 +39,7 @@ public class CustomProcessor implements Processor {
         final WSSecurityEngineResult result = 
             new WSSecurityEngineResult(WSConstants.SIGN);
         result.put("foo", this);
+        wsDocInfo.addResult(result);
         return java.util.Collections.singletonList(result);
     }
     

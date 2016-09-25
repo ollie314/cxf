@@ -21,7 +21,6 @@ package org.apache.cxf.ws.security.wss4j;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.logging.Logger;
 
@@ -34,26 +33,24 @@ import org.w3c.dom.Element;
 import org.apache.cxf.binding.soap.SoapHeader;
 import org.apache.cxf.binding.soap.SoapMessage;
 import org.apache.cxf.binding.soap.interceptor.AbstractSoapInterceptor;
-import org.apache.cxf.common.classloader.ClassLoaderUtils;
 import org.apache.cxf.common.i18n.Message;
 import org.apache.cxf.common.logging.LogUtils;
-import org.apache.cxf.endpoint.Endpoint;
 import org.apache.cxf.headers.Header;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.message.MessageUtils;
 import org.apache.cxf.phase.Phase;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.security.transport.TLSSessionInfo;
 import org.apache.cxf.service.model.EndpointInfo;
 import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
 import org.apache.cxf.ws.policy.PolicyException;
 import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.cxf.ws.security.tokenstore.TokenStore;
 import org.apache.wss4j.common.ext.WSPasswordCallback;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.policy.SP11Constants;
-import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.SPConstants;
 import org.apache.wss4j.policy.model.AbstractToken;
 
@@ -118,62 +115,19 @@ public abstract class AbstractTokenInterceptor extends AbstractSoapInterceptor {
     
     protected abstract AbstractToken assertTokens(SoapMessage message);
     
-    protected boolean assertPolicy(AssertionInfoMap aim, String localname) {
-        Collection<AssertionInfo> ais = getAllAssertionsByLocalname(aim, localname);
-        if (!ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                ai.setAsserted(true);
-            }    
-            return true;
-        }
-        return false;
-    }
-    
-    protected boolean assertPolicy(AssertionInfoMap aim, QName name) {
-        Collection<AssertionInfo> ais = aim.getAssertionInfo(name);
-        if (ais != null && !ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                ai.setAsserted(true);
-            }    
-            return true;
-        }
-        return false;
-    }
-    
-    protected Collection<AssertionInfo> getAllAssertionsByLocalname(
-        AssertionInfoMap aim,
-        String localname
-    ) {
-        Collection<AssertionInfo> sp11Ais = aim.get(new QName(SP11Constants.SP_NS, localname));
-        Collection<AssertionInfo> sp12Ais = aim.get(new QName(SP12Constants.SP_NS, localname));
-        
-        if ((sp11Ais != null && !sp11Ais.isEmpty()) || (sp12Ais != null && !sp12Ais.isEmpty())) {
-            Collection<AssertionInfo> ais = new HashSet<AssertionInfo>();
-            if (sp11Ais != null) {
-                ais.addAll(sp11Ais);
-            }
-            if (sp12Ais != null) {
-                ais.addAll(sp12Ais);
-            }
-            return ais;
-        }
-            
-        return Collections.emptySet();
-    }
-    
     protected AbstractToken assertTokens(SoapMessage message, String localname, boolean signed) {
         AssertionInfoMap aim = message.get(AssertionInfoMap.class);
-        Collection<AssertionInfo> ais = getAllAssertionsByLocalname(aim, localname);
+        Collection<AssertionInfo> ais = PolicyUtils.getAllAssertionsByLocalname(aim, localname);
         AbstractToken tok = null;
         for (AssertionInfo ai : ais) {
             tok = (AbstractToken)ai.getAssertion();
             ai.setAsserted(true);                
         }
         
-        assertPolicy(aim, SPConstants.SUPPORTING_TOKENS);
+        PolicyUtils.assertPolicy(aim, SPConstants.SUPPORTING_TOKENS);
         
         if (signed || isTLSInUse(message)) {
-            assertPolicy(aim, SPConstants.SIGNED_SUPPORTING_TOKENS);
+            PolicyUtils.assertPolicy(aim, SPConstants.SIGNED_SUPPORTING_TOKENS);
         }
         return tok;
     }
@@ -181,32 +135,11 @@ public abstract class AbstractTokenInterceptor extends AbstractSoapInterceptor {
     protected boolean isTLSInUse(SoapMessage message) {
         // See whether TLS is in use or not
         TLSSessionInfo tlsInfo = message.get(TLSSessionInfo.class);
-        if (tlsInfo != null) {
-            return true;
-        }
-        return false;
+        return tlsInfo != null;
     }
     
-    protected CallbackHandler getCallback(SoapMessage message) {
-        //Then try to get the password from the given callback handler
-        Object o = message.getContextualProperty(SecurityConstants.CALLBACK_HANDLER);
-    
-        CallbackHandler handler = null;
-        if (o instanceof CallbackHandler) {
-            handler = (CallbackHandler)o;
-        } else if (o instanceof String) {
-            try {
-                handler = (CallbackHandler)ClassLoaderUtils
-                    .loadClass((String)o, this.getClass()).newInstance();
-            } catch (Exception e) {
-                handler = null;
-            }
-        }
-        return handler;
-    }
-
     protected TokenStore getTokenStore(SoapMessage message) {
-        EndpointInfo info = message.getExchange().get(Endpoint.class).getEndpointInfo();
+        EndpointInfo info = message.getExchange().getEndpoint().getEndpointInfo();
         synchronized (info) {
             TokenStore tokenStore = 
                 (TokenStore)message.getContextualProperty(SecurityConstants.TOKEN_STORE_CACHE_INSTANCE);
@@ -241,13 +174,19 @@ public abstract class AbstractTokenInterceptor extends AbstractSoapInterceptor {
     protected String getPassword(String userName, AbstractToken info, 
                                  int usage, SoapMessage message) {
         //Then try to get the password from the given callback handler
-    
-        CallbackHandler handler = getCallback(message);
-        if (handler == null) {
+        CallbackHandler handler = null;
+        try {
+            Object o = SecurityUtils.getSecurityPropertyValue(SecurityConstants.CALLBACK_HANDLER, message);
+            handler = SecurityUtils.getCallbackHandler(o);
+            if (handler == null) {
+                policyNotAsserted(info, "No callback handler and no password available", message);
+                return null;
+            }
+        } catch (Exception ex) {
             policyNotAsserted(info, "No callback handler and no password available", message);
             return null;
         }
-        
+            
         WSPasswordCallback[] cb = {new WSPasswordCallback(userName, usage)};
         try {
             handler.handle(cb);

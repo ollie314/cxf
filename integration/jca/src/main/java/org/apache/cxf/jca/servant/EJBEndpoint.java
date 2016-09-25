@@ -141,19 +141,16 @@ public class EJBEndpoint {
             return DEFAULT_HTTP_PORT;
         }
         if (end < index) {
-            return new Integer(address.substring(index + 1)).intValue();
+            return Integer.valueOf(address.substring(index + 1)).intValue();
         } 
-        return new Integer(address.substring(index + 1, end)).intValue();
+        return Integer.valueOf(address.substring(index + 1, end)).intValue();
     }
     
     private static boolean isJaxWsServiceInterface(Class<?> cls) {
         if (cls == null) {
             return false;
         }
-        if (null != cls.getAnnotation(WebService.class)) {
-            return true;
-        }
-        return false;
+        return null != cls.getAnnotation(WebService.class);
     }
 
     public String getEjbServantBaseURL() {
@@ -165,10 +162,7 @@ public class EJBEndpoint {
     }
     
     private static boolean isNotNull(String value) {
-        if (value != null && !"".equals(value.trim())) {
-            return true;
-        }
-        return false;
+        return value != null && !"".equals(value.trim());
     }
 
     public WorkManager getWorkManager() {

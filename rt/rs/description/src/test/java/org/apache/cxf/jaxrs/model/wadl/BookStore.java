@@ -34,12 +34,16 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
+import javax.ws.rs.container.AsyncResponse;
+import javax.ws.rs.container.Suspended;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.Response.Status;
 import javax.xml.bind.annotation.XmlTransient;
 
 import org.apache.cxf.aegis.type.java5.IgnoreProperty;
+import org.apache.cxf.jaxrs.ext.ResponseStatus;
 import org.apache.cxf.jaxrs.ext.multipart.MultipartBody;
 import org.apache.cxf.jaxrs.ext.xml.ElementClass;
 import org.apache.cxf.jaxrs.ext.xml.XMLName;
@@ -50,7 +54,7 @@ import org.apache.cxf.jaxrs.model.wadl.jaxb.packageinfo.Book2;
 @Path("/bookstore/{id}")
 @Consumes({"application/xml", "application/json" })
 @Produces({"application/xml", "application/json" })
-public class BookStore implements BookDescription {
+public class BookStore extends AbstractStore<Book> implements BookDescription {
 
     @Descriptions({ 
         @Description(value = "Attachments, max < 10", target = DocTarget.PARAM)
@@ -108,7 +112,7 @@ public class BookStore implements BookDescription {
         @Description(value = "Response", target = DocTarget.RESPONSE),
         @Description(value = "Resource books/{bookid}", target = DocTarget.RESOURCE)
     })
-    
+    @ResponseStatus({Status.CREATED, Status.OK })
     //CHECKSTYLE:OFF
     @POST
     @Path("books/{bookid}")
@@ -154,8 +158,8 @@ public class BookStore implements BookDescription {
     @GET
     @Path("chapter2")
     @ElementClass(response = Chapter.class)
-    public Response getChapter2() {
-        return Response.ok().entity(new Chapter(1)).build();
+    public void getChapterAsync(@Suspended AsyncResponse async) {
+        async.resume(Response.ok().entity(new Chapter(1)).build());
     }
     
     @Path("form")
@@ -177,20 +181,20 @@ public class BookStore implements BookDescription {
     
     public static class TheBeanParam {
         private int a;
+        @QueryParam("b")
         private int b;
         public int getA() {
             return a;
         }
         @PathParam("a")
-        public void setA(int a) {
-            this.a = a;
+        public void setA(int aa) {
+            this.a = aa;
         }
         public int getB() {
             return b;
         }
-        @QueryParam("b")
-        public void setB(int b) {
-            this.b = b;
+        public void setB(int bb) {
+            this.b = bb;
         }
     }
     
@@ -234,6 +238,10 @@ public class BookStore implements BookDescription {
         public QueryBean3 getD() {
             return bean;
         }
+
+        public QueryBean3 getD2() {
+            return bean;
+        }
         
         public QueryBean2 getIt() {
             return this;
@@ -254,7 +262,7 @@ public class BookStore implements BookDescription {
         }
     }
     
-    public static enum TestEnum {
+    public enum TestEnum {
         A;        
     }
 }

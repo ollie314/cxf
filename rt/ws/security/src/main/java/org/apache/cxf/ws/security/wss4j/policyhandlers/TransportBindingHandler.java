@@ -28,32 +28,32 @@ import java.util.logging.Level;
 import javax.xml.crypto.dsig.Reference;
 import javax.xml.soap.SOAPException;
 import javax.xml.soap.SOAPMessage;
-import javax.xml.xpath.XPathExpressionException;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.apache.cxf.binding.soap.SoapMessage;
 import org.apache.cxf.interceptor.Fault;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
 import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
 import org.apache.wss4j.common.WSEncryptionPart;
+import org.apache.wss4j.common.bsp.BSPEnforcer;
 import org.apache.wss4j.common.crypto.Crypto;
 import org.apache.wss4j.common.derivedKey.ConversationConstants;
 import org.apache.wss4j.common.ext.WSPasswordCallback;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.common.saml.SamlAssertionWrapper;
+import org.apache.wss4j.common.token.SecurityTokenReference;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.WSSConfig;
-import org.apache.wss4j.dom.bsp.BSPEnforcer;
+import org.apache.wss4j.dom.engine.WSSConfig;
 import org.apache.wss4j.dom.message.WSSecDKSign;
 import org.apache.wss4j.dom.message.WSSecEncryptedKey;
 import org.apache.wss4j.dom.message.WSSecHeader;
 import org.apache.wss4j.dom.message.WSSecSignature;
 import org.apache.wss4j.dom.message.WSSecTimestamp;
 import org.apache.wss4j.dom.message.WSSecUsernameToken;
-import org.apache.wss4j.dom.message.token.SecurityTokenReference;
 import org.apache.wss4j.policy.SP11Constants;
 import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.SPConstants;
@@ -75,7 +75,7 @@ import org.apache.wss4j.policy.model.SupportingTokens;
 import org.apache.wss4j.policy.model.TransportBinding;
 import org.apache.wss4j.policy.model.TransportToken;
 import org.apache.wss4j.policy.model.UsernameToken;
-import org.apache.wss4j.policy.model.X509Token;;
+import org.apache.wss4j.policy.model.X509Token;
 
 /**
  * 
@@ -88,7 +88,7 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
                                     SOAPMessage saaj,
                                     WSSecHeader secHeader,
                                     AssertionInfoMap aim,
-                                    SoapMessage message) {
+                                    SoapMessage message) throws SOAPException {
         super(config, binding, saaj, secHeader, aim, message);
         this.tbinding = binding;
     }
@@ -127,12 +127,6 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
         
     }
     
-    private void addSig(byte[] val) {
-        if (val != null && val.length > 0) {
-            signatures.add(val);
-        }
-    }
-    
     public void handleBinding() {
         WSSecTimestamp timestamp = createTimestamp();
         handleLayout(timestamp);
@@ -145,7 +139,7 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
                     if (transportToken instanceof IssuedToken) {
                         SecurityToken secToken = getSecurityToken();
                         if (secToken == null) {
-                            policyNotAsserted(transportToken, "No transport token id");
+                            unassertPolicy(transportToken, "No transport token id");
                             return;
                         } else {
                             assertPolicy(transportToken);
@@ -340,7 +334,7 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
                 new SecurityToken(id, usernameToken.getUsernameTokenElement(), created, expires);
             tempTok.setSecret(secret);
             getTokenStore().add(tempTok);
-            message.setContextualProperty(SecurityConstants.TOKEN_ID, tempTok.getId());
+            message.put(SecurityConstants.TOKEN_ID, tempTok.getId());
             
             addSig(doIssuedTokenSignature(token, wrapper));
         }
@@ -356,7 +350,8 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
             signPartsAndElements(wrapper.getSignedParts(), wrapper.getSignedElements());
         
         if (token.getDerivedKeys() == DerivedKeys.RequireDerivedKeys) {
-            WSSecEncryptedKey encrKey = getEncryptedKeyBuilder(wrapper, token);
+            WSSecEncryptedKey encrKey = getEncryptedKeyBuilder(token);
+            assertPolicy(wrapper);
             
             Element bstElem = encrKey.getBinarySecurityTokenElement();
             if (bstElem != null) {
@@ -364,8 +359,10 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
             }
             encrKey.appendToHeader(secHeader);
             
-            WSSecDKSign dkSig = new WSSecDKSign(wssConfig);
-            if (wrapper.getToken().getVersion() == SPConstants.SPVersion.SP11) {
+            WSSecDKSign dkSig = new WSSecDKSign();
+            dkSig.setIdAllocator(wssConfig.getIdAllocator());
+            dkSig.setCallbackLookup(callbackLookup);
+            if (token.getVersion() == SPConstants.SPVersion.SP11) {
                 dkSig.setWscVersion(ConversationConstants.VERSION_05_02);
             }
             
@@ -378,7 +375,7 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
             
             dkSig.prepare(doc, secHeader);
             
-            dkSig.setParts(sigParts);
+            dkSig.getParts().addAll(sigParts);
             List<Reference> referenceList = dkSig.addReferencesToSign(sigParts, secHeader);
             
             //Do signature
@@ -387,7 +384,8 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
             
             return dkSig.getSignatureValue();
         } else {
-            WSSecSignature sig = getSignatureBuilder(wrapper, token, false);
+            WSSecSignature sig = getSignatureBuilder(token, false, false);
+            assertPolicy(wrapper);
             if (sig != null) {
                 sig.prependBSTElementToHeader(secHeader);
             
@@ -452,7 +450,9 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
         List<WSEncryptionPart> sigParts
     ) throws Exception {
         //Do Signature with derived keys
-        WSSecDKSign dkSign = new WSSecDKSign(wssConfig);
+        WSSecDKSign dkSign = new WSSecDKSign();
+        dkSign.setIdAllocator(wssConfig.getIdAllocator());
+        dkSign.setCallbackLookup(callbackLookup);
         AlgorithmSuite algorithmSuite = tbinding.getAlgorithmSuite();
 
         //Setting the AttachedReference or the UnattachedReference according to the flag
@@ -485,7 +485,7 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
 
         addDerivedKeyElement(dkSign.getdktElement());
 
-        dkSign.setParts(sigParts);
+        dkSign.getParts().addAll(sigParts);
         List<Reference> referenceList = dkSign.addReferencesToSign(sigParts, secHeader);
 
         //Do signature
@@ -501,7 +501,9 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
         SupportingTokens wrapper,
         List<WSEncryptionPart> sigParts
     ) throws Exception {
-        WSSecSignature sig = new WSSecSignature(wssConfig);
+        WSSecSignature sig = new WSSecSignature();
+        sig.setIdAllocator(wssConfig.getIdAllocator());
+        sig.setCallbackLookup(callbackLookup);
         
         //Setting the AttachedReference or the UnattachedReference according to the flag
         Element ref;
@@ -553,7 +555,7 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
 
             crypto = secTok.getCrypto();
             if (crypto == null) {
-                crypto = getSignatureCrypto(wrapper);
+                crypto = getSignatureCrypto();
             }
             if (crypto == null) {
                 LOG.fine("No signature Crypto properties are available");
@@ -566,25 +568,24 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
             String uname = crypto.getX509Identifier(secTok.getX509Certificate());
             if (uname == null) {
                 String userNameKey = SecurityConstants.SIGNATURE_USERNAME;
-                uname = (String)message.getContextualProperty(userNameKey);
+                uname = (String)SecurityUtils.getSecurityPropertyValue(userNameKey, message);
             }
             String password = getPassword(uname, token, WSPasswordCallback.SIGNATURE);
-            if (password == null) {
-                password = "";
-            }
             sig.setUserInfo(uname, password);
             sig.setSignatureAlgorithm(binding.getAlgorithmSuite().getAsymmetricSignature());
         } else {
-            crypto = getSignatureCrypto(wrapper);
+            crypto = getSignatureCrypto();
             sig.setSecretKey(secTok.getSecret());
             sig.setSignatureAlgorithm(binding.getAlgorithmSuite().getSymmetricSignature());
         }
         sig.setSigCanonicalization(binding.getAlgorithmSuite().getC14n().getValue());
+        AlgorithmSuiteType algType = binding.getAlgorithmSuite().getAlgorithmSuiteType();
+        sig.setDigestAlgo(algType.getDigest());
 
         Document doc = saaj.getSOAPPart();
         sig.prepare(doc, crypto, secHeader);
 
-        sig.setParts(sigParts);
+        sig.getParts().addAll(sigParts);
         List<Reference> referenceList = sig.addReferencesToSign(sigParts, secHeader);
 
         //Do signature
@@ -607,8 +608,8 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
         SignedElements signedElements
     ) throws SOAPException {
         
-        List<WSEncryptionPart> result = new ArrayList<WSEncryptionPart>();
-        List<Element> found = new ArrayList<Element>();
+        List<WSEncryptionPart> result = new ArrayList<>();
+        List<Element> found = new ArrayList<>();
         
         // Add timestamp
         if (timestampEl != null) {
@@ -624,7 +625,7 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
 
         // Add SignedParts
         if (signedParts != null) {
-            List<WSEncryptionPart> parts = new ArrayList<WSEncryptionPart>();
+            List<WSEncryptionPart> parts = new ArrayList<>();
             boolean isSignBody = signedParts.isBody();
             
             for (Header head : signedParts.getHeaders()) {
@@ -639,16 +640,9 @@ public class TransportBindingHandler extends AbstractBindingBuilder {
         
         if (signedElements != null) {
             // Handle SignedElements
-            try {
-                result.addAll(
-                    this.getElements(
-                        "Element", signedElements.getXPaths(), found, true
-                    )
-                );
-            } catch (XPathExpressionException e) {
-                LOG.log(Level.FINE, e.getMessage(), e);
-                // REVISIT
-            }
+            result.addAll(
+                this.getElements("Element", signedElements.getXPaths(), found, true)
+            );
         }
 
         return result;

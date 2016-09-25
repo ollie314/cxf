@@ -28,6 +28,7 @@ import java.net.URL;
 import java.security.Principal;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -44,6 +45,7 @@ import org.apache.cxf.attachment.AttachmentDataSource;
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.common.util.Base64Exception;
 import org.apache.cxf.common.util.Base64Utility;
+import org.apache.cxf.common.util.PropertyUtils;
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.configuration.Configurable;
 import org.apache.cxf.configuration.security.AuthorizationPolicy;
@@ -105,6 +107,7 @@ public abstract class AbstractHTTPDestination
     private static final String SSL_PEER_CERT_CHAIN_ATTRIBUTE = "javax.servlet.request.X509Certificate";
 
     private static final Logger LOG = LogUtils.getL7dLogger(AbstractHTTPDestination.class);
+    private static final String CACHE_HTTP_REQUEST_PARAMETERS = "cache.http.request.parameters"; 
     
     protected final Bus bus;
     protected DestinationRegistry registry;
@@ -159,10 +162,10 @@ public abstract class AbstractHTTPDestination
         if (credentials == null || StringUtils.isEmpty(credentials.trim())) {
             return null;
         }
-        String creds[] = StringUtils.split(credentials, " ");
-        String authType = creds[0];
-        if ("Basic".equals(authType)) {
-            String authEncoded = creds[1];
+        List<String> creds = StringUtils.getParts(credentials, " ");
+        String authType = creds.get(0);
+        if ("Basic".equals(authType) && creds.size() == 2) {
+            String authEncoded = creds.get(1);
             try {
                 String authDecoded = new String(Base64Utility.decode(authEncoded));
                 int idx = authDecoded.indexOf(':');
@@ -295,6 +298,10 @@ public abstract class AbstractHTTPDestination
                           resp);
         
         final Exchange exchange = inMessage.getExchange();
+        if (bus != null && PropertyUtils.isTrue(
+            bus.getProperty(CACHE_HTTP_REQUEST_PARAMETERS))) {
+            req.getParameterNames();
+        }
         DelegatingInputStream in = new DelegatingInputStream(req.getInputStream()) {
             public void cacheInput() {
                 if (!cached && (exchange.isOneWay() || isWSAddressingReplyToSpecified(exchange))) {
@@ -335,7 +342,12 @@ public abstract class AbstractHTTPDestination
             servletPath = "";
         }
         String contextServletPath = contextPath + servletPath;
-        inMessage.put(Message.PATH_INFO, contextServletPath + req.getPathInfo());
+        String pathInfo = req.getPathInfo();
+        if (pathInfo != null) {
+            inMessage.put(Message.PATH_INFO, contextServletPath + pathInfo);
+        } else {
+            inMessage.put(Message.PATH_INFO, requestURI);
+        }
         if (!StringUtils.isEmpty(requestURI)) {
             int index = requestURL.indexOf(requestURI);
             if (index > 0) {
@@ -397,7 +409,7 @@ public abstract class AbstractHTTPDestination
      * Propogate in the message a TLSSessionInfo instance representative  
      * of the TLS-specific information in the HTTP request.
      * 
-     * @param req the Jetty request
+     * @param request the Jetty request
      * @param message the Message
      */
     private static void propogateSecureSession(HttpServletRequest request,
@@ -587,7 +599,7 @@ public abstract class AbstractHTTPDestination
             //However, also don't want to consume indefinitely.   We'll limit to 16M.
             try {
                 IOUtils.consume(in, 16 * 1024 * 1024);
-            } catch (IOException ioe) {
+            } catch (Exception ioe) {
                 //ignore
             }
         }
@@ -613,6 +625,13 @@ public abstract class AbstractHTTPDestination
         HttpServletResponse response = getHttpResponseFromMessage(outMessage);
 
         int responseCode = getReponseCodeFromMessage(outMessage);
+        if (responseCode >= 300) {
+            String ec = (String)outMessage.get(Message.ERROR_MESSAGE);
+            if (!StringUtils.isEmpty(ec)) {
+                response.sendError(responseCode, ec);
+                return null;
+            }
+        }
         response.setStatus(responseCode);
         new Headers(outMessage).copyToResponse(response);
 
@@ -685,7 +704,9 @@ public abstract class AbstractHTTPDestination
     }
 
     private boolean isResponseRedirected(Message outMessage) {
-        return Boolean.TRUE.equals(outMessage.get(REQUEST_REDIRECTED));
+        Exchange exchange = outMessage.getExchange();
+        return exchange != null 
+               && Boolean.TRUE.equals(exchange.get(REQUEST_REDIRECTED));
     }
 
     /**
@@ -711,7 +732,7 @@ public abstract class AbstractHTTPDestination
             OutputStream os = message.getContent(OutputStream.class);
             if (os == null) {
                 message.setContent(OutputStream.class, 
-                               new WrappedOutputStream(message, response));
+                               new WrappedOutputStream(message));
             }
         }
         
@@ -743,13 +764,11 @@ public abstract class AbstractHTTPDestination
      */
     private class WrappedOutputStream extends AbstractWrappedOutputStream implements CopyingOutputStream {
 
-        protected HttpServletResponse response;
         private Message outMessage;
         
-        WrappedOutputStream(Message m, HttpServletResponse resp) {
+        WrappedOutputStream(Message m) {
             super();
             this.outMessage = m;
-            response = resp;
         }
 
         
@@ -787,8 +806,8 @@ public abstract class AbstractHTTPDestination
                 }
             }
             if (wrappedStream != null) {
+                // closing the stream should indirectly call the servlet response's flushBuffer
                 wrappedStream.close();
-                response.flushBuffer();
             }
             /*
             try {

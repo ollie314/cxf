@@ -47,6 +47,7 @@ import javax.xml.bind.Marshaller;
 import javax.xml.bind.Unmarshaller;
 import javax.xml.bind.ValidationEventHandler;
 import javax.xml.bind.annotation.XmlElement;
+import javax.xml.bind.annotation.adapters.XmlAdapter;
 import javax.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
@@ -58,9 +59,7 @@ import javax.xml.transform.dom.DOMSource;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Node;
-
 import org.xml.sax.InputSource;
-
 import org.apache.cxf.common.injection.NoJSR250Annotations;
 import org.apache.cxf.common.jaxb.JAXBBeanInfo;
 import org.apache.cxf.common.jaxb.JAXBContextCache;
@@ -95,6 +94,11 @@ import org.apache.cxf.ws.addressing.ObjectFactory;
 public class JAXBDataBinding extends AbstractInterceptorProvidingDataBinding
     implements WrapperCapableDatabinding, InterceptorProvider {
 
+    public static final String READER_VALIDATION_EVENT_HANDLER = "jaxb-reader-validation-event-handler";
+    public static final String VALIDATION_EVENT_HANDLER = "jaxb-validation-event-handler";
+    public static final String SET_VALIDATION_EVENT_HANDLER = "set-jaxb-validation-event-handler";
+    public static final String WRITER_VALIDATION_EVENT_HANDLER = "jaxb-writer-validation-event-handler";
+    
     public static final String SCHEMA_RESOURCE = "SCHEMRESOURCE";
     public static final String MTOM_THRESHOLD = "org.apache.cxf.jaxb.mtomThreshold";
 
@@ -117,7 +121,7 @@ public class JAXBDataBinding extends AbstractInterceptorProvidingDataBinding
     private static class DelayedDOMResult extends DOMResult {
         private final URL resource;
         private final String publicId;
-        public DelayedDOMResult(URL url, String sysId, String pId) {
+        DelayedDOMResult(URL url, String sysId, String pId) {
             super(null, sysId);
             resource = url;
             publicId = pId;
@@ -191,9 +195,10 @@ public class JAXBDataBinding extends AbstractInterceptorProvidingDataBinding
 
     Class<?> cls;
 
-    private Map<String, Object> contextProperties = Collections.emptyMap();
-    private Map<String, Object> marshallerProperties = Collections.emptyMap();
-    private Map<String, Object> unmarshallerProperties = Collections.emptyMap();
+    private Map<String, Object> contextProperties = new HashMap<String, Object>();
+    private List<XmlAdapter<?, ?>> adapters = new ArrayList<XmlAdapter<?, ?>>();
+    private Map<String, Object> marshallerProperties = new HashMap<String, Object>();
+    private Map<String, Object> unmarshallerProperties = new HashMap<String, Object>();
     private Unmarshaller.Listener unmarshallerListener;
     private Marshaller.Listener marshallerListener;
     private ValidationEventHandler validationEventHandler;
@@ -302,12 +307,9 @@ public class JAXBDataBinding extends AbstractInterceptorProvidingDataBinding
             return;
         }
 
-
         contextClasses = new LinkedHashSet<Class<?>>();
-        Map<String, Object> unmarshallerProps = new HashMap<String, Object>();
-        this.setUnmarshallerProperties(unmarshallerProps);
+        
         for (ServiceInfo serviceInfo : service.getServiceInfos()) {
-            
             JAXBContextInitializer initializer
                 = new JAXBContextInitializer(serviceInfo, contextClasses, typeRefs, this.getUnmarshallerProperties());
             initializer.walk();
@@ -512,6 +514,14 @@ public class JAXBDataBinding extends AbstractInterceptorProvidingDataBinding
      */
     public void setContextProperties(Map<String, Object> contextProperties) {
         this.contextProperties = contextProperties;
+    }
+
+    public List<XmlAdapter<?, ?>> getConfiguredXmlAdapters() {
+        return adapters;
+    }
+
+    public void setConfiguredXmlAdapters(List<XmlAdapter<?, ?>> adpters) {
+        this.adapters = adpters;
     }
 
     /**

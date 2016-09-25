@@ -27,6 +27,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -49,6 +50,8 @@ import javax.xml.bind.JAXBContext;
 import javax.xml.bind.annotation.XmlRootElement;
 import javax.xml.validation.Schema;
 
+import org.apache.cxf.Bus;
+import org.apache.cxf.BusFactory;
 import org.apache.cxf.endpoint.Endpoint;
 import org.apache.cxf.helpers.IOUtils;
 import org.apache.cxf.jaxrs.Customer;
@@ -93,9 +96,166 @@ public class ProviderFactoryTest extends Assert {
         WildcardReader2 reader2 = new WildcardReader2();
         pf.registerUserProvider(reader2);
         List<ProviderInfo<MessageBodyReader<?>>> readers = pf.getMessageReaders();
-        assertEquals(2, readers.size());
-        assertSame(reader1, readers.get(0).getProvider());
-        assertSame(reader2, readers.get(1).getProvider());
+        assertEquals(11, readers.size());
+        assertSame(reader1, readers.get(7).getProvider());
+        assertSame(reader2, readers.get(8).getProvider());
+    }
+    
+    @Test
+    public void testCustomProviderSorting() {
+        ProviderFactory pf = ServerProviderFactory.getInstance();
+        Comparator<?> comp = new Comparator<ProviderInfo<?>>() {
+
+            @Override
+            public int compare(ProviderInfo<?> o1, ProviderInfo<?> o2) {
+                Object provider1 = o1.getProvider();
+                Object provider2 = o2.getProvider();
+                if (provider1 instanceof StringTextProvider) {
+                    return 1;
+                } else if (provider2 instanceof StringTextProvider) {
+                    return -1;
+                } else {
+                    return 0;
+                }
+            }    
+        
+        };
+        pf.setProviderComparator(comp);
+        
+        // writers
+        List<ProviderInfo<MessageBodyWriter<?>>> writers = pf.getMessageWriters();
+        assertEquals(9, writers.size());
+        Object lastWriter = writers.get(8).getProvider();
+        assertTrue(lastWriter instanceof StringTextProvider);
+        //readers
+        List<ProviderInfo<MessageBodyReader<?>>> readers = pf.getMessageReaders();
+        assertEquals(9, readers.size());
+        Object lastReader = readers.get(8).getProvider();
+        assertTrue(lastReader instanceof StringTextProvider);
+    }
+    @Test
+    public void testCustomProviderSorting2() {
+        ProviderFactory pf = ServerProviderFactory.getInstance();
+        Comparator<Object> comp = new Comparator<Object>() {
+
+            @Override
+            public int compare(Object provider1, Object provider2) {
+                if (provider1 instanceof StringTextProvider) {
+                    return 1;
+                } else if (provider2 instanceof StringTextProvider) {
+                    return -1;
+                } else {
+                    return 0;
+                }
+            }    
+        
+        };
+        pf.setProviderComparator(comp);
+        
+        // writers
+        List<ProviderInfo<MessageBodyWriter<?>>> writers = pf.getMessageWriters();
+        assertEquals(9, writers.size());
+        Object lastWriter = writers.get(8).getProvider();
+        assertTrue(lastWriter instanceof StringTextProvider);
+        //readers
+        List<ProviderInfo<MessageBodyReader<?>>> readers = pf.getMessageReaders();
+        assertEquals(9, readers.size());
+        Object lastReader = readers.get(8).getProvider();
+        assertTrue(lastReader instanceof StringTextProvider);
+    }
+    @SuppressWarnings("rawtypes")
+    @Test
+    public void testCustomProviderSortingMBROnly() {
+        ProviderFactory pf = ServerProviderFactory.getInstance();
+        Comparator<ProviderInfo<MessageBodyReader>> comp = 
+            new Comparator<ProviderInfo<MessageBodyReader>>() {
+
+            @Override
+            public int compare(ProviderInfo<MessageBodyReader> o1, ProviderInfo<MessageBodyReader> o2) {
+                MessageBodyReader<?> provider1 = o1.getProvider();
+                MessageBodyReader<?> provider2 = o2.getProvider();
+                if (provider1 instanceof StringTextProvider) {
+                    return 1;
+                } else if (provider2 instanceof StringTextProvider) {
+                    return -1;
+                } else {
+                    return 0;
+                }
+            }    
+        
+        };
+        pf.setProviderComparator(comp);
+        
+        // writers
+        List<ProviderInfo<MessageBodyWriter<?>>> writers = pf.getMessageWriters();
+        assertEquals(9, writers.size());
+        Object lastWriter = writers.get(8).getProvider();
+        assertFalse(lastWriter instanceof StringTextProvider);
+        //readers
+        List<ProviderInfo<MessageBodyReader<?>>> readers = pf.getMessageReaders();
+        assertEquals(9, readers.size());
+        Object lastReader = readers.get(8).getProvider();
+        assertTrue(lastReader instanceof StringTextProvider);
+    }
+    @Test
+    public void testCustomProviderSortingMBWOnly() {
+        ProviderFactory pf = ServerProviderFactory.getInstance();
+        Comparator<ProviderInfo<MessageBodyWriter<?>>> comp = 
+            new Comparator<ProviderInfo<MessageBodyWriter<?>>>() {
+
+            @Override
+            public int compare(ProviderInfo<MessageBodyWriter<?>> o1, ProviderInfo<MessageBodyWriter<?>> o2) {
+                MessageBodyWriter<?> provider1 = o1.getProvider();
+                MessageBodyWriter<?> provider2 = o2.getProvider();
+                if (provider1 instanceof StringTextProvider) {
+                    return 1;
+                } else if (provider2 instanceof StringTextProvider) {
+                    return -1;
+                } else {
+                    return 0;
+                }
+            }    
+        
+        };
+        pf.setProviderComparator(comp);
+        
+        // writers
+        List<ProviderInfo<MessageBodyWriter<?>>> writers = pf.getMessageWriters();
+        assertEquals(9, writers.size());
+        Object lastWriter = writers.get(8).getProvider();
+        assertTrue(lastWriter instanceof StringTextProvider);
+        //readers
+        List<ProviderInfo<MessageBodyReader<?>>> readers = pf.getMessageReaders();
+        assertEquals(9, readers.size());
+        Object lastReader = readers.get(8).getProvider();
+        assertFalse(lastReader instanceof StringTextProvider);
+    }
+    
+    @Test
+    public void testCustomProviderSortingWithBus() {
+        WildcardReader wc1 = new WildcardReader();
+        WildcardReader2 wc2 = new WildcardReader2();
+        Bus bus = BusFactory.newInstance().createBus();
+        bus.setProperty(MessageBodyReader.class.getName(), wc1);
+        ProviderFactory pf = ServerProviderFactory.createInstance(bus);
+        pf.registerUserProvider(wc2);
+        List<ProviderInfo<MessageBodyReader<?>>> readers = pf.getMessageReaders();
+        assertEquals(11, readers.size());
+        assertSame(wc2, readers.get(7).getProvider());
+        assertSame(wc1, readers.get(8).getProvider());
+    }
+    @Test
+    public void testCustomProviderSortingWithBus2() {
+        WildcardReader wc1 = new WildcardReader();
+        WildcardReader2 wc2 = new WildcardReader2();
+        Bus bus = BusFactory.newInstance().createBus();
+        bus.setProperty(MessageBodyReader.class.getName(), wc2);
+        ProviderFactory pf = ServerProviderFactory.createInstance(bus);
+        pf.registerUserProvider(wc1);
+        List<ProviderInfo<MessageBodyReader<?>>> readers = pf.getMessageReaders();
+        assertEquals(11, readers.size());
+        assertSame(wc1, readers.get(7).getProvider());
+        assertSame(wc2, readers.get(8).getProvider());
     }
     
     @Test
@@ -150,9 +310,7 @@ public class ProviderFactoryTest extends Assert {
         MessageBodyReader<Book> customJaxbReader = pf.createMessageBodyReader(
             Book.class, null, null, MediaType.TEXT_XML_TYPE, new MessageImpl());
         assertTrue(jaxbReader instanceof JAXBElementProvider);
-        assertNotSame(jaxbReader, customJaxbReader);
-        
-        assertNull(((JAXBElementProvider<Book>)jaxbReader).getSchema());
+        assertSame(jaxbReader, customJaxbReader);
         assertNotNull(((JAXBElementProvider<Book>)customJaxbReader).getSchema());
     }
     
@@ -203,13 +361,51 @@ public class ProviderFactoryTest extends Assert {
         
         TestRuntimeExceptionMapper rm = new TestRuntimeExceptionMapper(); 
         pf.registerUserProvider(rm);
-        assertSame(rm, pf.createExceptionMapper(WebApplicationException.class, new MessageImpl()));
+        ExceptionMapper<WebApplicationException> em = 
+            pf.createExceptionMapper(WebApplicationException.class, new MessageImpl());
+        assertTrue(em instanceof WebApplicationExceptionMapper);
         assertSame(rm, pf.createExceptionMapper(RuntimeException.class, new MessageImpl()));
         
         WebApplicationExceptionMapper wm = new WebApplicationExceptionMapper(); 
         pf.registerUserProvider(wm);
         assertSame(wm, pf.createExceptionMapper(WebApplicationException.class, new MessageImpl()));
         assertSame(rm, pf.createExceptionMapper(RuntimeException.class, new MessageImpl()));
+    }
+    
+    @Test
+    public void testExceptionMappersHierarchy3() throws Exception {
+        Message m = new MessageImpl();
+        m.put("default.wae.mapper.least.specific", true);
+        ServerProviderFactory pf = ServerProviderFactory.getInstance();
+        
+        TestRuntimeExceptionMapper rm = new TestRuntimeExceptionMapper(); 
+        pf.registerUserProvider(rm);
+        ExceptionMapper<WebApplicationException> em = 
+            pf.createExceptionMapper(WebApplicationException.class, m);
+        assertSame(rm, em);
+        assertSame(rm, pf.createExceptionMapper(RuntimeException.class, m));
+        
+        WebApplicationExceptionMapper wm = new WebApplicationExceptionMapper(); 
+        pf.registerUserProvider(wm);
+        assertSame(wm, pf.createExceptionMapper(WebApplicationException.class, m));
+        assertSame(rm, pf.createExceptionMapper(RuntimeException.class, m));
+    }
+    @Test
+    public void testExceptionMappersHierarchy4() throws Exception {
+        Message m = new MessageImpl();
+        m.put("default.wae.mapper.least.specific", true);
+        ServerProviderFactory pf = ServerProviderFactory.getInstance();
+        ExceptionMapper<WebApplicationException> em = 
+            pf.createExceptionMapper(WebApplicationException.class, m);
+        assertTrue(em instanceof WebApplicationExceptionMapper);
+    }
+    @Test
+    public void testExceptionMappersHierarchy5() throws Exception {
+        Message m = new MessageImpl();
+        ServerProviderFactory pf = ServerProviderFactory.getInstance();
+        ExceptionMapper<WebApplicationException> em = 
+            pf.createExceptionMapper(WebApplicationException.class, m);
+        assertTrue(em instanceof WebApplicationExceptionMapper);
     }
     
     @Test
@@ -222,6 +418,37 @@ public class ProviderFactoryTest extends Assert {
         assertSame(exMapper1, pf.createExceptionMapper(RuntimeException.class, new MessageImpl()));
         Object webExMapper = pf.createExceptionMapper(WebApplicationException.class, new MessageImpl());
         assertSame(exMapper2, webExMapper);
+    }
+    
+    @Test
+    public void testMessageBodyReaderString() throws Exception {
+        ProviderFactory pf = ServerProviderFactory.getInstance();
+        MessageBodyReader<String> mbr = pf.createMessageBodyReader(String.class, String.class, new Annotation[]{}, 
+                                   MediaType.APPLICATION_XML_TYPE, new MessageImpl());
+        assertTrue(mbr instanceof StringTextProvider);
+    }
+    @Test
+    public void testMessageBodyReaderBoolean() throws Exception {
+        ProviderFactory pf = ServerProviderFactory.getInstance();
+        pf.registerUserProvider(new CustomBooleanReader());
+        MessageBodyReader<Boolean> mbr = pf.createMessageBodyReader(Boolean.class, Boolean.class, new Annotation[]{}, 
+                                   MediaType.TEXT_PLAIN_TYPE, new MessageImpl());
+        assertTrue(mbr instanceof PrimitiveTextProvider);
+    }
+    @Test
+    public void testMessageBodyReaderBoolean2() throws Exception {
+        ProviderFactory pf = ServerProviderFactory.getInstance();
+        pf.registerUserProvider(new CustomBooleanReader2());
+        MessageBodyReader<Boolean> mbr = pf.createMessageBodyReader(Boolean.class, Boolean.class, new Annotation[]{}, 
+                                   MediaType.TEXT_PLAIN_TYPE, new MessageImpl());
+        assertTrue(mbr instanceof CustomBooleanReader2);
+    }
+    @Test
+    public void testMessageBodyWriterString() throws Exception {
+        ProviderFactory pf = ServerProviderFactory.getInstance();
+        MessageBodyWriter<String> mbr = pf.createMessageBodyWriter(String.class, String.class, new Annotation[]{}, 
+                                   MediaType.APPLICATION_XML_TYPE, new MessageImpl());
+        assertTrue(mbr instanceof StringTextProvider);
     }
     
     @Test
@@ -285,13 +512,14 @@ public class ProviderFactoryTest extends Assert {
         ProviderFactory pf = ServerProviderFactory.getInstance();
         ParamConverterProvider h = new CustomerParameterHandler();
         pf.registerUserProvider(h);
-        ParamConverter<Customer> h2 = pf.createParameterHandler(Customer.class, Customer.class, null);
+        ParamConverter<Customer> h2 = pf.createParameterHandler(Customer.class, Customer.class, null, 
+                                                                new MessageImpl());
         assertSame(h2, h);
     }
     
     @Test
     public void testGetStringProvider() throws Exception {
-        verifyProvider(String.class, PrimitiveTextProvider.class, "text/plain");
+        verifyProvider(String.class, StringTextProvider.class, "text/plain");
     }
     
     @Test
@@ -353,7 +581,7 @@ public class ProviderFactoryTest extends Assert {
        
     @Test
     public void testGetStringProviderWildCard() throws Exception {
-        verifyProvider(String.class, PrimitiveTextProvider.class, "text/*");
+        verifyProvider(String.class, StringTextProvider.class, "text/*");
     }
     
     
@@ -810,12 +1038,23 @@ public class ProviderFactoryTest extends Assert {
     private static class SecurityExceptionMapper 
         extends AbstractBadRequestExceptionMapper<SecurityException> {
     }
+    private static class CustomWebApplicationExceptionMapper 
+        extends AbstractBadRequestExceptionMapper<WebApplicationException> {
+    }
     private abstract static class AbstractBadRequestExceptionMapper<T extends Throwable> 
         implements ExceptionMapper<T> {
         @Override
         public Response toResponse(T exception) {
             return Response.status(Status.BAD_REQUEST).entity(exception.getMessage()).build();
         }
+    }
+    @Test
+    public void testWebApplicationMapperWithGenerics() throws Exception {
+        ServerProviderFactory pf = ServerProviderFactory.getInstance();
+        CustomWebApplicationExceptionMapper mapper = new CustomWebApplicationExceptionMapper();
+        pf.registerUserProvider(mapper);
+        Object mapperResponse = pf.createExceptionMapper(WebApplicationException.class, new MessageImpl());
+        assertSame(mapperResponse, mapper);
     }
     
     @Test
@@ -893,4 +1132,23 @@ public class ProviderFactoryTest extends Assert {
             return null;
         }
     }
+    @Consumes("text/plain")
+    public static class CustomBooleanReader2 extends CustomBooleanReader {
+        
+    }
+    public static class CustomBooleanReader implements MessageBodyReader<Boolean> {
+        @Override
+        public boolean isReadable(Class<?> type, Type type1, Annotation[] antns, MediaType mt) {
+            return type == Boolean.class;
+        }
+        @Override
+        public Boolean readFrom(Class<Boolean> type,
+                                 Type type1,
+                                 Annotation[] antns,
+                                 MediaType mt, MultivaluedMap<String, String> mm,
+                                 InputStream in) throws IOException, WebApplicationException {
+            return Boolean.TRUE;        
+        }
+    }
+    
 }

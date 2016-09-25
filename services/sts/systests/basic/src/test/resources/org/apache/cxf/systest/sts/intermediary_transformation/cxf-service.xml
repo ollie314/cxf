@@ -24,10 +24,10 @@
             <cxf:logging/>
         </cxf:features>
     </cxf:bus>
-    <jaxws:endpoint xmlns:s="http://www.example.org/contract/DoubleIt" id="doubleittransportsaml2" implementor="org.apache.cxf.systest.sts.common.DoubleItPortTypeImpl" endpointName="s:DoubleItTransportSAML2Port" serviceName="s:DoubleItService" depends-on="ClientAuthHttpsSettings" address="https://localhost:${testutil.ports.Server.2}/doubleit/services/doubleittransportsaml2" wsdlLocation="org/apache/cxf/systest/sts/intermediary_transformation/DoubleIt.wsdl">
+    <jaxws:endpoint xmlns:s="http://www.example.org/contract/DoubleIt" id="doubleittransportsaml2" implementor="org.apache.cxf.systest.sts.common.DoubleItPortTypeImpl" endpointName="s:DoubleItTransportSAML2Port" serviceName="s:DoubleItService" depends-on="ClientAuthHttpsSettings" address="https://localhost:${testutil.ports.intermediary_transformation.Server.2}/doubleit/services/doubleittransportsaml2" wsdlLocation="org/apache/cxf/systest/sts/intermediary_transformation/DoubleIt.wsdl">
         <jaxws:properties>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
-            <entry key="ws-security.signature.properties" value="serviceKeystore.properties"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.sts.common.CommonCallbackHandler"/>
+            <entry key="security.signature.properties" value="serviceKeystore.properties"/>
             <entry key="ws-security.is-bsp-compliant" value="false"/>
             <entry key="ws-security.saml2.validator">
                 <bean class="org.apache.cxf.systest.sts.intermediary_transformation.OnBehalfOfValidator"/>
@@ -35,19 +35,14 @@
         </jaxws:properties>
     </jaxws:endpoint>
     <httpj:engine-factory id="ClientAuthHttpsSettings" bus="cxf">
-        <httpj:engine port="${testutil.ports.Server.2}">
+        <httpj:engine port="${testutil.ports.intermediary_transformation.Server.2}">
             <httpj:tlsServerParameters>
                 <sec:keyManagers keyPassword="skpass">
-                    <sec:keyStore type="jks" password="sspass" resource="servicestore.jks"/>
+                    <sec:keyStore type="jks" password="sspass" resource="keys/servicestore.jks"/>
                 </sec:keyManagers>
                 <sec:trustManagers>
-                    <sec:keyStore type="jks" password="stsspass" resource="stsstore.jks"/>
+                    <sec:keyStore type="jks" password="stsspass" resource="keys/stsstore.jks"/>
                 </sec:trustManagers>
-                <sec:cipherSuitesFilter>
-                    <sec:include>.*_EXPORT_.*</sec:include>
-                    <sec:include>.*_EXPORT1024_.*</sec:include>
-                    <sec:include>.*_WITH_AES_.*</sec:include>
-                </sec:cipherSuitesFilter>
                 <sec:clientAuthentication want="true" required="true"/>
             </httpj:tlsServerParameters>
         </httpj:engine>

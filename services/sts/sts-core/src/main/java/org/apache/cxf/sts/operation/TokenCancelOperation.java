@@ -19,13 +19,14 @@
 
 package org.apache.cxf.sts.operation;
 
+import java.security.Principal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.xml.bind.JAXBElement;
-import javax.xml.ws.WebServiceContext;
 
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.sts.QNameConstants;
@@ -35,7 +36,7 @@ import org.apache.cxf.sts.event.STSCancelSuccessEvent;
 import org.apache.cxf.sts.request.KeyRequirements;
 import org.apache.cxf.sts.request.ReceivedToken;
 import org.apache.cxf.sts.request.ReceivedToken.STATE;
-import org.apache.cxf.sts.request.RequestParser;
+import org.apache.cxf.sts.request.RequestRequirements;
 import org.apache.cxf.sts.request.TokenRequirements;
 import org.apache.cxf.sts.token.canceller.TokenCanceller;
 import org.apache.cxf.sts.token.canceller.TokenCancellerParameters;
@@ -65,20 +66,21 @@ public class TokenCancelOperation extends AbstractOperation implements CancelOpe
     }
     
     public RequestSecurityTokenResponseType cancel(
-        RequestSecurityTokenType request, WebServiceContext context
+        RequestSecurityTokenType request, Principal principal,
+        Map<String, Object> messageContext
     ) {
         long start = System.currentTimeMillis();
         TokenCancellerParameters cancellerParameters = new TokenCancellerParameters();
         
         try {
-            RequestParser requestParser = parseRequest(request, context);
+            RequestRequirements requestRequirements = parseRequest(request, messageContext);
             
-            KeyRequirements keyRequirements = requestParser.getKeyRequirements();
-            TokenRequirements tokenRequirements = requestParser.getTokenRequirements();
+            KeyRequirements keyRequirements = requestRequirements.getKeyRequirements();
+            TokenRequirements tokenRequirements = requestRequirements.getTokenRequirements();
             
             cancellerParameters.setStsProperties(stsProperties);
-            cancellerParameters.setPrincipal(context.getUserPrincipal());
-            cancellerParameters.setWebServiceContext(context);
+            cancellerParameters.setPrincipal(principal);
+            cancellerParameters.setMessageContext(messageContext);
             cancellerParameters.setTokenStore(getTokenStore());
             
             cancellerParameters.setKeyRequirements(keyRequirements);

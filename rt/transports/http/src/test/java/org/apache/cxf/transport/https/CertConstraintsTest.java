@@ -21,8 +21,9 @@
 package org.apache.cxf.transport.https;
 
 import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.FileInputStream;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.cert.X509Certificate;
 
@@ -37,8 +38,7 @@ import org.apache.cxf.staxutils.StaxUtils;
 public class CertConstraintsTest extends org.junit.Assert {
 
     @org.junit.Test
-    public void
-    testCertConstraints() throws Exception {
+    public void testCertConstraints() throws Exception {
         final X509Certificate bethalCert = 
             loadCertificate("Bethal.jks", "JKS", "password", "bethal");
         final X509Certificate gordyCert = 
@@ -91,8 +91,7 @@ public class CertConstraintsTest extends org.junit.Assert {
     // Private utilities
     //
     
-    private static CertConstraints
-    loadCertConstraints(
+    private static CertConstraints loadCertConstraints(
         final String id
     ) throws Exception {
         CertificateConstraintsType certsConstraintsType = 
@@ -100,8 +99,7 @@ public class CertConstraintsTest extends org.junit.Assert {
         return CertConstraintsJaxBUtils.createCertConstraints(certsConstraintsType);
     }
     
-    private static CertificateConstraintsType
-    loadCertificateConstraintsType(
+    private static CertificateConstraintsType loadCertificateConstraintsType(
         final String id
     ) throws Exception {
         return loadGeneratedType(
@@ -112,34 +110,31 @@ public class CertConstraintsTest extends org.junit.Assert {
         );
     }
     
-    private static X509Certificate
-    loadCertificate(
+    private static X509Certificate loadCertificate(
         final String keystoreFilename,
         final String keystoreType,
         final String keystorePassword,
         final String id
     ) throws Exception {
         final KeyStore store = KeyStore.getInstance(keystoreType);
-        FileInputStream fis = new FileInputStream(
-                "src/test/java/org/apache/cxf/transport/https/resources/" + keystoreFilename);
-        DataInputStream dis = new DataInputStream(fis);
-        byte[] bytes = new byte[dis.available()];
-        dis.readFully(bytes);
-        dis.close();
-        ByteArrayInputStream bin = new ByteArrayInputStream(bytes);
-        store.load(bin, keystorePassword.toCharArray());
-        for (java.util.Enumeration<String> aliases = store.aliases(); aliases.hasMoreElements();) {
-            final String alias = aliases.nextElement();
-            if (id.equals(alias)) {
-                return (X509Certificate) store.getCertificate(alias);
+        Path path = 
+            FileSystems.getDefault().getPath("src/test/java/org/apache/cxf/transport/https/resources/", 
+                                             keystoreFilename);
+        byte[] bytes = Files.readAllBytes(path);
+        try (ByteArrayInputStream bin = new ByteArrayInputStream(bytes)) {
+            store.load(bin, keystorePassword.toCharArray());
+            for (java.util.Enumeration<String> aliases = store.aliases(); aliases.hasMoreElements();) {
+                final String alias = aliases.nextElement();
+                if (id.equals(alias)) {
+                    return (X509Certificate) store.getCertificate(alias);
+                }
             }
         }
         assert false;
         throw new RuntimeException("error in test -- keystore " + id + " has no trusted certs");
     }
     
-    private static <T> T
-    loadGeneratedType(
+    private static <T> T loadGeneratedType(
         final Class<T> cls,
         final String elementName,
         final String name,
@@ -162,17 +157,16 @@ public class CertConstraintsTest extends org.junit.Assert {
     }
     
     
-    private static org.w3c.dom.Document
-    loadDocument(
+    private static org.w3c.dom.Document loadDocument(
         final String name
     ) throws Exception {
-        final java.io.InputStream inStream = 
-            CertConstraintsTest.class.getResourceAsStream(name);
-        return StaxUtils.read(inStream);
+        try (java.io.InputStream inStream = 
+            CertConstraintsTest.class.getResourceAsStream(name)) {
+            return StaxUtils.read(inStream);
+        }
     }
 
-    private static <T> T
-    unmarshal(
+    private static <T> T unmarshal(
         final Class<T> cls,
         final org.w3c.dom.Element elt
     ) throws JAXBException {

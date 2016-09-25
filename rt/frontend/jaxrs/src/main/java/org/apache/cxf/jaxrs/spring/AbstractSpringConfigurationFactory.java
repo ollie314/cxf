@@ -22,20 +22,22 @@ import java.util.Collections;
 import java.util.List;
 
 import org.apache.cxf.bus.spring.SpringBus;
+import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.endpoint.Server;
 import org.apache.cxf.feature.Feature;
 import org.apache.cxf.interceptor.AbstractBasicInterceptorProvider;
 import org.apache.cxf.jaxrs.JAXRSServerFactoryBean;
 import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
-import org.springframework.context.annotation.Import;
 
-@Import(JaxRsConfig.class)
 public abstract class AbstractSpringConfigurationFactory 
     extends AbstractBasicInterceptorProvider implements ApplicationContextAware {
 
     protected ApplicationContext applicationContext;
+    @Value("${cxf.jaxrs.server.address:}")
+    private String jaxrsServerAddress;
     
     protected Server createJaxRsServer() {
 
@@ -44,8 +46,8 @@ public abstract class AbstractSpringConfigurationFactory
         factory.setTransportId(getTransportId());
         factory.setBus(applicationContext.getBean(SpringBus.class));
         
-        setRootResources(factory);
-        factory.setProviders(getJaxrsProviders());
+        setJaxrsResources(factory);
+        
         factory.setInInterceptors(getInInterceptors());
         factory.setOutInterceptors(getOutInterceptors());
         factory.setOutFaultInterceptors(getOutFaultInterceptors());
@@ -59,18 +61,22 @@ public abstract class AbstractSpringConfigurationFactory
         applicationContext = ac;
     }
     
-    protected abstract void setRootResources(JAXRSServerFactoryBean factory);
+    protected abstract void setJaxrsResources(JAXRSServerFactoryBean factory);
     
     protected List<Object> getJaxrsProviders() {
         return Collections.emptyList();
     }
     
-    protected List<Feature> getFeatures() {
+    public List<Feature> getFeatures() {
         return Collections.emptyList();
     }
     
     protected String getAddress() {
-        return "/";
+        if (!StringUtils.isEmpty(jaxrsServerAddress)) {
+            return jaxrsServerAddress;
+        } else {
+            return "/";
+        }
     }
     
     protected String getTransportId() {

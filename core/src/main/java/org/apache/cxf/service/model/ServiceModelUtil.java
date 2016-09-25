@@ -51,7 +51,10 @@ public final class ServiceModelUtil {
     }
 
     public static BindingOperationInfo getOperation(Exchange exchange, String opName) {
-        Endpoint ep = exchange.get(Endpoint.class);
+        Endpoint ep = exchange.getEndpoint();
+        if (ep == null) {
+            return null;
+        }
         BindingInfo service = ep.getEndpointInfo().getBinding();
 
         for (BindingOperationInfo b : service.getOperations()) {
@@ -63,7 +66,7 @@ public final class ServiceModelUtil {
     }
 
     public static BindingOperationInfo getOperation(Exchange exchange, QName opName) {
-        Endpoint ep = exchange.get(Endpoint.class);
+        Endpoint ep = exchange.getEndpoint();
         if (ep == null) {
             return null;
         }
@@ -74,7 +77,7 @@ public final class ServiceModelUtil {
                                                                      QName opName,
                                                                      boolean output) {
 
-        Endpoint ep = exchange.get(Endpoint.class);
+        Endpoint ep = exchange.getEndpoint();
         if (ep == null) {
             return null;
         }

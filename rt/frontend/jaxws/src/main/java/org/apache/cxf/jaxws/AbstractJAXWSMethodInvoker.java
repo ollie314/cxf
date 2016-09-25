@@ -177,7 +177,7 @@ public abstract class AbstractJAXWSMethodInvoker extends FactoryInvoker {
         Continuation continuation;
         boolean done;
         
-        public JaxwsServerHandler(Continuation c) {
+        JaxwsServerHandler(Continuation c) {
             continuation = c;
         }
         
@@ -296,7 +296,7 @@ public abstract class AbstractJAXWSMethodInvoker extends FactoryInvoker {
         }
         Message m = exchange.getOutMessage();
         if (m == null && !exchange.isOneWay()) {
-            Endpoint ep = exchange.get(Endpoint.class);
+            Endpoint ep = exchange.getEndpoint();
             m = new MessageImpl();
             m.setExchange(exchange);
             m = ep.getBinding().createMessage(m);

@@ -22,9 +22,11 @@ package org.apache.cxf.ws.security.wss4j;
 import org.apache.cxf.binding.soap.SoapMessage;
 import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.message.MessageUtils;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
 import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.cxf.ws.security.wss4j.policyhandlers.StaxAsymmetricBindingHandler;
 import org.apache.cxf.ws.security.wss4j.policyhandlers.StaxSymmetricBindingHandler;
 import org.apache.cxf.ws.security.wss4j.policyhandlers.StaxTransportBindingHandler;
@@ -41,8 +43,6 @@ import org.apache.xml.security.stax.ext.OutboundSecurityContext;
  * 
  */
 public class PolicyBasedWSS4JStaxOutInterceptor extends WSS4JStaxOutInterceptor {
-    public static final PolicyBasedWSS4JStaxOutInterceptor INSTANCE 
-        = new PolicyBasedWSS4JStaxOutInterceptor();
 
     public void handleMessage(SoapMessage msg) throws Fault {
         AssertionInfoMap aim = msg.get(AssertionInfoMap.class);
@@ -61,13 +61,13 @@ public class PolicyBasedWSS4JStaxOutInterceptor extends WSS4JStaxOutInterceptor 
     private void checkAsymmetricBinding(
         SoapMessage message, WSSSecurityProperties securityProperties
     ) throws WSSecurityException {
-        Object s = message.getContextualProperty(SecurityConstants.SIGNATURE_CRYPTO);
+        Object s = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_CRYPTO, message);
         if (s == null) {
-            s = message.getContextualProperty(SecurityConstants.SIGNATURE_PROPERTIES);
+            s = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_PROPERTIES, message);
         }
-        Object e = message.getContextualProperty(SecurityConstants.ENCRYPT_CRYPTO);
+        Object e = SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_CRYPTO, message);
         if (e == null) {
-            e = message.getContextualProperty(SecurityConstants.ENCRYPT_PROPERTIES);
+            e = SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_PROPERTIES, message);
         }
         
         Crypto encrCrypto = getEncryptionCrypto(e, message, securityProperties);
@@ -92,13 +92,13 @@ public class PolicyBasedWSS4JStaxOutInterceptor extends WSS4JStaxOutInterceptor 
     private void checkTransportBinding(
         SoapMessage message, WSSSecurityProperties securityProperties
     ) throws WSSecurityException {
-        Object s = message.getContextualProperty(SecurityConstants.SIGNATURE_CRYPTO);
+        Object s = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_CRYPTO, message);
         if (s == null) {
-            s = message.getContextualProperty(SecurityConstants.SIGNATURE_PROPERTIES);
+            s = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_PROPERTIES, message);
         }
-        Object e = message.getContextualProperty(SecurityConstants.ENCRYPT_CRYPTO);
+        Object e = SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_CRYPTO, message);
         if (e == null) {
-            e = message.getContextualProperty(SecurityConstants.ENCRYPT_PROPERTIES);
+            e = SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_PROPERTIES, message);
         }
         
         Crypto encrCrypto = getEncryptionCrypto(e, message, securityProperties);
@@ -123,13 +123,13 @@ public class PolicyBasedWSS4JStaxOutInterceptor extends WSS4JStaxOutInterceptor 
     private void checkSymmetricBinding(
         SoapMessage message, WSSSecurityProperties securityProperties
     ) throws WSSecurityException {
-        Object s = message.getContextualProperty(SecurityConstants.SIGNATURE_CRYPTO);
+        Object s = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_CRYPTO, message);
         if (s == null) {
-            s = message.getContextualProperty(SecurityConstants.SIGNATURE_PROPERTIES);
+            s = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SIGNATURE_PROPERTIES, message);
         }
-        Object e = message.getContextualProperty(SecurityConstants.ENCRYPT_CRYPTO);
+        Object e = SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_CRYPTO, message);
         if (e == null) {
-            e = message.getContextualProperty(SecurityConstants.ENCRYPT_PROPERTIES);
+            e = SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_PROPERTIES, message);
         }
         
         Crypto encrCrypto = getEncryptionCrypto(e, message, securityProperties);
@@ -182,19 +182,22 @@ public class PolicyBasedWSS4JStaxOutInterceptor extends WSS4JStaxOutInterceptor 
     ) throws WSSecurityException {
         AssertionInfoMap aim = msg.get(AssertionInfoMap.class);
         
-        AssertionInfo asymAis = getFirstAssertionByLocalname(aim, SPConstants.ASYMMETRIC_BINDING);
+        AssertionInfo asymAis = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.ASYMMETRIC_BINDING);
         if (asymAis != null) {
             checkAsymmetricBinding(msg, securityProperties);
+            asymAis.setAsserted(true);
         }
         
-        AssertionInfo symAis = getFirstAssertionByLocalname(aim, SPConstants.SYMMETRIC_BINDING);
+        AssertionInfo symAis = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.SYMMETRIC_BINDING);
         if (symAis != null) {
             checkSymmetricBinding(msg, securityProperties);
+            symAis.setAsserted(true);
         }
         
-        AssertionInfo transAis = getFirstAssertionByLocalname(aim, SPConstants.TRANSPORT_BINDING);
+        AssertionInfo transAis = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.TRANSPORT_BINDING);
         if (transAis != null) {
             checkTransportBinding(msg, securityProperties);
+            transAis.setAsserted(true);
         }
         
         super.configureProperties(msg, outboundSecurityContext, securityProperties);

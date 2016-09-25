@@ -26,6 +26,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -168,13 +169,14 @@ public class JAXBElementProvider<T> extends AbstractJAXBProvider<T>  {
         }
         
         XMLStreamReader reader = null;
+        Unmarshaller unmarshaller = null;
         try {
             
             boolean isCollection = InjectionUtils.isSupportedCollectionOrArray(type);
             Class<?> theGenericType = isCollection ? InjectionUtils.getActualType(genericType) : type;
             Class<?> theType = getActualType(theGenericType, genericType, anns);
 
-            Unmarshaller unmarshaller = createUnmarshaller(theType, genericType, isCollection);
+            unmarshaller = createUnmarshaller(theType, genericType, isCollection);
             addAttachmentUnmarshaller(unmarshaller);
             Object response = null;
             if (JAXBElement.class.isAssignableFrom(type) 
@@ -217,6 +219,7 @@ public class JAXBElementProvider<T> extends AbstractJAXBProvider<T>  {
             } catch (XMLStreamException e) {
                 // Ignore
             }
+            JAXBUtils.closeUnmarshaller(unmarshaller);
         }
         // unreachable
         return null;
@@ -308,7 +311,7 @@ public class JAXBElementProvider<T> extends AbstractJAXBProvider<T>  {
         MediaType m, MultivaluedMap<String, Object> headers, OutputStream os) 
         throws IOException {
         try {
-            String encoding = HttpUtils.getSetEncoding(m, headers, null);
+            String encoding = HttpUtils.getSetEncoding(m, headers, StandardCharsets.UTF_8.name());
             if (InjectionUtils.isSupportedCollectionOrArray(cls)) {
                 marshalCollection(cls, obj, genericType, encoding, os, m, anns);
             } else {
@@ -322,7 +325,7 @@ public class JAXBElementProvider<T> extends AbstractJAXBProvider<T>  {
         }  catch (WebApplicationException e) {
             throw e;
         } catch (Exception e) {
-            e.printStackTrace();
+            LOG.warning(ExceptionUtils.getStackTrace(e));
             throw ExceptionUtils.toInternalServerErrorException(e, null);        
         }
     }
@@ -358,7 +361,7 @@ public class JAXBElementProvider<T> extends AbstractJAXBProvider<T>  {
         }
         
         StringBuilder pi = new StringBuilder();
-        pi.append(XML_PI_START + (enc == null ? "UTF-8" : enc) + "\"?>");
+        pi.append(XML_PI_START + (enc == null ? StandardCharsets.UTF_8.name() : enc) + "\"?>");
         os.write(pi.toString().getBytes());
         String startTag = null;
         String endTag = null;

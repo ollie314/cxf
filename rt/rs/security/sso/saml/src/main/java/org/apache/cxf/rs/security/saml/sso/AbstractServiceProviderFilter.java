@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.net.URI;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.util.Map;
 import java.util.ResourceBundle;
@@ -54,14 +55,15 @@ import org.apache.cxf.rs.security.saml.SAMLUtils;
 import org.apache.cxf.rs.security.saml.assertion.Subject;
 import org.apache.cxf.rs.security.saml.sso.state.RequestState;
 import org.apache.cxf.rs.security.saml.sso.state.ResponseState;
+import org.apache.cxf.rt.security.SecurityConstants;
 import org.apache.cxf.rt.security.claims.ClaimCollection;
-import org.apache.cxf.rt.security.saml.SAMLSecurityContext;
+import org.apache.cxf.rt.security.saml.claims.SAMLSecurityContext;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.security.SecurityContext;
 import org.apache.cxf.staxutils.StaxUtils;
-import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.wss4j.common.saml.OpenSAMLUtil;
 import org.apache.wss4j.common.saml.SamlAssertionWrapper;
-import org.opensaml.saml2.core.AuthnRequest;
+import org.opensaml.saml.saml2.core.AuthnRequest;
 
 @PreMatching
 @Priority(Priorities.AUTHENTICATION + 1)
@@ -73,12 +75,9 @@ public abstract class AbstractServiceProviderFilter extends AbstractSSOSpHandler
     protected static final ResourceBundle BUNDLE = 
         BundleUtils.getBundle(AbstractServiceProviderFilter.class);
     
-    private String idpServiceAddress;
-    private String issuerId;
     private String assertionConsumerServiceAddress;
     private AuthnRequestBuilder authnRequestBuilder = new DefaultAuthnRequestBuilder();
     private boolean signRequest;
-    private String signatureUsername;
     
     private String webAppDomain;
     private boolean addWebAppContext = true;
@@ -105,46 +104,9 @@ public abstract class AbstractServiceProviderFilter extends AbstractSSOSpHandler
         this.assertionConsumerServiceAddress = assertionConsumerServiceAddress;
     }
 
-    public void setIssuerId(String issuerId) {
-        this.issuerId = issuerId;
-    }
-    
-    public void setIdpServiceAddress(String idpServiceAddress) {
-        this.idpServiceAddress = idpServiceAddress;
-    }
-
-    public String getIdpServiceAddress() {
-        return idpServiceAddress;
-    }
-    
-    /**
-     * Set the username/alias to use to sign any request
-     * @param signatureUsername the username/alias to use to sign any request
-     */
-    public void setSignatureUsername(String signatureUsername) {
-        this.signatureUsername = signatureUsername;
-        LOG.fine("Setting signatureUsername: " + signatureUsername);
-    }
-    
-    /**
-     * Get the username/alias to use to sign any request
-     * @return the username/alias to use to sign any request
-     */
-    public String getSignatureUsername() {
-        return signatureUsername;
-    }
-    
     @PreDestroy
     public void close() {
         super.close();
-    }
-    
-    private String getIssuerId(Message m) {
-        if (issuerId == null) {
-            return new UriInfoImpl(m).getBaseUri().toString();
-        } else {
-            return issuerId;
-        }
     }
     
     protected boolean checkSecurityContext(Message m) {
@@ -158,16 +120,18 @@ public abstract class AbstractServiceProviderFilter extends AbstractSSOSpHandler
             return false;    
         }
         
-        Cookie relayStateCookie = cookies.get(SSOConstants.RELAY_STATE);
-        if (relayStateCookie == null) {
-            reportError("MISSING_RELAY_COOKIE");
-            return false;
-        }
-        String originalRelayState = responseState.getRelayState();
-        if (!originalRelayState.equals(relayStateCookie.getValue())) {
-            // perhaps the response state should also be removed
-            reportError("INVALID_RELAY_STATE");
-            return false;
+        if (!isSupportUnsolicited()) {
+            Cookie relayStateCookie = cookies.get(SSOConstants.RELAY_STATE);
+            if (relayStateCookie == null) {
+                reportError("MISSING_RELAY_COOKIE");
+                return false;
+            }
+            String originalRelayState = responseState.getRelayState();
+            if (!originalRelayState.equals(relayStateCookie.getValue())) {
+                // perhaps the response state should also be removed
+                reportError("INVALID_RELAY_STATE");
+                return false;
+            }
         }
         try {
             String assertion = responseState.getAssertion();
@@ -188,21 +152,21 @@ public abstract class AbstractServiceProviderFilter extends AbstractSSOSpHandler
         
         if (name != null) {
             String roleAttributeName = 
-                (String)m.getContextualProperty(SecurityConstants.SAML_ROLE_ATTRIBUTENAME);
+                (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.SAML_ROLE_ATTRIBUTENAME, m);
             if (roleAttributeName == null || roleAttributeName.length() == 0) {
                 roleAttributeName = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/role";
             }
             ClaimCollection claims = 
-                org.apache.cxf.rt.security.saml.SAMLUtils.getClaims(assertionWrapper);
+                org.apache.cxf.rt.security.saml.utils.SAMLUtils.getClaims(assertionWrapper);
             Set<Principal> roles = 
-                org.apache.cxf.rt.security.saml.SAMLUtils.parseRolesFromClaims(
+                org.apache.cxf.rt.security.saml.utils.SAMLUtils.parseRolesFromClaims(
                     claims, roleAttributeName, null);
 
             SAMLSecurityContext context = 
                 new SAMLSecurityContext(new SimplePrincipal(name), roles, claims);
-            context.setIssuer(org.apache.cxf.rt.security.saml.SAMLUtils.getIssuer(assertionWrapper));
+            context.setIssuer(org.apache.cxf.rt.security.saml.utils.SAMLUtils.getIssuer(assertionWrapper));
             context.setAssertionElement(
-                org.apache.cxf.rt.security.saml.SAMLUtils.getAssertionElement(assertionWrapper));
+                org.apache.cxf.rt.security.saml.utils.SAMLUtils.getAssertionElement(assertionWrapper));
             m.put(SecurityContext.class, context);
         }
     }
@@ -257,7 +221,7 @@ public abstract class AbstractServiceProviderFilter extends AbstractSSOSpHandler
                 m, getIssuerId(m), getAbsoluteAssertionServiceAddress(m)
             );
         if (isSignRequest()) {
-            authnRequest.setDestination(idpServiceAddress);
+            authnRequest.setDestination(getIdpServiceAddress());
             signAuthnRequest(authnRequest);
         }
         Element authnRequestElement = OpenSAMLUtil.toDom(authnRequest, doc);
@@ -277,7 +241,7 @@ public abstract class AbstractServiceProviderFilter extends AbstractSSOSpHandler
                                                      getWebAppDomain(),
                                                      System.currentTimeMillis());
         
-        String relayState = URLEncoder.encode(UUID.randomUUID().toString(), "UTF-8");
+        String relayState = URLEncoder.encode(UUID.randomUUID().toString(), StandardCharsets.UTF_8.name());
         getStateProvider().setRequestState(relayState, requestState);
         info.setRelayState(relayState);
         info.setWebAppContext(webAppContext);

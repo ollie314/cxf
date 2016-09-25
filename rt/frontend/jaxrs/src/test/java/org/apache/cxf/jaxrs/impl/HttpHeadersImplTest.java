@@ -28,6 +28,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
+import javax.ws.rs.InternalServerErrorException;
 import javax.ws.rs.core.Cookie;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
@@ -395,12 +396,12 @@ public class HttpHeadersImplTest extends Assert {
         Message m = new MessageImpl();
         m.setExchange(new ExchangeImpl());
         MetadataMap<String, String> headers = createHeaders();
-        headers.putSingle(HttpHeaders.COOKIE, "a=b;c=d");
+        headers.putSingle(HttpHeaders.COOKIE, "a=$b;c=d");
         m.put(Message.PROTOCOL_HEADERS, headers);
         HttpHeaders h = new HttpHeadersImpl(m);
         Map<String, Cookie> cookies = h.getCookies();
         assertEquals(2, cookies.size());
-        assertEquals("b", cookies.get("a").getValue());
+        assertEquals("$b", cookies.get("a").getValue());
         assertEquals("d", cookies.get("c").getValue());
     }
     
@@ -421,6 +422,26 @@ public class HttpHeadersImplTest extends Assert {
     }
     
     @Test
+    public void testGetCookiesWithAttributes() throws Exception {
+        
+        Message m = new MessageImpl();
+        m.setExchange(new ExchangeImpl());
+        MetadataMap<String, String> headers = createHeaders();
+        headers.putSingle(HttpHeaders.COOKIE, "$Version=1;a=b, $Version=1;c=d");
+        m.put(Message.PROTOCOL_HEADERS, headers);
+        HttpHeaders h = new HttpHeadersImpl(m);
+        Map<String, Cookie> cookies = h.getCookies();
+        assertEquals(2, cookies.size());
+        Cookie cookieA = cookies.get("a");
+        assertEquals("b", cookieA.getValue());
+        assertEquals(1, cookieA.getVersion());
+        Cookie cookieC = cookies.get("c");
+        assertEquals("d", cookieC.getValue());
+        assertEquals(1, cookieA.getVersion());
+    }
+    
+    
+    @Test
     public void testGetCookiesWithComma() throws Exception {
         
         Message m = new MessageImpl();
@@ -438,6 +459,21 @@ public class HttpHeadersImplTest extends Assert {
         assertEquals("d", cookies.get("c").getValue());
     }
     
+    @Test(expected = InternalServerErrorException.class)
+    public void testInvalidCookieSeparator() throws Exception {
+        
+        Message m = new MessageImpl();
+        Exchange ex = new ExchangeImpl();
+        ex.setInMessage(m);
+        ex.put("org.apache.cxf.http.cookie.separator", "(e+)+");
+        m.setExchange(ex);
+        MetadataMap<String, String> headers = createHeaders();
+        headers.putSingle(HttpHeaders.COOKIE, "a=b,c=d");
+        m.put(Message.PROTOCOL_HEADERS, headers);
+        HttpHeaders h = new HttpHeadersImpl(m);
+        h.getCookies();
+    }
+    
     @Test
     public void testMultipleAcceptableLanguages() throws Exception {
         
@@ -445,15 +481,16 @@ public class HttpHeadersImplTest extends Assert {
         m.get(Message.PROTOCOL_HEADERS);
         MetadataMap<String, String> headers = 
             createHeader(HttpHeaders.ACCEPT_LANGUAGE, 
-                         "en;q=0.7, en-gb;q=0.8, da");
+                         "en;q=0.7, en-gb;q=0.8, da, zh-Hans-SG;q=0.9");
         EasyMock.expectLastCall().andReturn(headers);
         control.replay();
         HttpHeaders h = new HttpHeadersImpl(m);
         List<Locale> languages = h.getAcceptableLanguages();
-        assertEquals(3, languages.size());
+        assertEquals(4, languages.size());
         assertEquals(new Locale("da"), languages.get(0));
-        assertEquals(new Locale("en", "GB"), languages.get(1));
-        assertEquals(new Locale("en"), languages.get(2));
+        assertEquals(new Locale("zh", "Hans-SG"), languages.get(1));
+        assertEquals(new Locale("en", "GB"), languages.get(2));
+        assertEquals(new Locale("en"), languages.get(3));
     }
     
         

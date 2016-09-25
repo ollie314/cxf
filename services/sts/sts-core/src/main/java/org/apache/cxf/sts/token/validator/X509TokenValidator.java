@@ -18,6 +18,7 @@
  */
 package org.apache.cxf.sts.token.validator;
 
+import java.security.Principal;
 import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.logging.Level;
@@ -26,7 +27,9 @@ import java.util.logging.Logger;
 import javax.security.auth.callback.CallbackHandler;
 
 import org.w3c.dom.Document;
-import org.w3c.dom.Text;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.sts.STSPropertiesMBean;
@@ -36,18 +39,20 @@ import org.apache.cxf.sts.token.realm.CertConstraintsParser;
 import org.apache.cxf.ws.security.sts.provider.model.secext.BinarySecurityTokenType;
 import org.apache.wss4j.common.crypto.Crypto;
 import org.apache.wss4j.common.ext.WSSecurityException;
+import org.apache.wss4j.common.token.BinarySecurity;
+import org.apache.wss4j.common.token.X509Security;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.WSSConfig;
+import org.apache.wss4j.dom.engine.WSSConfig;
 import org.apache.wss4j.dom.handler.RequestData;
-import org.apache.wss4j.dom.message.token.BinarySecurity;
-import org.apache.wss4j.dom.message.token.X509Security;
 import org.apache.wss4j.dom.validate.Credential;
 import org.apache.wss4j.dom.validate.SignatureTrustValidator;
 import org.apache.wss4j.dom.validate.Validator;
+import org.apache.xml.security.exceptions.XMLSecurityException;
+import org.apache.xml.security.keys.content.X509Data;
 
 /**
- * This class validates an X.509 V.3 certificate (received as a BinarySecurityToken). The cert must
- * be known (or trusted) by the STS crypto object.
+ * This class validates an X.509 V.3 certificate (received as a BinarySecurityToken or an X509Data
+ * DOM Element). The cert must be known (or trusted) by the STS crypto object.
  */
 public class X509TokenValidator implements TokenValidator {
     
@@ -94,6 +99,10 @@ public class X509TokenValidator implements TokenValidator {
         if ((token instanceof BinarySecurityTokenType)
             && X509_V3_TYPE.equals(((BinarySecurityTokenType)token).getValueType())) {
             return true;
+        } else if (token instanceof Element
+            && WSConstants.SIG_NS.equals(((Element)token).getNamespaceURI())
+            && WSConstants.X509_DATA_LN.equals(((Element)token).getLocalName())) {
+            return true;
         }
         return false;
     }
@@ -111,7 +120,7 @@ public class X509TokenValidator implements TokenValidator {
         requestData.setSigVerCrypto(sigCrypto);
         requestData.setWssConfig(WSSConfig.getNewInstance());
         requestData.setCallbackHandler(callbackHandler);
-        requestData.setMsgContext(tokenParameters.getWebServiceContext().getMessageContext());
+        requestData.setMsgContext(tokenParameters.getMessageContext());
         requestData.setSubjectCertConstraints(certConstraints.getCompiledSubjectContraints());
 
         TokenValidatorResponse response = new TokenValidatorResponse();
@@ -119,28 +128,48 @@ public class X509TokenValidator implements TokenValidator {
         validateTarget.setState(STATE.INVALID);
         response.setToken(validateTarget);
         
-        if (!validateTarget.isBinarySecurityToken()) {
+        BinarySecurity binarySecurity = null;
+        if (validateTarget.isBinarySecurityToken()) {
+            BinarySecurityTokenType binarySecurityType = (BinarySecurityTokenType)validateTarget.getToken();
+    
+            // Test the encoding type
+            String encodingType = binarySecurityType.getEncodingType();
+            if (!BASE64_ENCODING.equals(encodingType)) {
+                LOG.fine("Bad encoding type attribute specified: " + encodingType);
+                return response;
+            }
+            
+            //
+            // Turn the received JAXB object into a DOM element
+            //
+            Document doc = DOMUtils.createDocument();
+            binarySecurity = new X509Security(doc);
+            binarySecurity.setEncodingType(encodingType);
+            binarySecurity.setValueType(binarySecurityType.getValueType());
+            String data = binarySecurityType.getValue();
+            
+            Node textNode = doc.createTextNode(data);
+            binarySecurity.getElement().appendChild(textNode);
+        } else if (validateTarget.isDOMElement()) {
+            try {
+                Document doc = DOMUtils.createDocument();
+                binarySecurity = new X509Security(doc);
+                binarySecurity.setEncodingType(BASE64_ENCODING);
+                X509Data x509Data = new X509Data((Element)validateTarget.getToken(), "");
+                if (x509Data.containsCertificate()) {
+                    X509Certificate cert = x509Data.itemCertificate(0).getX509Certificate();
+                    ((X509Security)binarySecurity).setX509Certificate(cert);
+                }
+            } catch (WSSecurityException ex) {
+                LOG.log(Level.WARNING, "", ex);
+                return response;
+            } catch (XMLSecurityException ex) {
+                LOG.log(Level.WARNING, "", ex);
+                return response;
+            }
+        } else {
             return response;
         }
-
-        BinarySecurityTokenType binarySecurityType = (BinarySecurityTokenType)validateTarget.getToken();
-
-        // Test the encoding type
-        String encodingType = binarySecurityType.getEncodingType();
-        if (!BASE64_ENCODING.equals(encodingType)) {
-            LOG.fine("Bad encoding type attribute specified: " + encodingType);
-            return response;
-        }
-
-        //
-        // Turn the received JAXB object into a DOM element
-        //
-        Document doc = DOMUtils.createDocument();
-        BinarySecurity binarySecurity = new X509Security(doc);
-        binarySecurity.setEncodingType(encodingType);
-        binarySecurity.setValueType(binarySecurityType.getValueType());
-        String data = binarySecurityType.getValue();
-        ((Text)binarySecurity.getElement().getFirstChild()).setData(data);
 
         //
         // Validate the token
@@ -154,8 +183,13 @@ public class X509TokenValidator implements TokenValidator {
             }
 
             Credential returnedCredential = validator.validate(credential, requestData);
-            response.setPrincipal(returnedCredential.getCertificates()[0].getSubjectX500Principal());
+            Principal principal = returnedCredential.getPrincipal();
+            if (principal == null) {
+                principal = returnedCredential.getCertificates()[0].getSubjectX500Principal();
+            }
+            response.setPrincipal(principal);
             validateTarget.setState(STATE.VALID);
+            LOG.fine("X.509 Token successfully validated");
         } catch (WSSecurityException ex) {
             LOG.log(Level.WARNING, "", ex);
         }

@@ -233,7 +233,7 @@ interface ISetterTarget extends Target {
 class ProxyClass implements InvocationHandler {
     Object obj;
 
-    public ProxyClass(Object o) {
+    ProxyClass(Object o) {
         obj = o;
     }
 
@@ -256,8 +256,6 @@ class ProxyClass implements InvocationHandler {
             // Do nothing here
         } catch (Exception eBj) {
             eBj.printStackTrace();
-        } finally {
-            // Do something after the method is called ...
         }
         return result;
     }

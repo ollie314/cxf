@@ -35,6 +35,7 @@ import org.apache.cxf.systest.ws.common.SecurityTestUtil;
 import org.apache.cxf.systest.ws.common.TestParam;
 import org.apache.cxf.testutil.common.AbstractBusClientServerTestBase;
 import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.wss4j.common.ext.WSSecurityException;
 import org.example.contract.doubleit.DoubleItPortType;
 import org.junit.BeforeClass;
 import org.junit.runner.RunWith;
@@ -156,6 +157,33 @@ public class UsernameTokenTest extends AbstractBusClientServerTestBase {
         URL wsdl = UsernameTokenTest.class.getResource("DoubleItUt.wsdl");
         Service service = Service.create(wsdl, SERVICE_QNAME);
         QName portQName = new QName(NAMESPACE, "DoubleItPlaintextSupportingPort");
+        DoubleItPortType utPort = 
+                service.getPort(portQName, DoubleItPortType.class);
+        updateAddressPort(utPort, test.getPort());
+        
+        if (test.isStreaming()) {
+            SecurityTestUtil.enableStreaming(utPort);
+        }
+        
+        utPort.doubleIt(25);
+        
+        ((java.io.Closeable)utPort).close();
+        bus.shutdown(true);
+    }
+    
+    @org.junit.Test
+    public void testPlaintextSupportingSP11() throws Exception {
+
+        SpringBusFactory bf = new SpringBusFactory();
+        URL busFile = UsernameTokenTest.class.getResource("client.xml");
+
+        Bus bus = bf.createBus(busFile.toString());
+        SpringBusFactory.setDefaultBus(bus);
+        SpringBusFactory.setThreadDefaultBus(bus);
+
+        URL wsdl = UsernameTokenTest.class.getResource("DoubleItUt.wsdl");
+        Service service = Service.create(wsdl, SERVICE_QNAME);
+        QName portQName = new QName(NAMESPACE, "DoubleItPlaintextSupportingSP11Port");
         DoubleItPortType utPort = 
                 service.getPort(portQName, DoubleItPortType.class);
         updateAddressPort(utPort, test.getPort());
@@ -369,9 +397,7 @@ public class UsernameTokenTest extends AbstractBusClientServerTestBase {
                 utPort.doubleIt(25);
                 fail("Failure expected on a replayed UsernameToken");
             } catch (javax.xml.ws.soap.SOAPFaultException ex) {
-                String error = "A replay attack has been detected";
-                String error2 = "The security token could not be authenticated or authorized";
-                assertTrue(ex.getMessage().contains(error) || ex.getMessage().contains(error2));
+                assertTrue(ex.getMessage().contains(WSSecurityException.UNIFIED_SECURITY_ERR));
             }
         }
         
@@ -411,8 +437,7 @@ public class UsernameTokenTest extends AbstractBusClientServerTestBase {
                 utPort.doubleIt(25);
                 fail("Failure expected on a replayed UsernameToken");
             } catch (javax.xml.ws.soap.SOAPFaultException ex) {
-                String error = "A replay attack has been detected";
-                assertTrue(ex.getMessage().contains(error));
+                assertTrue(ex.getMessage().equals(WSSecurityException.UNIFIED_SECURITY_ERR));
             }
         }
         

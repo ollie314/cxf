@@ -26,7 +26,6 @@ import java.util.logging.Logger;
 
 import org.apache.cxf.binding.soap.SoapMessage;
 import org.apache.cxf.common.logging.LogUtils;
-import org.apache.cxf.endpoint.Endpoint;
 import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.message.MessageUtils;
@@ -36,7 +35,10 @@ import org.apache.cxf.ws.addressing.AddressingProperties;
 import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
 import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
+import org.apache.cxf.ws.security.policy.interceptors.IssuedTokenInterceptorProvider.IssuedTokenOutInterceptor;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
+import org.apache.cxf.ws.security.tokenstore.TokenStoreUtils;
 import org.apache.cxf.ws.security.trust.STSClient;
 import org.apache.cxf.ws.security.trust.STSUtils;
 import org.apache.wss4j.dom.WSConstants;
@@ -49,8 +51,10 @@ class SecureConversationOutInterceptor extends AbstractPhaseInterceptor<SoapMess
     
     private static final Logger LOG = LogUtils.getL7dLogger(SecureConversationOutInterceptor.class);
     
-    public SecureConversationOutInterceptor() {
+    SecureConversationOutInterceptor() {
         super(Phase.PREPARE_SEND);
+        addBefore(SpnegoContextTokenOutInterceptor.class.getName());
+        addBefore(IssuedTokenOutInterceptor.class.getName());
     }
     
     public void handleMessage(SoapMessage message) throws Fault {
@@ -58,7 +62,7 @@ class SecureConversationOutInterceptor extends AbstractPhaseInterceptor<SoapMess
         // extract Assertion information
         if (aim != null) {
             Collection<AssertionInfo> ais = 
-                NegotiationUtils.getAllAssertionsByLocalname(aim, SPConstants.SECURE_CONVERSATION_TOKEN);
+                PolicyUtils.getAllAssertionsByLocalname(aim, SPConstants.SECURE_CONVERSATION_TOKEN);
             if (ais.isEmpty()) {
                 return;
             }
@@ -70,8 +74,7 @@ class SecureConversationOutInterceptor extends AbstractPhaseInterceptor<SoapMess
                 if (tok == null) {
                     String tokId = (String)message.getContextualProperty(SecurityConstants.TOKEN_ID);
                     if (tokId != null) {
-                        tok = NegotiationUtils
-                            .getTokenStore(message).getToken(tokId);
+                        tok = TokenStoreUtils.getTokenStore(message).getToken(tokId);
                     }
                 }
                 if (tok == null) {
@@ -83,19 +86,19 @@ class SecureConversationOutInterceptor extends AbstractPhaseInterceptor<SoapMess
                     for (AssertionInfo ai : ais) {
                         ai.setAsserted(true);
                     }
-                    message.getExchange().get(Endpoint.class).put(SecurityConstants.TOKEN, tok);
-                    message.getExchange().get(Endpoint.class).put(SecurityConstants.TOKEN_ID, tok.getId());
+                    message.getExchange().getEndpoint().put(SecurityConstants.TOKEN, tok);
+                    message.getExchange().getEndpoint().put(SecurityConstants.TOKEN_ID, tok.getId());
                     message.getExchange().put(SecurityConstants.TOKEN_ID, tok.getId());
                     message.getExchange().put(SecurityConstants.TOKEN, tok);
-                    NegotiationUtils.getTokenStore(message).add(tok);
+                    TokenStoreUtils.getTokenStore(message).add(tok);
                 }
-                NegotiationUtils.assertPolicy(aim, SPConstants.BOOTSTRAP_POLICY);
+                PolicyUtils.assertPolicy(aim, SPConstants.BOOTSTRAP_POLICY);
             } else {
                 //server side should be checked on the way in
                 for (AssertionInfo ai : ais) {
                     ai.setAsserted(true);
                 }
-                NegotiationUtils.assertPolicy(aim, SPConstants.BOOTSTRAP_POLICY);
+                PolicyUtils.assertPolicy(aim, SPConstants.BOOTSTRAP_POLICY);
             }
         }
     }
@@ -109,13 +112,12 @@ class SecureConversationOutInterceptor extends AbstractPhaseInterceptor<SoapMess
             return tok;
         }
         
-        
         // Remove the old token
-        message.getExchange().get(Endpoint.class).remove(SecurityConstants.TOKEN);
-        message.getExchange().get(Endpoint.class).remove(SecurityConstants.TOKEN_ID);
+        message.getExchange().getEndpoint().remove(SecurityConstants.TOKEN);
+        message.getExchange().getEndpoint().remove(SecurityConstants.TOKEN_ID);
         message.getExchange().remove(SecurityConstants.TOKEN_ID);
         message.getExchange().remove(SecurityConstants.TOKEN);
-        NegotiationUtils.getTokenStore(message).remove(tok.getId());
+        TokenStoreUtils.getTokenStore(message).remove(tok.getId());
         
         STSClient client = STSUtils.getClient(message, "sct");
         AddressingProperties maps =
@@ -131,8 +133,7 @@ class SecureConversationOutInterceptor extends AbstractPhaseInterceptor<SoapMess
             try {
                 SecureConversationTokenInterceptorProvider.setupClient(client, message, aim, itok, true);
 
-                String s = message
-                    .getContextualProperty(Message.ENDPOINT_ADDRESS).toString();
+                String s = message.getContextualProperty(Message.ENDPOINT_ADDRESS).toString();
                 client.setLocation(s);
                 
                 Map<String, Object> ctx = client.getRequestContext();

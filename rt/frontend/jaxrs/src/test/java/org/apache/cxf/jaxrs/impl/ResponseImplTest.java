@@ -89,9 +89,11 @@ public class ResponseImplTest extends Assert {
     public void testReadBufferedStaxSource() throws Exception {
         ResponseImpl r = new ResponseImpl(200);
         Source responseSource = readResponseSource(r);
-        Transformer trans = TransformerFactory.newInstance().newTransformer();
+        TransformerFactory transformerFactory = TransformerFactory.newInstance();
+        transformerFactory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        Transformer transformer = transformerFactory.newTransformer();
         DOMResult res = new DOMResult();
-        trans.transform(responseSource, res);
+        transformer.transform(responseSource, res);
         Document doc = (Document)res.getNode();
         assertEquals("Response", doc.getDocumentElement().getLocalName());
     }
@@ -367,7 +369,7 @@ public class ResponseImplTest extends Assert {
         assertFalse(ri.hasLink("prev"));
         assertNull(ri.getLink("prev"));
         
-        meta.add(HttpHeaders.LINK, "<http://next>;rel=next");
+        meta.add(HttpHeaders.LINK, "<http://localhost:8080/next;a=b>;rel=next");
         meta.add(HttpHeaders.LINK, "<http://prev>;rel=prev");
         
         assertTrue(ri.hasLink("next"));
@@ -381,10 +383,35 @@ public class ResponseImplTest extends Assert {
         assertTrue(links.contains(next));
         assertTrue(links.contains(prev));
         
-        assertEquals("http://next", next.getUri().toString());
+        assertEquals("http://localhost:8080/next;a=b", next.getUri().toString());
         assertEquals("next", next.getRel());
         assertEquals("http://prev", prev.getUri().toString());
         assertEquals("prev", prev.getRel());
+    }
+    
+    @Test
+    public void testGetLinksNoRel() {
+        ResponseImpl ri = new ResponseImpl(200);
+        MetadataMap<String, Object> meta = new MetadataMap<String, Object>();
+        ri.addMetadata(meta);
+        
+        Set<Link> links = ri.getLinks();
+        assertTrue(links.isEmpty());
+        
+        meta.add(HttpHeaders.LINK, "<http://next>");
+        meta.add(HttpHeaders.LINK, "<http://prev>");
+        
+        assertFalse(ri.hasLink("next"));
+        Link next = ri.getLink("next");
+        assertNull(next);
+        assertFalse(ri.hasLink("prev"));
+        Link prev = ri.getLink("prev");
+        assertNull(prev);
+        
+        links = ri.getLinks();
+        assertTrue(links.contains(Link.fromUri("http://next").build()));
+        assertTrue(links.contains(Link.fromUri("http://prev").build()));
+        
     }
     
     public static class StringBean {

@@ -20,7 +20,9 @@
 package org.apache.cxf.jaxb;
 
 
+import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
+import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -36,8 +38,14 @@ import javax.wsdl.Definition;
 import javax.wsdl.Service;
 import javax.wsdl.factory.WSDLFactory;
 import javax.wsdl.xml.WSDLReader;
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.annotation.XmlAttribute;
+import javax.xml.bind.annotation.XmlRootElement;
+import javax.xml.bind.annotation.adapters.XmlAdapter;
+import javax.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLEventWriter;
+import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLOutputFactory;
 import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.XMLStreamWriter;
@@ -47,6 +55,8 @@ import org.w3c.dom.Node;
 import org.apache.cxf.Bus;
 import org.apache.cxf.binding.BindingFactoryManager;
 import org.apache.cxf.common.logging.LogUtils;
+import org.apache.cxf.common.util.ASMHelper;
+import org.apache.cxf.common.util.ReflectionUtil;
 import org.apache.cxf.databinding.DataReader;
 import org.apache.cxf.databinding.DataWriter;
 import org.apache.cxf.helpers.CastUtils;
@@ -198,31 +208,91 @@ public class JAXBDataBindingTest extends Assert {
         assertTrue(xml, xml.contains("uri:ultima:thule"));
     }
     
-    @Test
-    public void testDeclaredNamespaceMapping() throws Exception {
+    JAXBDataBinding createJaxbContext(boolean internal) throws Exception {
         JAXBDataBinding db = new JAXBDataBinding();
         Map<String, String> nsMap = new HashMap<String, String>();
         nsMap.put("uri:ultima:thule", "greenland");
         db.setNamespaceMap(nsMap);
         Map<String, Object> contextProperties = new HashMap<String, Object>();
-        //contextProperties.put("com.sun.xml.bind.defaultNamespaceRemap", "uri:ultima:thule");
         db.setContextProperties(contextProperties);
         Set<Class<?>> classes = new HashSet<Class<?>>();
         classes.add(QualifiedBean.class);
-        db.setContext(db.createJAXBContext(classes));
-        DataWriter<XMLStreamWriter> writer = db.createWriter(XMLStreamWriter.class);
-        XMLOutputFactory writerFactory = XMLOutputFactory.newInstance();
-        StringWriter stringWriter = new StringWriter();
-        XMLStreamWriter xmlWriter = writerFactory.createXMLStreamWriter(stringWriter);
-        QualifiedBean bean = new QualifiedBean();
-        bean.setAriadne("spider");
-        writer.write(bean, xmlWriter);
-        xmlWriter.flush();
-        String xml = stringWriter.toString();
-        assertTrue(xml, xml.contains("greenland=\"uri:ultima:thule"));
+
+        //have to fastboot to avoid conflicts of generated accessors
+        System.setProperty("com.sun.xml.bind.v2.runtime.JAXBContextImpl.fastBoot", "true");
+        System.setProperty("com.sun.xml.internal.bind.v2.runtime.JAXBContextImpl.fastBoot", "true");        
+        if (internal) {
+            System.setProperty(JAXBContext.JAXB_CONTEXT_FACTORY, "com.sun.xml.internal.bind.v2.ContextFactory");
+            db.setContext(db.createJAXBContext(classes));
+            System.clearProperty(JAXBContext.JAXB_CONTEXT_FACTORY);
+        } else {
+            db.setContext(db.createJAXBContext(classes));
+        }
+        System.clearProperty("com.sun.xml.bind.v2.runtime.JAXBContextImpl.fastBoot");
+        System.clearProperty("com.sun.xml.internal.bind.v2.runtime.JAXBContextImpl.fastBoot");
+        return db;
     }
     
+    void doNamespaceMappingTest(boolean internal, boolean asm) throws Exception {
+        if (internal) {
+            try { 
+                Class.forName("com.sun.xml.internal.bind.v2.ContextFactory");
+            } catch (Throwable t) {
+                //on a JVM (likely IBM's) that doesn't rename the ContextFactory package to include "internal"
+                return;
+            }
+        }
+        try {
+            if (!asm) {
+                ReflectionUtil.setAccessible(ReflectionUtil.getDeclaredField(ASMHelper.class, "badASM"))
+                    .set(null, Boolean.TRUE);
+            }
+            
+            JAXBDataBinding db = createJaxbContext(internal);
+            
+            DataWriter<XMLStreamWriter> writer = db.createWriter(XMLStreamWriter.class);
+            XMLOutputFactory writerFactory = XMLOutputFactory.newInstance();
+            StringWriter stringWriter = new StringWriter();
+            XMLStreamWriter xmlWriter = writerFactory.createXMLStreamWriter(stringWriter);
+            QualifiedBean bean = new QualifiedBean();
+            bean.setAriadne("spider");
+            writer.write(bean, xmlWriter);
+            xmlWriter.flush();
+            String xml = stringWriter.toString();
+            assertTrue("Failed to map namespace " + xml, xml.contains("greenland=\"uri:ultima:thule"));
+        } finally {
+            if (!asm) {
+                ReflectionUtil.setAccessible(ReflectionUtil.getDeclaredField(ASMHelper.class, "badASM"))
+                    .set(null, Boolean.FALSE);
+            }
+        }
+    }
     
+    @Test
+    public void testDeclaredNamespaceMappingRI() throws Exception {
+        doNamespaceMappingTest(false, true);
+    }
+    
+    @Test
+    public void testDeclaredNamespaceMappingInternal() throws Exception {
+        doNamespaceMappingTest(true, true);
+    }
+    @Test
+    public void testDeclaredNamespaceMappingRINoAsm() throws Exception {
+        doNamespaceMappingTest(false, false);
+    }
+    
+    @Test
+    public void testDeclaredNamespaceMappingInternalNoAsm() throws Exception {
+        try {
+            doNamespaceMappingTest(true, false);
+            fail("Internal needs ASM");
+        } catch (AssertionError er) {
+            er.getMessage().contains("Failed to map namespace");
+        }
+    }
+    
+
     @Test
     public void testResursiveType() throws Exception {
         Set<Class<?>> classes = new HashSet<Class<?>>();
@@ -241,5 +311,84 @@ public class JAXBDataBindingTest extends Assert {
     }
     
     public interface Addressable<T extends AddressEntity<T>> {
-    }    
+    }
+    
+    @Test
+    public void testConfiguredXmlAdapter() throws Exception {
+        Language dutch = new Language("nl_NL", "Dutch");
+        Language americanEnglish = new Language("en_US", "Americanish");
+
+        Person person = new Person(dutch);
+        JAXBDataBinding binding = new JAXBDataBinding(Person.class, Language.class);
+        binding.setConfiguredXmlAdapters(Arrays.<XmlAdapter<?, ?>>asList(new LanguageAdapter(dutch, americanEnglish)));
+        DataWriter<OutputStream> writer = binding.createWriter(OutputStream.class);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        writer.write(person, baos);
+        String output = baos.toString();
+        String xml = "<person motherTongue=\"nl_NL\"/>";
+
+        assertEquals(xml, output);
+
+        DataReader<XMLStreamReader> reader = binding.createReader(XMLStreamReader.class);
+        Person read = (Person) reader.read(XMLInputFactory.newFactory().createXMLStreamReader(new StringReader(xml)));
+
+        assertEquals(dutch, read.getMotherTongue());
+
+    }
+
+    @XmlRootElement
+    public static class Person {
+        @XmlAttribute
+        @XmlJavaTypeAdapter(LanguageAdapter.class)
+        private final Language motherTongue;
+        public Person() {
+            this(null);
+        }
+        public Person(Language motherTongue) {
+            this.motherTongue = motherTongue;
+        }
+        public Language getMotherTongue() {
+            return motherTongue;
+        }
+    }
+
+    public static class Language {
+        private final String code;
+        private final String name;
+        public Language() {
+            this(null, null);
+        }
+        public Language(String code, String name) {
+            this.code = code;
+            this.name = name;
+        }
+        public String getCode() {
+            return code;
+        }
+        public String getName() {
+            return name;
+        }
+    }
+
+    public static class LanguageAdapter extends XmlAdapter<String, Language> {
+
+        private Map<String, Language> knownLanguages = new HashMap<String, Language>();
+
+        public LanguageAdapter(Language... languages) {
+            for (Language language : languages) {
+                knownLanguages.put(language.getCode(), language);
+            }
+        }
+
+        @Override
+        public String marshal(Language language) throws Exception {
+            return language.getCode();
+        }
+
+        @Override
+        public Language unmarshal(String code) throws Exception {
+            return knownLanguages.get(code);
+        }
+
+    }
 }

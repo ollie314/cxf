@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Logger;
 
 import javax.servlet.ServletConfig;
@@ -89,10 +90,31 @@ public class CXFNonSpringJaxrsServlet extends CXFNonSpringServlet {
     private static final String JAXRS_APPLICATION_PARAM = "javax.ws.rs.Application";
     
     private ClassLoader classLoader;
+    private Application application;
+    
+    public CXFNonSpringJaxrsServlet() {
+        
+    }
+    
+    public CXFNonSpringJaxrsServlet(Application app) {
+        this.application = app;
+    }
+    
+    public CXFNonSpringJaxrsServlet(Object singletonService) {
+        this(Collections.singleton(singletonService));
+    }
+    public CXFNonSpringJaxrsServlet(Set<Object> applicationSingletons) {
+        this(new ApplicationImpl(applicationSingletons));
+    }
     
     @Override
     public void init(ServletConfig servletConfig) throws ServletException {
         super.init(servletConfig);
+        
+        if (getApplication() != null) {
+            createServerFromApplication(servletConfig);
+            return; 
+        }
         
         String applicationClass = servletConfig.getInitParameter(JAXRS_APPLICATION_PARAM);
         if (applicationClass != null) {
@@ -407,13 +429,13 @@ public class CXFNonSpringJaxrsServlet extends CXFNonSpringServlet {
                 if (isApplication) {
                     provider = new ApplicationInfo((Application)c.newInstance(), getBus());
                 } else {
-                    provider = new ProviderInfo<Object>(c.newInstance(), getBus(), false);    
+                    provider = new ProviderInfo<Object>(c.newInstance(), getBus(), false, true);    
                 }
             } else {
                 Map<Class<?>, Object> values = new HashMap<Class<?>, Object>();
                 values.put(ServletContext.class, sc.getServletContext());
                 values.put(ServletConfig.class, sc);
-                provider = ProviderFactory.createProviderFromConstructor(c, values, getBus(), isApplication);
+                provider = ProviderFactory.createProviderFromConstructor(c, values, getBus(), isApplication, true);
             }
             Object instance = provider.getProvider();
             injectProperties(instance, props);
@@ -466,8 +488,7 @@ public class CXFNonSpringJaxrsServlet extends CXFNonSpringServlet {
     protected void createServerFromApplication(String applicationNames, ServletConfig servletConfig) 
         throws ServletException {
         
-        String ignoreParam = servletConfig.getInitParameter(IGNORE_APP_PATH_PARAM);
-        boolean ignoreApplicationPath = ignoreParam == null || MessageUtils.isTrue(ignoreParam);
+        boolean ignoreApplicationPath = isIgnoreApplicationPath(servletConfig);
         
         String[] classNames = StringUtils.split(applicationNames, getParameterSplitChar(servletConfig));
         
@@ -489,9 +510,25 @@ public class CXFNonSpringJaxrsServlet extends CXFNonSpringServlet {
             setDocLocation(bean, servletConfig);
             setSchemasLocations(bean, servletConfig);
             bean.setBus(getBus());
-            bean.setApplication(providerApp);
+            bean.setApplicationInfo(providerApp);
             bean.create();
         }
+    }
+    
+    protected boolean isIgnoreApplicationPath(ServletConfig servletConfig) {
+        String ignoreParam = servletConfig.getInitParameter(IGNORE_APP_PATH_PARAM);
+        return ignoreParam == null || MessageUtils.isTrue(ignoreParam);
+    }    
+    
+    protected void createServerFromApplication(ServletConfig servletConfig) 
+        throws ServletException {
+        
+        JAXRSServerFactoryBean bean = ResourceUtils.createApplication(getApplication(), 
+                                                                      isIgnoreApplicationPath(servletConfig),
+                                                                      getStaticSubResolutionValue(servletConfig));
+        bean.setBus(getBus());
+        bean.setApplication(getApplication());
+        bean.create();
     }
     
     protected Application createApplicationInstance(String appClassName, ServletConfig servletConfig)
@@ -548,5 +585,19 @@ public class CXFNonSpringJaxrsServlet extends CXFNonSpringServlet {
     
     public void setClassLoader(ClassLoader loader) {
         this.classLoader = loader;
+    }
+    
+    protected Application getApplication() {
+        return application;
+    }
+
+    private static class ApplicationImpl extends Application {
+        private Set<Object> applicationSingletons;
+        ApplicationImpl(Set<Object> applicationSingletons) {
+            this.applicationSingletons = applicationSingletons;
+        }
+        public Set<Object> getSingletons() {
+            return applicationSingletons;
+        }
     }
 }

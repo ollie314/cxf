@@ -110,8 +110,8 @@ public class Customer extends AbstractCustomer implements CustomerInfo {
         public CustomerBean getD() {
             return d;
         }
-        public void setG(Map<String, List<String>> g) {
-            this.g = g;
+        public void setG(Map<String, List<String>> gg) {
+            this.g = gg;
         }
         public Map<String, List<String>> getG() {
             return g;
@@ -379,10 +379,20 @@ public class Customer extends AbstractCustomer implements CustomerInfo {
         @QueryParam("query3") List<Integer> queryString3,
         @QueryParam("query3") Integer[] queryString3Array,
         @QueryParam("query4") List<String> queryString4,
-        @QueryParam("query5") List<String> queryString5) {
+        @QueryParam("query5") List<String> queryString5,
+        @QueryParam("query3") List<MyType<Integer>> queryString6) {
         // complete
     }
-    
+    public static class MyType<T> {
+        private T t;
+        public MyType(T t) {
+            this.t = t;
+        }
+        public T get() {
+            return t;
+        }
+        
+    }
     @Produces("text/xml")   
     public void testPathSegment(@PathParam("ps") PathSegment ps, 
                                 @PathParam("ps") String path) {

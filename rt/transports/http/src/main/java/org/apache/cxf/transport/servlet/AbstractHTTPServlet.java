@@ -50,7 +50,9 @@ import org.apache.cxf.Bus;
 import org.apache.cxf.common.classloader.ClassLoaderUtils;
 import org.apache.cxf.common.i18n.BundleUtils;
 import org.apache.cxf.common.logging.LogUtils;
+import org.apache.cxf.common.util.PropertyUtils;
 import org.apache.cxf.common.util.StringUtils;
+import org.apache.cxf.helpers.FileUtils;
 import org.apache.cxf.helpers.IOUtils;
 import org.apache.cxf.resource.ResourceManager;
 import org.apache.cxf.transport.http.AbstractHTTPDestination;
@@ -69,6 +71,7 @@ public abstract class AbstractHTTPServlet extends HttpServlet implements Filter 
     
     private static final String STATIC_RESOURCES_PARAMETER = "static-resources-list";
     private static final String STATIC_WELCOME_FILE_PARAMETER = "static-welcome-file";
+    private static final String STATIC_CACHE_CONTROL = "static-cache-control";
     private static final String STATIC_RESOURCES_MAP_RESOURCE = "/cxfServletStaticResourcesMap.txt";    
     
     private static final String REDIRECTS_PARAMETER = "redirects-list";
@@ -76,6 +79,7 @@ public abstract class AbstractHTTPServlet extends HttpServlet implements Filter 
     private static final String REDIRECT_SERVLET_PATH_PARAMETER = "redirect-servlet-path";
     private static final String REDIRECT_ATTRIBUTES_PARAMETER = "redirect-attributes";
     private static final String REDIRECT_QUERY_CHECK_PARAMETER = "redirect-query-check";
+    private static final String REDIRECT_WITH_INCLUDE_PARAMETER = "redirect-with-include";
     private static final String USE_X_FORWARDED_HEADERS_PARAMETER = "use-x-forwarded-headers";
     private static final String X_FORWARDED_PROTO_HEADER = "X-Forwarded-Proto";
     private static final String X_FORWARDED_FOR_HEADER = "X-Forwarded-For";
@@ -116,6 +120,10 @@ public abstract class AbstractHTTPServlet extends HttpServlet implements Filter 
         useXForwardedHeaders = Boolean.valueOf(servletConfig.getInitParameter(USE_X_FORWARDED_HEADERS_PARAMETER));
     }
     
+    public void destroy() {
+        FileUtils.maybeDeleteDefaultTempDir();
+    }
+    
     protected void finalizeServletInit(ServletConfig servletConfig) {
         InputStream is = getResourceAsStream("/WEB-INF" + STATIC_RESOURCES_MAP_RESOURCE);
         if (is == null) {
@@ -128,6 +136,7 @@ public abstract class AbstractHTTPServlet extends HttpServlet implements Filter 
                 for (String name : props.stringPropertyNames()) {
                     staticContentTypes.put(name, props.getProperty(name));
                 }
+                is.close();
             } catch (IOException ex) {
                 String message = new org.apache.cxf.common.i18n.Message("STATIC_RESOURCES_MAP_LOAD_FAILURE",
                                                                         BUNDLE).toString();
@@ -340,9 +349,12 @@ public abstract class AbstractHTTPServlet extends HttpServlet implements Filter 
                     response.setContentType(type);
                 }
             }
-            
+            String cacheControl = getServletConfig().getInitParameter(STATIC_CACHE_CONTROL);
+            if (cacheControl != null) {
+                response.setHeader("Cache-Control", cacheControl.trim());
+            }
             ServletOutputStream os = response.getOutputStream();
-            IOUtils.copy(is, os);
+            IOUtils.copyAndCloseInput(is, os);
             os.flush();
         } catch (IOException ex) {
             throw new ServletException("Static resource " + pathInfo 
@@ -377,7 +389,11 @@ public abstract class AbstractHTTPServlet extends HttpServlet implements Filter 
             }
             HttpServletRequest servletRequest = 
                 new HttpServletRequestRedirectFilter(request, pathInfo, theServletPath, customServletPath);
-            rd.forward(servletRequest, response);
+            if (PropertyUtils.isTrue(getServletConfig().getInitParameter(REDIRECT_WITH_INCLUDE_PARAMETER))) {
+                rd.include(servletRequest, response);
+            } else {
+                rd.forward(servletRequest, response);
+            }
         } catch (Throwable ex) {
             throw new ServletException("RequestDispatcher for path " + pathInfo + " has failed", ex);
         }   
@@ -392,7 +408,7 @@ public abstract class AbstractHTTPServlet extends HttpServlet implements Filter 
         private String pathInfo;
         private String servletPath;
         
-        public HttpServletRequestRedirectFilter(HttpServletRequest request, 
+        HttpServletRequestRedirectFilter(HttpServletRequest request, 
                                         String pathInfo,
                                         String servletPath,
                                         boolean customServletPath) {
@@ -441,9 +457,9 @@ public abstract class AbstractHTTPServlet extends HttpServlet implements Filter 
         private String originalProto;
         private String originalClientIp;
         
-        public HttpServletRequestXForwardedFilter(HttpServletRequest request, 
-                                                  String originalProto, 
-                                                  String originalIp) {
+        HttpServletRequestXForwardedFilter(HttpServletRequest request, 
+                                           String originalProto, 
+                                           String originalIp) {
             super(request);
             this.originalProto = originalProto;
             if (originalIp != null) {

@@ -40,7 +40,7 @@ import org.apache.cxf.rs.security.oauth2.utils.OAuthConstants;
  * Abstract OAuth service
  */
 public abstract class AbstractOAuthService {
-    private static final Logger LOG = LogUtils.getL7dLogger(AbstractOAuthService.class);
+    protected static final Logger LOG = LogUtils.getL7dLogger(AbstractOAuthService.class);
     private MessageContext mc;
     private OAuthDataProvider dataProvider;
     private boolean blockUnsecureRequests;
@@ -90,23 +90,21 @@ public abstract class AbstractOAuthService {
         return getMessageContext().getUriInfo().getQueryParameters();
     }
     
-    protected Client getValidClient(MultivaluedMap<String, String> params) {
-        return getValidClient(params.getFirst(OAuthConstants.CLIENT_ID));
-    }
     /**
      * Get the {@link Client} reference
      * @param clientId the provided client id
      * @return Client the client reference 
      * @throws {@link OAuthServiceExcepption} if no matching Client is found
      */
-    protected Client getValidClient(String clientId) throws OAuthServiceException {
-        Client client = null;
-        
+    protected Client getValidClient(String clientId, MultivaluedMap<String, String> params)
+        throws OAuthServiceException {
         if (clientId != null) {
-            client = dataProvider.getClient(clientId);
+            mc.put(OAuthConstants.CLIENT_SECRET, params.getFirst(OAuthConstants.CLIENT_SECRET));
+            mc.put(OAuthConstants.GRANT_TYPE, params.getFirst(OAuthConstants.GRANT_TYPE));
+            return dataProvider.getClient(clientId);
         }
-        return client;
-        
+        LOG.fine("No valid client found as the given clientId is null");
+        return null;
     }
     
     /**

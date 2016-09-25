@@ -57,6 +57,7 @@ import org.apache.cxf.transport.http.HTTPConduit;
 import org.apache.cxf.ws.security.wss4j.WSS4JOutInterceptor;
 import org.apache.cxf.ws.security.wss4j.WSS4JStaxOutInterceptor;
 import org.apache.hello_world_soap_http.Greeter;
+import org.apache.wss4j.common.ext.WSSecurityException;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -340,7 +341,7 @@ public class WSSecurityClientTest extends AbstractBusClientServerTestBase {
             dispatcher.invoke(new StreamSource(is));
             fail("exception should have been generated");
         } catch (SOAPFaultException ex) {
-            assertTrue(ex.getMessage().contains("Security"));
+            assertTrue(ex.getMessage().equals(WSSecurityException.UNIFIED_SECURITY_ERR));
         }
 
         //
@@ -352,7 +353,7 @@ public class WSSecurityClientTest extends AbstractBusClientServerTestBase {
             dispatcher.invoke(new StreamSource(is));
             fail("exception should have been generated");
         } catch (SOAPFaultException ex) {
-            assertTrue(ex.getMessage().contains("Security"));
+            assertTrue(ex.getMessage().equals(WSSecurityException.UNIFIED_SECURITY_ERR));
         }
         //
         // Sending and empty security header should result in a Fault
@@ -363,7 +364,7 @@ public class WSSecurityClientTest extends AbstractBusClientServerTestBase {
             dispatcher.invoke(new StreamSource(is));
             fail("exception should have been generated");
         } catch (SOAPFaultException ex) {
-            assertTrue(ex.getMessage().contains("Security"));
+            assertTrue(ex.getMessage().equals(WSSecurityException.UNIFIED_SECURITY_ERR));
         }
 
     }
@@ -401,12 +402,13 @@ public class WSSecurityClientTest extends AbstractBusClientServerTestBase {
     private static String source2String(Source source) throws Exception {
         final java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
         final StreamResult sr = new StreamResult(bos);
-        final Transformer trans =
-            TransformerFactory.newInstance().newTransformer();
+        TransformerFactory transformerFactory = TransformerFactory.newInstance();
+        transformerFactory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        Transformer transformer = transformerFactory.newTransformer();
         final java.util.Properties oprops = new java.util.Properties();
         oprops.put(OutputKeys.OMIT_XML_DECLARATION, "yes");
-        trans.setOutputProperties(oprops);
-        trans.transform(source, sr);
+        transformer.setOutputProperties(oprops);
+        transformer.transform(source, sr);
         return bos.toString();
     }
 }

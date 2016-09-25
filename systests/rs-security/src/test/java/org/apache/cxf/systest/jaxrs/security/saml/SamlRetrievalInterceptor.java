@@ -37,7 +37,7 @@ import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.common.saml.SAMLCallback;
 import org.apache.wss4j.common.saml.SAMLUtil;
 import org.apache.wss4j.common.saml.SamlAssertionWrapper;
-import org.apache.wss4j.dom.WSSConfig;
+import org.apache.wss4j.dom.engine.WSSConfig;
 
 /**
  * An Interceptor to "retrieve" a SAML Token, i.e. create one and set it on the message
@@ -66,7 +66,7 @@ public class SamlRetrievalInterceptor extends AbstractPhaseInterceptor<Message> 
             SamlAssertionWrapper assertion = new SamlAssertionWrapper(samlCallback);
             Document doc = DOMUtils.createDocument();
             Element token = assertion.toDOM(doc);
-            message.setContextualProperty(SAMLConstants.SAML_TOKEN_ELEMENT, token);
+            message.put(SAMLConstants.SAML_TOKEN_ELEMENT, token);
         } catch (WSSecurityException ex) {
             StringWriter sw = new StringWriter();
             ex.printStackTrace(new PrintWriter(sw));

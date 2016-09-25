@@ -19,7 +19,6 @@
 
 package org.apache.cxf.jaxws.spi;
 
-import java.lang.reflect.Method;
 import java.net.URL;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
@@ -51,9 +50,10 @@ import org.w3c.dom.Element;
 
 import org.apache.cxf.Bus;
 import org.apache.cxf.BusFactory;
-import org.apache.cxf.common.classloader.ClassLoaderUtils;
 import org.apache.cxf.common.i18n.Message;
+import org.apache.cxf.common.jaxb.JAXBUtils;
 import org.apache.cxf.common.logging.LogUtils;
+import org.apache.cxf.feature.Feature;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.jaxws.EndpointImpl;
 import org.apache.cxf.jaxws.EndpointUtils;
@@ -75,30 +75,7 @@ public class ProviderImpl extends javax.xml.ws.spi.Provider {
     public static final String JAXWS_PROVIDER = ProviderImpl.class.getName();
     protected static final Logger LOG = LogUtils.getL7dLogger(ProviderImpl.class);
     private static JAXBContext jaxbContext;
-    private static final boolean JAXWS_22;
-    static {
-        boolean b = false;
-        try {
-            //JAX-WS 2.2 would have the HttpContext class in the classloader
-            Class<?> cls = ClassLoaderUtils.loadClass("javax.xml.ws.spi.http.HttpContext", 
-                                                      ProviderImpl.class);
-            //In addition to that, the Endpoint class we pick up on the classloader
-            //should have a publish method that uses it.  Otherwise, we MAY be
-            //be getting the HttpContext from the 2.2 jaxws-api jar, but the Endpoint
-            //class from the 2.1 JRE
-            Method m = Endpoint.class.getMethod("publish", cls);
-            b = m != null;
-        } catch (Throwable ex) {
-            b = false;
-        }
-        JAXWS_22 = b;
-    }
-    
-    
-    public static boolean isJaxWs22() {
-        return JAXWS_22;
-    }
-    
+
     @Override
     public ServiceDelegate createServiceDelegate(URL url, QName qname,
                                                  @SuppressWarnings("rawtypes") Class cls) {
@@ -110,7 +87,8 @@ public class ProviderImpl extends javax.xml.ws.spi.Provider {
                                                  @SuppressWarnings("rawtypes") Class serviceClass,
                                                  WebServiceFeature ... features) {
         for (WebServiceFeature f : features) {
-            if (!f.getClass().getName().startsWith("javax.xml.ws")) {
+            if (!f.getClass().getName().startsWith("javax.xml.ws")
+                && !(f instanceof Feature)) {
                 throw new WebServiceException("Unknown feature error: " + f.getClass().getName());
             }
         }
@@ -213,7 +191,7 @@ public class ProviderImpl extends javax.xml.ws.spi.Provider {
     public static EndpointReferenceType convertToInternal(EndpointReference external) {
         if (external instanceof W3CEndpointReference) {
             
-            
+            Unmarshaller um = null;
             try {
                 Document doc = DOMUtils.newDocument();
                 DOMResult result = new DOMResult(doc);
@@ -225,13 +203,16 @@ public class ProviderImpl extends javax.xml.ws.spi.Provider {
                 //jaxContext = ContextUtils.getJAXBContext();
                 JAXBContext context = JAXBContext
                     .newInstance(new Class[] {org.apache.cxf.ws.addressing.ObjectFactory.class});
-                EndpointReferenceType internal = context.createUnmarshaller()
+                um = context.createUnmarshaller();
+                EndpointReferenceType internal = um
                     .unmarshal(reader, EndpointReferenceType.class)
                     .getValue();
                 return internal;
             } catch (JAXBException e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
+            } finally {
+                JAXBUtils.closeUnmarshaller(um);
             }
             return null;
         } else {
@@ -393,7 +374,11 @@ public class ProviderImpl extends javax.xml.ws.spi.Provider {
                 return AccessController.doPrivileged(new PrivilegedExceptionAction<W3CEndpointReference>() {
                     public W3CEndpointReference run() throws Exception {
                         Unmarshaller unmarshaller = getJAXBContext().createUnmarshaller();
-                        return (W3CEndpointReference)unmarshaller.unmarshal(writer.getDocument());
+                        try {
+                            return (W3CEndpointReference)unmarshaller.unmarshal(writer.getDocument());
+                        } finally {
+                            JAXBUtils.closeUnmarshaller(unmarshaller);
+                        }
                     }
                 });
             } catch (PrivilegedActionException pae) {
@@ -422,8 +407,9 @@ public class ProviderImpl extends javax.xml.ws.spi.Provider {
             final XMLStreamReader reader = StaxUtils.createXMLStreamReader(eprInfoset);
             return AccessController.doPrivileged(new PrivilegedExceptionAction<EndpointReference>() {
                 public EndpointReference run() throws Exception {
+                    Unmarshaller unmarshaller = null;
                     try {
-                        Unmarshaller unmarshaller = getJAXBContext().createUnmarshaller();
+                        unmarshaller = getJAXBContext().createUnmarshaller();
                         return (EndpointReference)unmarshaller.unmarshal(reader);
                     } finally {
                         try {
@@ -431,6 +417,7 @@ public class ProviderImpl extends javax.xml.ws.spi.Provider {
                         } catch (XMLStreamException e) {
                             // Ignore
                         }
+                        JAXBUtils.closeUnmarshaller(unmarshaller);
                     }
                 }
             });

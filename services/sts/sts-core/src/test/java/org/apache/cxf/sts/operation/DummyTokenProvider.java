@@ -20,14 +20,15 @@
 package org.apache.cxf.sts.operation;
 
 import org.w3c.dom.Document;
-
+import org.w3c.dom.Element;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.sts.token.provider.TokenProvider;
 import org.apache.cxf.sts.token.provider.TokenProviderParameters;
 import org.apache.cxf.sts.token.provider.TokenProviderResponse;
+import org.apache.cxf.sts.token.provider.TokenProviderUtils;
 import org.apache.cxf.ws.security.sts.provider.STSException;
+import org.apache.wss4j.common.token.BinarySecurity;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.message.token.BinarySecurity;
 
 /**
  * A Dummy TokenProvider for use in the unit tests. It mocks up a dummy BinarySecurityToken.
@@ -40,10 +41,7 @@ public class DummyTokenProvider implements TokenProvider {
         WSConstants.SOAPMESSAGE_NS + "#Base64Binary";
     
     public boolean canHandleToken(String tokenType) {
-        if (TOKEN_TYPE.equals(tokenType)) {
-            return true;
-        }
-        return false;
+        return TOKEN_TYPE.equals(tokenType);
     }
     
     public boolean canHandleToken(String tokenType, String realm) {
@@ -67,6 +65,17 @@ public class DummyTokenProvider implements TokenProvider {
             TokenProviderResponse response = new TokenProviderResponse();
             response.setToken(bst.getElement());
             response.setTokenId(id);
+            
+            if (tokenParameters.isEncryptToken()) {
+                Element el = TokenProviderUtils.encryptToken(bst.getElement(), response.getTokenId(), 
+                                                        tokenParameters.getStsProperties(), 
+                                                        tokenParameters.getEncryptionProperties(), 
+                                                        tokenParameters.getKeyRequirements(),
+                                                        tokenParameters.getMessageContext());
+                response.setToken(el);
+            } else {
+                response.setToken(bst.getElement());
+            }
             
             return response;
         } catch (Exception e) {

@@ -25,12 +25,12 @@ import java.util.List;
 
 import javax.ws.rs.InternalServerErrorException;
 import javax.ws.rs.WebApplicationException;
+import javax.ws.rs.core.Response;
 
 import org.apache.commons.httpclient.Header;
 import org.apache.commons.httpclient.HttpClient;
 import org.apache.commons.httpclient.methods.GetMethod;
 import org.apache.cxf.helpers.IOUtils;
-import org.apache.cxf.io.CachedOutputStream;
 import org.apache.cxf.jaxrs.client.JAXRSClientFactory;
 import org.apache.cxf.jaxrs.client.JAXRSClientFactoryBean;
 import org.apache.cxf.jaxrs.client.WebClient;
@@ -174,22 +174,26 @@ public class JAXRSClientServerNonSpringBookTest extends AbstractBusClientServerT
     
     @Test
     public void testGetBook123Application11PerRequest() throws Exception {
-        doTestPerRequest("http://localhost:" + PORT + "/application11/thebooks/bookstore2/bookheaders");
+        Response r = 
+            doTestPerRequest("http://localhost:" + PORT + "/application11/thebooks/bookstore2/bookheaders");
+        assertEquals("TheBook", r.getHeaderString("BookWriter"));
     }
     
     @Test
     public void testGetBook123TwoApplications() throws Exception {
         doTestPerRequest("http://localhost:" + PORT + "/application6/thebooks/bookstore2/bookheaders");
-        doTestPerRequest("http://localhost:" + PORT + "/application6/thebooks2/bookstore2/bookheaders");
+        doTestPerRequest("http://localhost:" + PORT + "/application6/the%20books2/bookstore2/book%20headers");
     }
     
-    private void doTestPerRequest(String address) throws Exception {
+    private Response doTestPerRequest(String address) throws Exception {
         WebClient wc = WebClient.create(address);
         WebClient.getConfig(wc).getHttpConduit().getClient().setReceiveTimeout(100000000L);
         wc.accept("application/xml");
-        Book book = wc.get(Book.class);
+        Response r = wc.get();
+        Book book = r.readEntity(Book.class);
         assertEquals("CXF in Action", book.getName());
         assertEquals(123L, book.getId());
+        return r;
     }
     
     @Test
@@ -267,12 +271,7 @@ public class JAXRSClientServerNonSpringBookTest extends AbstractBusClientServerT
     }
     
     private String getStringFromInputStream(InputStream in) throws Exception {        
-        CachedOutputStream bos = new CachedOutputStream();
-        IOUtils.copy(in, bos);
-        String str = new String(bos.getBytes()); 
-        in.close();
-        bos.close();
-        return str;
+        return IOUtils.toString(in);
     }
 
 }

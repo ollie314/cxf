@@ -47,6 +47,7 @@ import org.w3c.dom.Node;
 import org.apache.cxf.binding.soap.SoapMessage;
 import org.apache.cxf.binding.soap.saaj.SAAJFactoryResolver;
 import org.apache.cxf.binding.soap.saaj.SAAJUtils;
+import org.apache.cxf.common.jaxb.JAXBUtils;
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.interceptor.Fault;
@@ -143,13 +144,11 @@ public class LogicalMessageImpl implements LogicalMessage {
         if (message instanceof SoapMessage) {
             // StreamSource may only be used once, need to make a copy
             if (obj instanceof StreamSource) {
-                try {
-                    CachedOutputStream cos = new CachedOutputStream();
+                try (CachedOutputStream cos = new CachedOutputStream()) {
                     StaxUtils.copy(obj, cos);
 
                     obj = new StreamSource(cos.getInputStream());
                     message.setContent(Source.class, new StreamSource(cos.getInputStream()));
-                    cos.close();
                 } catch (Exception e) {
                     throw new Fault(e);
                 }
@@ -158,14 +157,12 @@ public class LogicalMessageImpl implements LogicalMessage {
             if (mode == Service.Mode.PAYLOAD) {
                 source = obj;
             } else {
-                try {
-                    CachedOutputStream cos = new CachedOutputStream();
+                try (CachedOutputStream cos = new CachedOutputStream()) {
                     StaxUtils.copy(obj, cos);
                     InputStream in = cos.getInputStream();
                     SOAPMessage msg = initSOAPMessage(in);
                     source = new DOMSource(SAAJUtils.getBody(msg).getFirstChild());
                     in.close();
-                    cos.close();
                 } catch (Exception e) {
                     throw new Fault(e);
                 }
@@ -241,14 +238,14 @@ public class LogicalMessageImpl implements LogicalMessage {
                     parent.removeChild(ds.getNode());
                 }
                 try {
-                    return arg0.createUnmarshaller().unmarshal(ds);
+                    return JAXBUtils.unmarshall(arg0, ds);
                 } finally {
                     if (parent instanceof DocumentFragment) {
                         parent.insertBefore(ds.getNode(), next);
                     }
                 }
             } 
-            return arg0.createUnmarshaller().unmarshal(getPayload());
+            return JAXBUtils.unmarshall(arg0, getPayload());
         } catch (JAXBException e) {
             throw new WebServiceException(e);
         }

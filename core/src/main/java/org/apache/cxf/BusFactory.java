@@ -22,6 +22,7 @@ package org.apache.cxf;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -378,15 +379,9 @@ public abstract class BusFactory {
             }
 
             if (is != null) {
-                BufferedReader rd = null;
-                try {
-                    rd = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+                try (BufferedReader rd = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
                     busFactoryClass = rd.readLine();
                     busFactoryCondition = rd.readLine();
-                } finally {
-                    if (rd != null) {
-                        rd.close();
-                    }
                 }
             }
             if (isValidBusFactoryClass(busFactoryClass) 

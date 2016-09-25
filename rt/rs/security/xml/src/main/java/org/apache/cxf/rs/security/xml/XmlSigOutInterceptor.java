@@ -30,21 +30,20 @@ import javax.xml.namespace.QName;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
-
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.rs.security.common.CryptoLoader;
-import org.apache.cxf.rs.security.common.SecurityUtils;
-import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.cxf.rs.security.common.RSSecurityUtils;
+import org.apache.cxf.rt.security.SecurityConstants;
 import org.apache.wss4j.common.crypto.Crypto;
 import org.apache.wss4j.common.ext.WSPasswordCallback;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.xml.security.signature.XMLSignature;
 import org.apache.xml.security.transforms.Transforms;
 import org.apache.xml.security.utils.Constants;
-import org.opensaml.xml.signature.SignatureConstants;
+import org.opensaml.xmlsec.signature.support.SignatureConstants;
 
 //TODO: Make sure that enveloped signatures can be applied to individual
 //      child nodes of an envelope root element, a new property such as 
@@ -61,7 +60,7 @@ public class XmlSigOutInterceptor extends AbstractXmlSecOutInterceptor {
     private static final Logger LOG = 
         LogUtils.getL7dLogger(XmlSigOutInterceptor.class);
     private static final Set<String> SUPPORTED_STYLES = 
-        new HashSet<String>(Arrays.asList(ENVELOPED_SIG, ENVELOPING_SIG, DETACHED_SIG));
+        new HashSet<>(Arrays.asList(ENVELOPED_SIG, ENVELOPING_SIG, DETACHED_SIG));
     
     private QName envelopeQName = DEFAULT_ENV_QNAME;
     private String sigStyle = ENVELOPED_SIG;
@@ -110,16 +109,16 @@ public class XmlSigOutInterceptor extends AbstractXmlSecOutInterceptor {
         Crypto crypto = loader.getCrypto(message, 
                                          SecurityConstants.SIGNATURE_CRYPTO,
                                          SecurityConstants.SIGNATURE_PROPERTIES);
-        String user = SecurityUtils.getUserName(message, crypto, userNameKey);
+        String user = RSSecurityUtils.getUserName(message, crypto, userNameKey);
          
-        if (StringUtils.isEmpty(user) || SecurityUtils.USE_REQUEST_SIGNATURE_CERT.equals(user)) {
+        if (StringUtils.isEmpty(user) || RSSecurityUtils.USE_REQUEST_SIGNATURE_CERT.equals(user)) {
             throw new Exception("User name is not available");
         }
 
         String password = 
-            SecurityUtils.getPassword(message, user, WSPasswordCallback.SIGNATURE, this.getClass());
+            RSSecurityUtils.getPassword(message, user, WSPasswordCallback.SIGNATURE, this.getClass());
     
-        X509Certificate[] issuerCerts = SecurityUtils.getCertificates(crypto, user);
+        X509Certificate[] issuerCerts = RSSecurityUtils.getCertificates(crypto, user);
         
         String sigAlgo = sigProps.getSignatureAlgo() == null 
             ? SignatureConstants.ALGO_ID_SIGNATURE_RSA_SHA1 : sigProps.getSignatureAlgo();

@@ -116,7 +116,7 @@ public final class WrapperClassGenerator extends ASMHelper {
                 if (method == null) {
                     continue;
                 }
-                MessagePartInfo inf = opInfo.getInput().getMessageParts().get(0);
+                MessagePartInfo inf = opInfo.getInput().getFirstMessagePart();
                 if (inf.getTypeClass() == null) {
                     MessageInfo messageInfo = opInfo.getUnwrappedOperation().getInput();
                     createWrapperClass(inf,
@@ -127,7 +127,7 @@ public final class WrapperClassGenerator extends ASMHelper {
                 }
                 MessageInfo messageInfo = opInfo.getUnwrappedOperation().getOutput();
                 if (messageInfo != null) {
-                    inf = opInfo.getOutput().getMessageParts().get(0);
+                    inf = opInfo.getOutput().getFirstMessagePart();
                     if (inf.getTypeClass() == null) {
                         createWrapperClass(inf,
                                            messageInfo,
@@ -347,7 +347,7 @@ public final class WrapperClassGenerator extends ASMHelper {
         if (!addJAXBAnnotations(fv, jaxbAnnos, name)) {
             AnnotationVisitor av0 = fv.visitAnnotation("Ljavax/xml/bind/annotation/XmlElement;", true);
             av0.visit("name", name);
-            if (factory.isWrapperPartQualified(mpi)) {
+            if (Boolean.TRUE.equals(factory.isWrapperPartQualified(mpi))) {
                 av0.visit("namespace", mpi.getConcreteName().getNamespaceURI());            
             }
             if (factory.isWrapperPartNillable(mpi)) {

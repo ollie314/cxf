@@ -18,24 +18,20 @@
  */
 package org.apache.cxf.ws.security.wss4j;
 
-import java.io.IOException;
 import java.security.Provider;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 
-import javax.security.auth.callback.Callback;
-import javax.security.auth.callback.CallbackHandler;
-import javax.security.auth.callback.UnsupportedCallbackException;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.util.StreamReaderDelegate;
 
 import org.apache.cxf.binding.soap.SoapFault;
 import org.apache.cxf.binding.soap.SoapMessage;
-import org.apache.cxf.binding.soap.SoapVersion;
 import org.apache.cxf.common.classloader.ClassLoaderUtils;
 import org.apache.cxf.common.i18n.Message;
 import org.apache.cxf.common.logging.LogUtils;
@@ -43,22 +39,21 @@ import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.interceptor.StaxInInterceptor;
 import org.apache.cxf.message.MessageUtils;
 import org.apache.cxf.phase.Phase;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.ws.security.SecurityConstants;
-import org.apache.cxf.ws.security.tokenstore.SecurityToken;
-import org.apache.cxf.ws.security.tokenstore.TokenStore;
+import org.apache.cxf.ws.security.tokenstore.TokenStoreUtils;
 import org.apache.wss4j.common.ConfigurationConstants;
 import org.apache.wss4j.common.WSSPolicyException;
 import org.apache.wss4j.common.cache.ReplayCache;
 import org.apache.wss4j.common.crypto.Crypto;
 import org.apache.wss4j.common.crypto.ThreadLocalSecurityProvider;
-import org.apache.wss4j.common.ext.WSPasswordCallback;
 import org.apache.wss4j.common.ext.WSSecurityException;
-import org.apache.wss4j.stax.ConfigurationConverter;
-import org.apache.wss4j.stax.WSSec;
-import org.apache.wss4j.stax.ext.InboundWSSec;
 import org.apache.wss4j.stax.ext.WSSConstants;
 import org.apache.wss4j.stax.ext.WSSSecurityProperties;
 import org.apache.wss4j.stax.securityEvent.WSSecurityEventConstants;
+import org.apache.wss4j.stax.setup.ConfigurationConverter;
+import org.apache.wss4j.stax.setup.InboundWSSec;
+import org.apache.wss4j.stax.setup.WSSec;
 import org.apache.wss4j.stax.validate.Validator;
 import org.apache.xml.security.exceptions.XMLSecurityException;
 import org.apache.xml.security.stax.securityEvent.AbstractSecuredElementSecurityEvent;
@@ -127,7 +122,7 @@ public class WSS4JStaxInInterceptor extends AbstractWSS4JStaxInterceptor {
             
             final TokenStoreCallbackHandler callbackHandler = 
                 new TokenStoreCallbackHandler(
-                    secProps.getCallbackHandler(), WSS4JUtils.getTokenStore(soapMessage)
+                    secProps.getCallbackHandler(), TokenStoreUtils.getTokenStore(soapMessage)
                 );
             secProps.setCallbackHandler(callbackHandler);
 
@@ -137,8 +132,11 @@ public class WSS4JStaxInInterceptor extends AbstractWSS4JStaxInterceptor {
             final List<SecurityEventListener> securityEventListeners = 
                 configureSecurityEventListeners(soapMessage, secProps);
             
+            boolean returnSecurityError = 
+                MessageUtils.getContextualBoolean(soapMessage, SecurityConstants.RETURN_SECURITY_ERROR, false);
+            
             final InboundWSSec inboundWSSec = 
-                WSSec.getInboundWSSec(secProps, MessageUtils.isRequestor(soapMessage));
+                WSSec.getInboundWSSec(secProps, MessageUtils.isRequestor(soapMessage), returnSecurityError);
             
             newXmlStreamReader = 
                 inboundWSSec.processInMessage(originalXmlStreamReader, requestSecurityEvents, securityEventListeners);
@@ -166,7 +164,7 @@ public class WSS4JStaxInInterceptor extends AbstractWSS4JStaxInterceptor {
             // processing in the WS-Stack.
             soapMessage.put(SECURITY_PROCESSED, Boolean.TRUE);
         } catch (WSSecurityException e) {
-            throw createSoapFault(soapMessage.getVersion(), e);
+            throw WSS4JUtils.createSoapFault(soapMessage, soapMessage.getVersion(), e);
         } catch (XMLSecurityException e) {
             throw new SoapFault(new Message("STAX_EX", LOG), e, soapMessage.getVersion().getSender());
         } catch (WSSPolicyException e) {
@@ -179,14 +177,14 @@ public class WSS4JStaxInInterceptor extends AbstractWSS4JStaxInterceptor {
     protected List<SecurityEventListener> configureSecurityEventListeners(
         SoapMessage msg, WSSSecurityProperties securityProperties
     ) throws WSSPolicyException {
-        final List<SecurityEvent> incomingSecurityEventList = new LinkedList<SecurityEvent>();
+        final List<SecurityEvent> incomingSecurityEventList = new LinkedList<>();
         msg.getExchange().put(SecurityEvent.class.getName() + ".in", incomingSecurityEventList);
         msg.put(SecurityEvent.class.getName() + ".in", incomingSecurityEventList);
         
         final SecurityEventListener securityEventListener = new SecurityEventListener() {
             @Override
             public void registerSecurityEvent(SecurityEvent securityEvent) throws WSSecurityException {
-                if (securityEvent.getSecurityEventType() == WSSecurityEventConstants.Timestamp
+                if (securityEvent.getSecurityEventType() == WSSecurityEventConstants.TIMESTAMP
                     || securityEvent.getSecurityEventType() == WSSecurityEventConstants.SignatureValue
                     || securityEvent instanceof TokenSecurityEvent
                     || securityEvent instanceof AbstractSecuredElementSecurityEvent) {
@@ -210,13 +208,7 @@ public class WSS4JStaxInInterceptor extends AbstractWSS4JStaxInterceptor {
                 msg, SecurityConstants.ENABLE_NONCE_CACHE, SecurityConstants.NONCE_CACHE_INSTANCE
             );
         }
-        if (nonceCache == null) {
-            securityProperties.setEnableNonceReplayCache(false);
-            securityProperties.setNonceReplayCache(null);
-        } else {
-            securityProperties.setEnableNonceReplayCache(true);
-            securityProperties.setNonceReplayCache(nonceCache);
-        }
+        securityProperties.setNonceReplayCache(nonceCache);
         
         ReplayCache timestampCache = null;
         if (isTimestampCacheRequired(msg, securityProperties)) {
@@ -224,13 +216,7 @@ public class WSS4JStaxInInterceptor extends AbstractWSS4JStaxInterceptor {
                 msg, SecurityConstants.ENABLE_TIMESTAMP_CACHE, SecurityConstants.TIMESTAMP_CACHE_INSTANCE
             );
         }
-        if (timestampCache == null) {
-            securityProperties.setEnableTimestampReplayCache(false);
-            securityProperties.setTimestampReplayCache(null);
-        } else {
-            securityProperties.setEnableTimestampReplayCache(true);
-            securityProperties.setTimestampReplayCache(timestampCache);
-        }
+        securityProperties.setTimestampReplayCache(timestampCache);
         
         ReplayCache samlCache = null;
         if (isSamlCacheRequired(msg, securityProperties)) {
@@ -239,16 +225,10 @@ public class WSS4JStaxInInterceptor extends AbstractWSS4JStaxInterceptor {
                 SecurityConstants.SAML_ONE_TIME_USE_CACHE_INSTANCE
             );
         }
-        if (samlCache == null) {
-            securityProperties.setEnableSamlOneTimeUseReplayCache(false);
-            securityProperties.setSamlOneTimeUseReplayCache(null);
-        } else {
-            securityProperties.setEnableSamlOneTimeUseReplayCache(true);
-            securityProperties.setSamlOneTimeUseReplayCache(samlCache);
-        }
+        securityProperties.setSamlOneTimeUseReplayCache(samlCache);
         
         boolean enableRevocation = 
-            MessageUtils.isTrue(msg.getContextualProperty(SecurityConstants.ENABLE_REVOCATION));
+            MessageUtils.isTrue(SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENABLE_REVOCATION, msg));
         securityProperties.setEnableRevocation(enableRevocation);
         
         // Crypto loading only applies for Map
@@ -288,6 +268,29 @@ public class WSS4JStaxInInterceptor extends AbstractWSS4JStaxInterceptor {
                 config.put("RefId-" + decCrypto.hashCode(), decCrypto);
             }
             ConfigurationConverter.parseCrypto(config, securityProperties);
+        }
+        
+        // Add Audience Restrictions for SAML
+        configureAudienceRestriction(msg, securityProperties);
+    }
+    
+    private void configureAudienceRestriction(SoapMessage msg, WSSSecurityProperties securityProperties) {
+        // Add Audience Restrictions for SAML
+        boolean enableAudienceRestriction = true;
+        String audRestrStr = 
+            (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.AUDIENCE_RESTRICTION_VALIDATION, msg);
+        if (audRestrStr != null) {
+            enableAudienceRestriction = Boolean.parseBoolean(audRestrStr);
+        }
+        if (enableAudienceRestriction) {
+            List<String> audiences = new ArrayList<String>();
+            if (msg.getContextualProperty(org.apache.cxf.message.Message.REQUEST_URL) != null) {
+                audiences.add((String)msg.getContextualProperty(org.apache.cxf.message.Message.REQUEST_URL));
+            }
+            if (msg.getContextualProperty("javax.xml.ws.wsdl.service") != null) {
+                audiences.add(msg.getContextualProperty("javax.xml.ws.wsdl.service").toString());
+            }
+            securityProperties.setAudienceRestrictions(audiences);
         }
     }
     
@@ -342,45 +345,20 @@ public class WSS4JStaxInInterceptor extends AbstractWSS4JStaxInterceptor {
         return false;
     }
     
-    /**
-     * Create a SoapFault from a WSSecurityException, following the SOAP Message Security
-     * 1.1 specification, chapter 12 "Error Handling".
-     * 
-     * When the Soap version is 1.1 then set the Fault/Code/Value from the fault code
-     * specified in the WSSecurityException (if it exists).
-     * 
-     * Otherwise set the Fault/Code/Value to env:Sender and the Fault/Code/Subcode/Value
-     * as the fault code from the WSSecurityException.
-     */
-    private SoapFault 
-    createSoapFault(SoapVersion version, WSSecurityException e) {
-        SoapFault fault;
-        javax.xml.namespace.QName faultCode = e.getFaultCode();
-        if (version.getVersion() == 1.1 && faultCode != null) {
-            fault = new SoapFault(e.getMessage(), e, faultCode);
-        } else {
-            fault = new SoapFault(e.getMessage(), e, version.getSender());
-            if (version.getVersion() != 1.1 && faultCode != null) {
-                fault.setSubCode(faultCode);
-            }
-        }
-        return fault;
-    }
-    
     private void setTokenValidators(
         WSSSecurityProperties properties, SoapMessage message
     ) throws WSSecurityException {
         Validator validator = loadValidator(SecurityConstants.SAML1_TOKEN_VALIDATOR, message);
         if (validator != null) {
-            properties.addValidator(WSSConstants.TAG_saml_Assertion, validator);
+            properties.addValidator(WSSConstants.TAG_SAML_ASSERTION, validator);
         }
         validator = loadValidator(SecurityConstants.SAML2_TOKEN_VALIDATOR, message);
         if (validator != null) {
-            properties.addValidator(WSSConstants.TAG_saml2_Assertion, validator);
+            properties.addValidator(WSSConstants.TAG_SAML2_ASSERTION, validator);
         }
         validator = loadValidator(SecurityConstants.USERNAME_TOKEN_VALIDATOR, message);
         if (validator != null) {
-            properties.addValidator(WSSConstants.TAG_wsse_UsernameToken, validator);
+            properties.addValidator(WSSConstants.TAG_WSSE_USERNAME_TOKEN, validator);
         }
         validator = loadValidator(SecurityConstants.SIGNATURE_TOKEN_VALIDATOR, message);
         if (validator != null) {
@@ -388,16 +366,16 @@ public class WSS4JStaxInInterceptor extends AbstractWSS4JStaxInterceptor {
         }
         validator = loadValidator(SecurityConstants.TIMESTAMP_TOKEN_VALIDATOR, message);
         if (validator != null) {
-            properties.addValidator(WSSConstants.TAG_wsu_Timestamp, validator);
+            properties.addValidator(WSSConstants.TAG_WSU_TIMESTAMP, validator);
         }
         validator = loadValidator(SecurityConstants.BST_TOKEN_VALIDATOR, message);
         if (validator != null) {
-            properties.addValidator(WSSConstants.TAG_wsse_BinarySecurityToken, validator);
+            properties.addValidator(WSSConstants.TAG_WSSE_BINARY_SECURITY_TOKEN, validator);
         }
         validator = loadValidator(SecurityConstants.SCT_TOKEN_VALIDATOR, message);
         if (validator != null) {
-            properties.addValidator(WSSConstants.TAG_wsc0502_SecurityContextToken, validator);
-            properties.addValidator(WSSConstants.TAG_wsc0512_SecurityContextToken, validator);
+            properties.addValidator(WSSConstants.TAG_WSC0502_SCT, validator);
+            properties.addValidator(WSSConstants.TAG_WSC0512_SCT, validator);
         }
     }
     
@@ -426,33 +404,4 @@ public class WSS4JStaxInInterceptor extends AbstractWSS4JStaxInterceptor {
         }
     }
 
-    private class TokenStoreCallbackHandler implements CallbackHandler {
-        private CallbackHandler internal;
-        private TokenStore store;
-        public TokenStoreCallbackHandler(CallbackHandler in, TokenStore st) {
-            internal = in;
-            store = st;
-        }
-        
-        public void handle(Callback[] callbacks) throws IOException, UnsupportedCallbackException {
-            for (int i = 0; i < callbacks.length; i++) {
-                if (callbacks[i] instanceof WSPasswordCallback) {
-                    WSPasswordCallback pc = (WSPasswordCallback)callbacks[i];
-                    
-                    String id = pc.getIdentifier();
-                    SecurityToken tok = store.getToken(id);
-                    if (tok != null && !tok.isExpired()) {
-                        pc.setKey(tok.getSecret());
-                        pc.setKey(tok.getKey());
-                        pc.setCustomToken(tok.getToken());
-                        return;
-                    }
-                }
-            }
-            if (internal != null) {
-                internal.handle(callbacks);
-            }
-        }
-        
-    }
 }

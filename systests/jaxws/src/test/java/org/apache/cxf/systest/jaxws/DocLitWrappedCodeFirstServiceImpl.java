@@ -75,7 +75,7 @@ public class DocLitWrappedCodeFirstServiceImpl implements DocLitWrappedCodeFirst
         if (context == null) {
             throw new RuntimeException("No CONTEXT!!!");
         }
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         for (String s : inputs) {
             buf.append(s);
         }
@@ -94,7 +94,7 @@ public class DocLitWrappedCodeFirstServiceImpl implements DocLitWrappedCodeFirst
         if (context == null) {
             throw new RuntimeException("No CONTEXT!!!");
         }
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         if (inputs != null) {
             for (String s : inputs) {
                 buf.append(s);
@@ -107,7 +107,7 @@ public class DocLitWrappedCodeFirstServiceImpl implements DocLitWrappedCodeFirst
         if (context == null) {
             throw new RuntimeException("No CONTEXT!!!");
         }
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         for (String s : inputs1) {
             buf.append(s);
         }
@@ -189,6 +189,9 @@ public class DocLitWrappedCodeFirstServiceImpl implements DocLitWrappedCodeFirst
             ex.setBeans(new ComplexException.MyBean[] {bean});
             ex.setInts(new int[] {1, 2, 3});
             throw ex;
+        }
+        case -4: {
+            throw new RuntimeException("RuntimeException!!");
         }
         default:
             throw new ServiceTestFault(new ServiceTestFault.ServiceTestDetails(i));

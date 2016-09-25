@@ -672,8 +672,8 @@ public class JAXBDataBinding implements DataBindingProfile {
                 continue;
             }
             String key = schema.getSourceURI();
-            String tns = schema.getTargetNamespace();
-            if (ids.contains(key) || tns == null) {
+            // accepting also a null tns (e.g., reported by apache.ws.xmlschema for no-namespace)
+            if (ids.contains(key)) {
                 continue;
             }
             if (key.startsWith("file:") || key.startsWith("jar:")) {
@@ -1128,7 +1128,7 @@ public class JAXBDataBinding implements DataBindingProfile {
                             writer.write("\n");
                             writer.write(indent);
                             writeDefaultValue(writer, indent, path + "/" + varName + "Val",
-                                              varName + "Val" + cnt , cl);
+                                              varName + "Val" + cnt, cl);
                             writer.write("\n");
                             writer.write(indent);
                             writer.write(varName);

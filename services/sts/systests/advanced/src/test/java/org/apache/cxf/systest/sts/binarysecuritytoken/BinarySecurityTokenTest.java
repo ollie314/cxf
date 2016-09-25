@@ -156,10 +156,7 @@ public class BinarySecurityTokenTest extends AbstractBusClientServerTestBase {
             doubleIt(asymmetricBSTPort, 30);
             fail("Expected failure on a bad cert");
         } catch (javax.xml.ws.soap.SOAPFaultException fault) {
-            String message = fault.getMessage();
-            assertTrue(message.contains("STS Authentication failed")
-                || message.contains("Validation of security token failed")
-                || message.contains("The security token could not be authenticated or authorized"));
+            // expected
         }
         
         ((java.io.Closeable)asymmetricBSTPort).close();
@@ -168,6 +165,6 @@ public class BinarySecurityTokenTest extends AbstractBusClientServerTestBase {
     
     private static void doubleIt(DoubleItPortType port, int numToDouble) {
         int resp = port.doubleIt(numToDouble);
-        assertEquals(numToDouble * 2 , resp);
+        assertEquals(numToDouble * 2, resp);
     }
 }

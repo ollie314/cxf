@@ -46,6 +46,7 @@ import org.apache.cxf.binding.soap.SoapMessage;
 import org.apache.cxf.binding.soap.SoapVersion;
 import org.apache.cxf.binding.soap.interceptor.AbstractSoapInterceptor;
 import org.apache.cxf.binding.soap.interceptor.SoapActionInInterceptor;
+import org.apache.cxf.common.jaxb.JAXBUtils;
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.headers.Header;
@@ -470,11 +471,11 @@ public class MAPCodec extends AbstractSoapInterceptor {
         // REVISIT generate MessageAddressingHeaderRequired fault if an
         // expected header is missing 
         AddressingProperties maps = null;
+        Unmarshaller unmarshaller = null;
         try {
             List<Header> header = message.getHeaders();
             if (header != null) {
                 LOG.log(Level.FINE, "Inbound WS-Addressing headers");
-                Unmarshaller unmarshaller = null;
                 Set<Element> referenceParameterHeaders = null;
                 QName invalidCardinalityQName = null;
                 Iterator<Header> iter = header.iterator();
@@ -492,6 +493,7 @@ public class MAPCodec extends AbstractSoapInterceptor {
                                     VersionTransformer.getExposedJAXBContext(headerURI);
                                 unmarshaller = 
                                     jaxbContext.createUnmarshaller();
+                                unmarshaller.setEventHandler(null);
                             }
                             if (maps == null) {
                                 maps = new AddressingProperties();
@@ -588,6 +590,8 @@ public class MAPCodec extends AbstractSoapInterceptor {
             }
         } catch (JAXBException je) {
             LOG.log(Level.WARNING, "SOAP_HEADER_DECODE_FAILURE_MSG", je); 
+        } finally {
+            JAXBUtils.closeUnmarshaller(unmarshaller);
         }
         return maps;
     }
@@ -838,14 +842,25 @@ public class MAPCodec extends AbstractSoapInterceptor {
                     }
                 }
             }
-        } else if (maps == null && isRequestor(message)) {
-            Message m = message.getExchange().getOutMessage();
-            maps = ContextUtils.retrieveMAPs(m, false, true, false);
-            if (maps != null) {
-                Exchange ex = uncorrelatedExchanges.get(maps.getMessageID().getValue());
-                if (ex == message.getExchange()) {
+        } else if (isRequestor(message)) {
+            if (maps == null) {
+                Message m = message.getExchange().getOutMessage();
+                maps = ContextUtils.retrieveMAPs(m, false, true, false);
+                if (maps != null) {
+                    Exchange ex = uncorrelatedExchanges.get(maps.getMessageID().getValue());
+                    if (ex == message.getExchange()) {
+                        uncorrelatedExchanges.remove(maps.getMessageID().getValue());
+                        LOG.log(Level.WARNING, "RESPONSE_NOT_USING_WSADDRESSING");
+                    }
+                }
+            } else if (maps.getRelatesTo() == null
+                && maps.getAction() != null
+                && Names.WSA_DEFAULT_FAULT_ACTION.equals(maps.getAction().getValue())) {
+                //there is an Action header that points to a fault and no relatesTo.  Use the out map for the ID
+                Message m = message.getExchange().getOutMessage();
+                maps = ContextUtils.retrieveMAPs(m, false, true, false);
+                if (maps != null) {
                     uncorrelatedExchanges.remove(maps.getMessageID().getValue());
-                    LOG.log(Level.WARNING, "RESPONSE_NOT_USING_WSADDRESSING");
                 }
             }
         }

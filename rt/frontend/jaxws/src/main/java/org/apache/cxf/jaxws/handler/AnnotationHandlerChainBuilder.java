@@ -44,6 +44,7 @@ import org.apache.cxf.Bus;
 import org.apache.cxf.common.classloader.ClassLoaderUtils;
 import org.apache.cxf.common.i18n.BundleUtils;
 import org.apache.cxf.common.i18n.Message;
+import org.apache.cxf.common.jaxb.JAXBUtils;
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.jaxws.handler.types.PortComponentHandlerType;
@@ -77,7 +78,9 @@ public class AnnotationHandlerChainBuilder extends HandlerChainBuilder {
         HandlerChainAnnotation hcAnn = findHandlerChainAnnotation(clz, true);
         List<Handler> chain = null;
         if (hcAnn == null) {
-            LOG.fine("no HandlerChain annotation on " + clz);
+            if (LOG.isLoggable(Level.FINE)) {
+                LOG.fine("no HandlerChain annotation on " + clz);
+            }
             chain = new ArrayList<Handler>();
         } else {
             hcAnn.validate();
@@ -208,16 +211,15 @@ public class AnnotationHandlerChainBuilder extends HandlerChainBuilder {
         if ("*".equals(namePattern)) {
             return true;
         }
-        if (!namePattern.contains(":")) {
+        final int idx = namePattern.indexOf(':');
+        if (idx < 0) {
             String xml = StaxUtils.toString(el);
             throw new WebServiceException(
                 BundleUtils.getFormattedString(BUNDLE,
                                                "NOT_A_QNAME_PATTER",
                                                namePattern, xml));                    
         }
-        String localPart = namePattern.substring(namePattern.indexOf(':') + 1,
-                                                 namePattern.length());
-        String pfx = namePattern.substring(0, namePattern.indexOf(':'));
+        String pfx = namePattern.substring(0, idx);
         String ns = el.lookupNamespaceURI(pfx);
         if (ns == null) {
             ns = pfx;
@@ -225,6 +227,8 @@ public class AnnotationHandlerChainBuilder extends HandlerChainBuilder {
         if (!ns.equals(comp.getNamespaceURI())) {
             return false;
         }
+        String localPart = namePattern.substring(idx + 1,
+                                                 namePattern.length());
         if (localPart.contains("*")) {
             //wildcard pattern matching
             return Pattern.matches(mapPattern(localPart), comp.getLocalPart());
@@ -263,8 +267,7 @@ public class AnnotationHandlerChainBuilder extends HandlerChainBuilder {
     private void processHandlerElement(Element el, List<Handler> chain) {
         try {
             JAXBContext ctx = getContextForPortComponentHandlerType();
-            PortComponentHandlerType pt = ctx.createUnmarshaller()
-                .unmarshal(el, PortComponentHandlerType.class).getValue();
+            PortComponentHandlerType pt = JAXBUtils.unmarshall(ctx, el, PortComponentHandlerType.class).getValue();
             chain.addAll(buildHandlerChain(pt, classLoader));
         } catch (JAXBException e) {
             // TODO Auto-generated catch block

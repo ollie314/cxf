@@ -29,8 +29,6 @@ import java.util.Map;
 
 import javax.crypto.SecretKey;
 
-import org.apache.cxf.common.util.crypto.CryptoUtils;
-import org.apache.cxf.common.util.crypto.KeyProperties;
 import org.apache.cxf.rs.security.oauth2.common.Client;
 import org.apache.cxf.rs.security.oauth2.common.OAuthPermission;
 import org.apache.cxf.rs.security.oauth2.common.ServerAccessToken;
@@ -38,13 +36,15 @@ import org.apache.cxf.rs.security.oauth2.common.UserSubject;
 import org.apache.cxf.rs.security.oauth2.grants.code.ServerAuthorizationCodeGrant;
 import org.apache.cxf.rs.security.oauth2.provider.OAuthDataProvider;
 import org.apache.cxf.rs.security.oauth2.tokens.refresh.RefreshToken;
+import org.apache.cxf.rt.security.crypto.CryptoUtils;
+import org.apache.cxf.rt.security.crypto.KeyProperties;
 
 
 /**
  * Default Model Encryption helpers
  */
 public final class ModelEncryptionSupport {
-    private static final String SEP = "|";
+    public static final String SEP = "|";
     private ModelEncryptionSupport() {
     }
     
@@ -236,7 +236,7 @@ public final class ModelEncryptionSupport {
         
         newToken.setRefreshToken(getStringPart(parts[5]));
         newToken.setGrantType(getStringPart(parts[6]));
-        newToken.setAudience(getStringPart(parts[7]));
+        newToken.setAudiences(parseSimpleList(parts[7]));
         newToken.setParameters(parseSimpleMap(parts[8]));
         
         // Permissions
@@ -245,16 +245,20 @@ public final class ModelEncryptionSupport {
             String[] allPermParts = parts[9].split("\\.");
             for (int i = 0; i + 4 < allPermParts.length; i = i + 5) {
                 OAuthPermission perm = new OAuthPermission(allPermParts[i], allPermParts[i + 1]);
-                perm.setDefault(Boolean.valueOf(allPermParts[i + 2]));
+                perm.setDefaultPermission(Boolean.valueOf(allPermParts[i + 2]));
                 perm.setHttpVerbs(parseSimpleList(allPermParts[i + 3]));
                 perm.setUris(parseSimpleList(allPermParts[i + 4]));
                 perms.add(perm);
             }
             newToken.setScopes(perms);
         }
+        //Client verifier:
+        newToken.setClientCodeVerifier(parts[10]);
         //UserSubject:
-        newToken.setSubject(recreateUserSubject(parts[10]));
-                
+        newToken.setSubject(recreateUserSubject(parts[11]));
+        
+        newToken.setExtraProperties(parseSimpleMap(parts[12]));
+        
         return newToken;
     }
     
@@ -287,7 +291,7 @@ public final class ModelEncryptionSupport {
         state.append(tokenizeString(token.getGrantType()));
         // 7: audience
         state.append(SEP);
-        state.append(tokenizeString(token.getAudience()));
+        state.append(token.getAudiences().toString());
         // 8: other parameters
         state.append(SEP);
         // {key=value, key=value}
@@ -305,7 +309,7 @@ public final class ModelEncryptionSupport {
                 state.append(tokenizeString(p.getDescription()));
                 state.append(".");
                 // 9.3
-                state.append(p.isDefault());
+                state.append(p.isDefaultPermission());
                 state.append(".");
                 // 9.4
                 state.append(p.getHttpVerbs().toString());
@@ -315,9 +319,15 @@ public final class ModelEncryptionSupport {
             }
         }
         state.append(SEP);
-        // 10: user subject
+        // 10: code verifier
+        state.append(tokenizeString(token.getClientCodeVerifier()));
+        state.append(SEP);
+        // 11: user subject
         tokenizeUserSubject(state, token.getSubject());
-        
+        // 13: extra properties
+        state.append(SEP);
+        // {key=value, key=value}
+        state.append(token.getExtraProperties().toString());
         return state.toString();
     }
     
@@ -394,9 +404,10 @@ public final class ModelEncryptionSupport {
                                                                               Long.valueOf(parts[3]));
         grant.setRedirectUri(getStringPart(parts[4]));
         grant.setAudience(getStringPart(parts[5]));
-        grant.setClientCodeVerifier(getStringPart(parts[6]));
+        grant.setClientCodeChallenge(getStringPart(parts[6]));
         grant.setApprovedScopes(parseSimpleList(parts[7]));
         grant.setSubject(recreateUserSubject(parts[8]));
+        grant.setExtraProperties(parseSimpleMap(parts[9]));
         return grant; 
     }
     private static String tokenizeCodeGrant(ServerAuthorizationCodeGrant grant) {
@@ -419,19 +430,22 @@ public final class ModelEncryptionSupport {
         // 5: audience
         state.append(tokenizeString(grant.getAudience()));
         state.append(SEP);
-        // 6: code verifier
-        state.append(tokenizeString(grant.getClientCodeVerifier()));
+        // 6: code challenge
+        state.append(tokenizeString(grant.getClientCodeChallenge()));
         state.append(SEP);
         // 7: approved scopes
         state.append(grant.getApprovedScopes().toString());
         state.append(SEP);
         // 8: subject
         tokenizeUserSubject(state, grant.getSubject());
-        
+        // 9: extra properties
+        state.append(SEP);
+        // {key=value, key=value}
+        state.append(grant.getExtraProperties().toString());
         return state.toString();
     }
     
-    private static String getStringPart(String str) {
+    public static String getStringPart(String str) {
         return " ".equals(str) ? null : str;
     }
     
@@ -448,7 +462,7 @@ public final class ModelEncryptionSupport {
         }
     }
     
-    private static Map<String, String> parseSimpleMap(String mapStr) {
+    public static Map<String, String> parseSimpleMap(String mapStr) {
         Map<String, String> props = new HashMap<String, String>();
         List<String> entries = parseSimpleList(mapStr);
         for (String entry : entries) {
@@ -458,7 +472,7 @@ public final class ModelEncryptionSupport {
         return props;
     }
     
-    private static String[] getParts(String sequence) {
+    public static String[] getParts(String sequence) {
         return sequence.split("\\" + SEP);
     }
     
@@ -493,7 +507,7 @@ public final class ModelEncryptionSupport {
         }
     }
     
-    private static String tokenizeString(String str) {
+    public static String tokenizeString(String str) {
         return str != null ? str : " ";
     }
 }

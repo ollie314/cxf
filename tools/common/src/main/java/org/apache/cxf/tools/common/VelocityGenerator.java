@@ -78,9 +78,7 @@ public final class VelocityGenerator {
             }
             Velocity.init(props);
         } catch (Exception e) {
-            org.apache.cxf.common.i18n.Message msg =
-                new org.apache.cxf.common.i18n.Message("FAIL_TO_INITIALIZE_VELOCITY_ENGINE",
-                                                             LOG);
+            Message msg = new Message("FAIL_TO_INITIALIZE_VELOCITY_ENGINE", LOG);
             LOG.log(Level.SEVERE, msg.toString());
             throw new ToolException(msg, e);
         }
@@ -97,8 +95,8 @@ public final class VelocityGenerator {
 
         VelocityContext ctx = new VelocityContext();
 
-        for (String key : attributes.keySet()) {
-            ctx.put(key, attributes.get(key));
+        for (Map.Entry<String, Object> entry : attributes.entrySet()) {
+            ctx.put(entry.getKey(), entry.getValue());
         }
 
         VelocityWriter writer = new VelocityWriter(outputs);

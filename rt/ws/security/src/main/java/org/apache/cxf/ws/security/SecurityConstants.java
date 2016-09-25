@@ -28,106 +28,17 @@ import java.util.Set;
  * Configuration tags used to configure the WS-SecurityPolicy layer. Some of them are also 
  * used by the non WS-SecurityPolicy approach in the WSS4J(Out|In)Interceptors.
  */
-public final class SecurityConstants {
+public final class SecurityConstants extends org.apache.cxf.rt.security.SecurityConstants {
     
     //
     // User properties
     //
     
     /**
-     * The user's name. It is used differently by each of the WS-Security functions:
-     * a) It is used as the name in the UsernameToken
-     * b) It is used as the alias name in the keystore to get the user's cert and private key for signature
-     *    if {@link SIGNATURE_USERNAME} is not set.
-     * c) It is used as the alias name in the keystore to get the user's public key for encryption if 
-     *    {@link ENCRYPT_USERNAME} is not set.
-     */
-    public static final String USERNAME = "ws-security.username";
-    
-    /**
-     * The user's password when a {@link CALLBACK_HANDLER} is not defined. It is currently only used for 
-     * the case of adding a password to a UsernameToken.
-     */
-    public static final String PASSWORD = "ws-security.password";
-    
-    /**
-     * The user's name for signature. It is used as the alias name in the keystore to get the user's cert 
-     * and private key for signature. If this is not defined, then {@link USERNAME} is used instead. If 
-     * that is also not specified, it uses the the default alias set in the properties file referenced by
-     * {@link SIGNATURE_PROPERTIES}. If that's also not set, and the keystore only contains a single key, 
-     * that key will be used. 
-     */
-    public static final String SIGNATURE_USERNAME = "ws-security.signature.username";
-    
-    /**
-     * The user's name for encryption. It is used as the alias name in the keystore to get the user's public 
-     * key for encryption. If this is not defined, then {@link USERNAME} is used instead. If 
-     * that is also not specified, it uses the the default alias set in the properties file referenced by
-     * {@link ENCRYPT_PROPERTIES}. If that's also not set, and the keystore only contains a single key, 
-     * that key will be used.
-     * 
-     * For the web service provider, the "useReqSigCert" keyword can be used to accept (encrypt to) any 
-     * client whose public key is in the service's truststore (defined in {@link ENCRYPT_PROPERTIES}).
-     */
-    public static final String ENCRYPT_USERNAME = "ws-security.encryption.username";
-    
-    /**
      * The actor or role name of the wsse:Security header. If this parameter 
      * is omitted, the actor name is not set.
      */
     public static final String ACTOR = "ws-security.actor";
-    
-    //
-    // Callback class and Crypto properties
-    //
-    
-    /**
-     * The CallbackHandler implementation class used to obtain passwords, for both outbound and inbound 
-     * requests. The value of this tag must be either:
-     * a) The class name of a {@link javax.security.auth.callback.CallbackHandler} instance, which must
-     * be accessible via the classpath.
-     * b) A {@link javax.security.auth.callback.CallbackHandler} instance.
-     */
-    public static final String CALLBACK_HANDLER = "ws-security.callback-handler";
-    
-    /**
-     * The SAML CallbackHandler implementation class used to construct SAML Assertions. The value of this 
-     * tag must be either:
-     * a) The class name of a {@link javax.security.auth.callback.CallbackHandler} instance, which must
-     * be accessible via the classpath.
-     * b) A {@link javax.security.auth.callback.CallbackHandler} instance.
-     */
-    public static final String SAML_CALLBACK_HANDLER = "ws-security.saml-callback-handler";
-    
-    /**
-     * The Crypto property configuration to use for signature, if {@link SIGNATURE_CRYPTO} is not set instead.
-     * The value of this tag must be either:
-     * a) A Java Properties object that contains the Crypto configuration.
-     * b) The path of the Crypto property file that contains the Crypto configuration.
-     * c) A URL that points to the Crypto property file that contains the Crypto configuration.
-     */
-    public static final String SIGNATURE_PROPERTIES = "ws-security.signature.properties";
-    
-    /**
-     * The Crypto property configuration to use for encryption, if {@link ENCRYPT_CRYPTO} is not set instead.
-     * The value of this tag must be either:
-     * a) A Java Properties object that contains the Crypto configuration.
-     * b) The path of the Crypto property file that contains the Crypto configuration.
-     * c) A URL that points to the Crypto property file that contains the Crypto configuration.
-     */
-    public static final String ENCRYPT_PROPERTIES = "ws-security.encryption.properties";
-    
-    /**
-     * A Crypto object to be used for signature. If this is not defined then the 
-     * {@link SIGNATURE_PROPERTIES} is used instead.
-     */
-    public static final String SIGNATURE_CRYPTO = "ws-security.signature.crypto";
-    
-    /**
-     * A Crypto object to be used for encryption. If this is not defined then the 
-     * {@link ENCRYPT_PROPERTIES} is used instead.
-     */
-    public static final String ENCRYPT_CRYPTO = "ws-security.encryption.crypto";
     
     //
     // Boolean WS-Security configuration tags, e.g. the value should be "true" or "false".
@@ -137,12 +48,6 @@ public final class SecurityConstants {
      * Whether to validate the password of a received UsernameToken or not. The default is true.
      */
     public static final String VALIDATE_TOKEN = "ws-security.validate.token";
-    
-    /**
-     * Whether to enable Certificate Revocation List (CRL) checking or not when verifying trust 
-     * in a certificate. The default value is "false".
-     */
-    public static final String ENABLE_REVOCATION = "ws-security.enableRevocation";
     
     // WebLogic and WCF always encrypt UsernameTokens whenever possible
     //See:  http://e-docs.bea.com/wls/docs103/webserv_intro/interop.html
@@ -160,12 +65,6 @@ public final class SecurityConstants {
      * default value is "true".
      */
     public static final String IS_BSP_COMPLIANT = "ws-security.is-bsp-compliant";
-    
-    /**
-     * Whether to allow unsigned saml assertions as SecurityContext Principals. The default is false.
-     */
-    public static final String ENABLE_UNSIGNED_SAML_ASSERTION_PRINCIPAL = 
-            "ws-security.enable.unsigned-saml-assertion.principal";
     
     /**
      * Whether to cache UsernameToken nonces. The default value is "true" for message recipients, and 
@@ -186,22 +85,6 @@ public final class SecurityConstants {
     public static final String ENABLE_TIMESTAMP_CACHE = "ws-security.enable.timestamp.cache";
     
     /**
-     * Whether to cache SAML2 Token Identifiers, if the token contains a "OneTimeUse" Condition.
-     * The default value is "true" for message recipients, and "false" for message initiators.
-     * Set it to true to cache for both cases. Set this to "false" to not cache SAML2 Token Identifiers.
-     * Note that caching only applies when either a "SamlToken" policy is in effect, or
-     * else that a SAML action has been configured for the non-security-policy case.
-     */
-    public static final String ENABLE_SAML_ONE_TIME_USE_CACHE = "ws-security.enable.saml.cache";
-    
-    /**
-     * Whether to validate the SubjectConfirmation requirements of a received SAML Token
-     * (sender-vouches or holder-of-key). The default is true.
-     */
-    public static final String VALIDATE_SAML_SUBJECT_CONFIRMATION = 
-        "ws-security.validate.saml.subject.conf";
-    
-    /**
      * Whether to enable streaming WS-Security. If set to false (the default), the old DOM
      * implementation is used. If set to true, the new streaming (StAX) implementation is used.
      */
@@ -209,8 +92,10 @@ public final class SecurityConstants {
         "ws-security.enable.streaming";
     
     /**
-     * Whether to return the security error message to the client, and not one of the default error
-     * QNames. The default is false.
+     * Whether to return the security error message to the client, and not the default error message.
+     * The "real" security errors should not be returned to the client in a deployment scenario,
+     * as they may leak information about the deployment, or otherwise provide a "oracle" for attacks.
+     * The default is false.
      */
     public static final String RETURN_SECURITY_ERROR = "ws-security.return.security.error";
     
@@ -221,14 +106,46 @@ public final class SecurityConstants {
      * The default value is "true" which included the SOAP mustUnderstand header.
      */
     public static final String MUST_UNDERSTAND = "ws-security.must-understand";
-
-    /**
-     * Set this to "false" if security context must not be created from JAAS Subject.
-     *
-     * The default value is "true".
-     */
-    public static final String SC_FROM_JAAS_SUBJECT = "ws-security.sc.jaas-subject";
     
+    /**
+     * Whether to cache SAML2 Token Identifiers, if the token contains a "OneTimeUse" Condition.
+     * The default value is "true" for message recipients, and "false" for message initiators.
+     * Set it to true to cache for both cases. Set this to "false" to not cache SAML2 Token Identifiers.
+     * Note that caching only applies when either a "SamlToken" policy is in effect, or
+     * else that a SAML action has been configured for the non-security-policy case.
+     */
+    public static final String ENABLE_SAML_ONE_TIME_USE_CACHE = "ws-security.enable.saml.cache";
+    
+    /**
+     * Whether to store bytes (CipherData or BinarySecurityToken) in an attachment. The default is 
+     * true if MTOM is enabled. Set it to false to BASE-64 encode the bytes and "inlined" them in 
+     * the message instead. Setting this to true is more efficient, as it means that the BASE-64 
+     * encoding step can be skipped. This only applies to the DOM WS-Security stack.
+     */
+    public static final String STORE_BYTES_IN_ATTACHMENT = "ws-security.store.bytes.in.attachment";
+    
+    /**
+     * This configuration flag allows the user to decide whether the default Attachment-Complete 
+     * transform or the Attachment-Content-Only transform should be used when an Attachment is encrypted 
+     * via a WS-SecurityPolicy expression. The default is "false", meaning that the "complete" 
+     * transformation is used.
+     */
+    public static final String USE_ATTACHMENT_ENCRYPTION_CONTENT_ONLY_TRANSFORM = 
+        "ws-security.swa.encryption.attachment.transform.content";
+    
+    /**
+     * Whether to use the STR (Security Token Reference) Transform when (externally) signing a SAML Token.
+     * The default is true. Some frameworks cannot handle processing the SecurityTokenReference is created,
+     * hence set this configuration option to "false" in this case.
+     */
+    public static final String USE_STR_TRANSFORM = "ws-security.use.str.transform";
+    
+    /**
+     * Whether to add an InclusiveNamespaces PrefixList as a CanonicalizationMethod child when generating 
+     * Signatures using WSConstants.C14N_EXCL_OMIT_COMMENTS. Default is "true".
+     */
+    public static final String ADD_INCLUSIVE_PREFIXES = "ws-security.add.inclusive.prefixes";
+
     //
     // Non-boolean WS-Security Configuration parameters
     //
@@ -260,12 +177,6 @@ public final class SecurityConstants {
     public static final String USERNAMETOKEN_FUTURE_TTL = "ws-security.usernametoken.futureTimeToLive";
     
     /**
-     * The attribute URI of the SAML AttributeStatement where the role information is stored.
-     * The default is "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/role".
-     */
-    public static final String SAML_ROLE_ATTRIBUTENAME = "ws-security.saml-role-attributename";
-    
-    /**
      * The SpnegoClientAction implementation to use for SPNEGO. This allows the user to plug in
      * a different implementation to obtain a service ticket.
      */
@@ -289,8 +200,7 @@ public final class SecurityConstants {
      * This holds a reference to a ReplayCache instance used to cache SAML2 Token Identifiers, when
      * the token has a "OneTimeUse" Condition. The default instance that is used is the EHCacheReplayCache.
      */
-    public static final String SAML_ONE_TIME_USE_CACHE_INSTANCE = 
-        "ws-security.saml.cache.instance";
+    public static final String SAML_ONE_TIME_USE_CACHE_INSTANCE = "ws-security.saml.cache.instance";
     
     /**
      * Set this property to point to a configuration file for the underlying caching implementation.
@@ -319,13 +229,6 @@ public final class SecurityConstants {
     public static final String CACHE_IDENTIFIER = "ws-security.cache.identifier";
 
     /**
-     * A comma separated String of regular expressions which will be applied to the subject DN of 
-     * the certificate used for signature validation, after trust verification of the certificate 
-     * chain associated with the  certificate.
-     */
-    public static final String SUBJECT_CERT_CONSTRAINTS = "ws-security.subject.cert.constraints";
-    
-    /**
      * The Subject Role Classifier to use. If one of the WSS4J Validators returns a JAAS Subject
      * from Validation, then the WSS4JInInterceptor will attempt to create a SecurityContext
      * based on this Subject. If this value is not specified, then it tries to get roles using
@@ -351,6 +254,14 @@ public final class SecurityConstants {
         "ws-security.asymmetric.signature.algorithm";
     
     /**
+     * This configuration tag allows the user to override the default Symmetric Signature 
+     * algorithm (HMAC-SHA1) for use in WS-SecurityPolicy, as the WS-SecurityPolicy specification
+     * does not allow the use of other algorithms at present.
+     */
+    public static final String SYMMETRIC_SIGNATURE_ALGORITHM = 
+        "ws-security.symmetric.signature.algorithm";
+
+    /**
      * This holds a reference to a PasswordEncryptor instance, which is used to encrypt or 
      * decrypt passwords in the Merlin Crypto implementation (or any custom Crypto implementations).
      * 
@@ -370,6 +281,14 @@ public final class SecurityConstants {
      * client credentials.
      */
     public static final String DELEGATED_CREDENTIAL = "ws-security.delegated.credential";
+    
+    /**
+     * A WSS4JSecurityContextCreator implementation that is used to create a CXF SecurityContext
+     * from the set of WSS4J processing results. The default implementation is the
+     * DefaultWSS4JSecurityContextCreator. This configuration tag allows the user to plug in
+     * a custom way of setting up the CXF SecurityContext.
+     */
+    public static final String SECURITY_CONTEXT_CREATOR = "ws-security.security.context.creator";
     
     //
     // Validator implementations for validating received security tokens
@@ -417,147 +336,13 @@ public final class SecurityConstants {
      */
     public static final String SCT_TOKEN_VALIDATOR = "ws-security.sct.validator";
     
-    //
-    // STS Client Configuration tags
-    //
-    
     /**
-     * A reference to the STSClient class used to communicate with the STS.
+     * This refers to a Map of QName, SecurityPolicyValidator, which retrieves a SecurityPolicyValidator
+     * implementation to validate a particular security policy, based on the QName of the policy. Any
+     * SecurityPolicyValidator implementation defined in this map will override the default value
+     * used internally for the corresponding QName.
      */
-    public static final String STS_CLIENT = "ws-security.sts.client";
-    
-    /**
-     * The "AppliesTo" address to send to the STS. The default is the endpoint address of the 
-     * service provider.
-     */
-    public static final String STS_APPLIES_TO = "ws-security.sts.applies-to";
-    
-    /**
-     * Whether to write out an X509Certificate structure in UseKey/KeyInfo, or whether to write
-     * out a KeyValue structure. The default value is "false".
-     */
-    public static final String STS_TOKEN_USE_CERT_FOR_KEYINFO = "ws-security.sts.token.usecert";
-    
-    /**
-     * Whether to cancel a token when using SecureConversation after successful invocation. The
-     * default is "false".
-     */
-    public static final String STS_TOKEN_DO_CANCEL = "ws-security.sts.token.do.cancel";
-    
-    /**
-     * Whether to fall back to calling "issue" after failing to renew an expired token. Some
-     * STSs do not support the renew binding, and so we should just issue a new token after expiry.
-     * The default is true.
-     */
-    public static final String STS_ISSUE_AFTER_FAILED_RENEW = "ws-security.issue.after.failed.renew";
-    
-    /**
-     * Set this to "false" to not cache a SecurityToken per proxy object in the 
-     * IssuedTokenInterceptorProvider. This should be done if a token is being retrieved
-     * from an STS in an intermediary. The default value is "true".
-     */
-    public static final String CACHE_ISSUED_TOKEN_IN_ENDPOINT = 
-        "ws-security.cache.issued.token.in.endpoint";
-    
-    /**
-     * Whether to avoid STS client trying send WS-MetadataExchange call using
-     * STS EPR WSA address when the endpoint contract contains no WS-MetadataExchange info.
-     * The default value is "false".
-     */
-    public static final String DISABLE_STS_CLIENT_WSMEX_CALL_USING_EPR_ADDRESS =
-        "ws-security.sts.disable-wsmex-call-using-epr-address";
-    
-    /**
-     * Whether to prefer to use WS-MEX over a STSClient's location/wsdlLocation properties
-     * when making an STS RequestSecurityToken call. This can be set to true for the scenario
-     * of making a WS-MEX call to an initial STS, and using the returned token to make another
-     * call to an STS (which is configured using the STSClient configuration). Default is 
-     * "false".
-     */
-    public static final String PREFER_WSMEX_OVER_STS_CLIENT_CONFIG = 
-        "ws-security.sts.prefer-wsmex";
-    
-    /**
-     * Switch STS client to send Soap 1.2 messages
-     */
-    public static final String STS_CLIENT_SOAP12_BINDING =
-        "ws-security.sts.client-soap12-binding";
-
-    /**
-     * 
-     * A Crypto object to be used for the STS. If this is not defined then the 
-     * {@link STS_TOKEN_PROPERTIES} is used instead.
-     * 
-     * WCF's trust server sometimes will encrypt the token in the response IN ADDITION TO
-     * the full security on the message. These properties control the way the STS client
-     * will decrypt the EncryptedData elements in the response.
-     * 
-     * These are also used by the STSClient to send/process any RSA/DSAKeyValue tokens 
-     * used if the KeyType is "PublicKey" 
-     */
-    public static final String STS_TOKEN_CRYPTO = "ws-security.sts.token.crypto";
-    
-    /**
-     * The Crypto property configuration to use for the STS, if {@link STS_TOKEN_CRYPTO} is not
-     * set instead.
-     * The value of this tag must be either:
-     * a) A Java Properties object that contains the Crypto configuration.
-     * b) The path of the Crypto property file that contains the Crypto configuration.
-     * c) A URL that points to the Crypto property file that contains the Crypto configuration.
-     */
-    public static final String STS_TOKEN_PROPERTIES = "ws-security.sts.token.properties";
-    
-    /**
-     * The alias name in the keystore to get the user's public key to send to the STS for the
-     * PublicKey KeyType case.
-     */
-    public static final String STS_TOKEN_USERNAME = "ws-security.sts.token.username";
-    
-    /**
-     * The token to be sent to the STS in an "ActAs" field. It can be either:
-     * a) A String (which must be an XML statement like "<wst:OnBehalfOf xmlns:wst=...>...</wst:OnBehalfOf>")
-     * b) A DOM Element
-     * c) A CallbackHandler object to use to obtain the token
-     * 
-     * In the case of a CallbackHandler, it must be able to handle a 
-     * org.apache.cxf.ws.security.trust.delegation.DelegationCallback Object, which contains a 
-     * reference to the current Message. The CallbackHandler implementation is required to set 
-     * the token Element to be sent in the request on the Callback.
-     * 
-     * Some examples that can be reused are:
-     * org.apache.cxf.ws.security.trust.delegation.ReceivedTokenCallbackHandler
-     * org.apache.cxf.ws.security.trust.delegation.WSSUsernameCallbackHandler
-     */
-    public static final String STS_TOKEN_ACT_AS = "ws-security.sts.token.act-as";
-    
-    /**
-     * The token to be sent to the STS in an "OnBehalfOf" field. It can be either:
-     * a) A String (which must be an XML statement like "<wst:OnBehalfOf xmlns:wst=...>...</wst:OnBehalfOf>")
-     * b) A DOM Element
-     * c) A CallbackHandler object to use to obtain the token
-     * 
-     * In the case of a CallbackHandler, it must be able to handle a 
-     * org.apache.cxf.ws.security.trust.delegation.DelegationCallback Object, which contains a 
-     * reference to the current Message. The CallbackHandler implementation is required to set 
-     * the token Element to be sent in the request on the Callback.
-     * 
-     * Some examples that can be reused are:
-     * org.apache.cxf.ws.security.trust.delegation.ReceivedTokenCallbackHandler
-     * org.apache.cxf.ws.security.trust.delegation.WSSUsernameCallbackHandler
-     */
-    public static final String STS_TOKEN_ON_BEHALF_OF = "ws-security.sts.token.on-behalf-of";
-
-    /**
-     * This is the value in seconds within which a token is considered to be expired by the
-     * client. When a cached token (from a STS) is retrieved by the client, it is considered
-     * to be expired if it will expire in a time less than the value specified by this tag.
-     * This prevents token expiry when the message is en route / being processed by the
-     * service. When the token is found to be expired then it will be renewed via the STS.
-     * 
-     * The default value is 10 (seconds). Specify 0 to avoid this check.
-     */
-    public static final String STS_TOKEN_IMMINENT_EXPIRY_VALUE =
-        "ws-security.sts.token.imminent-expiry-value";
+    public static final String POLICY_VALIDATOR_MAP = "ws-security.policy.validator.map";
     
     //
     // Kerberos Configuration tags
@@ -607,34 +392,31 @@ public final class SecurityConstants {
     
     public static final String TOKEN = "ws-security.token";
     public static final String TOKEN_ID = "ws-security.token.id";
+    public static final String TOKEN_ELEMENT = "ws-security.token.element";
     
     public static final Set<String> ALL_PROPERTIES;
     
     static {
         Set<String> s = new HashSet<String>(Arrays.asList(new String[] {
-            USERNAME, PASSWORD, SIGNATURE_USERNAME, ENCRYPT_USERNAME, ACTOR,
-            CALLBACK_HANDLER, SAML_CALLBACK_HANDLER, SIGNATURE_PROPERTIES, 
-            SIGNATURE_CRYPTO, ENCRYPT_PROPERTIES, ENCRYPT_CRYPTO,
-            VALIDATE_TOKEN, ENABLE_REVOCATION, ALWAYS_ENCRYPT_UT, IS_BSP_COMPLIANT, 
-            ENABLE_NONCE_CACHE, ENABLE_TIMESTAMP_CACHE,
-            TIMESTAMP_TTL, TIMESTAMP_FUTURE_TTL, SAML_ROLE_ATTRIBUTENAME,
+            ACTOR, VALIDATE_TOKEN, ALWAYS_ENCRYPT_UT, IS_BSP_COMPLIANT, ENABLE_NONCE_CACHE, 
+            ENABLE_TIMESTAMP_CACHE, TIMESTAMP_TTL, TIMESTAMP_FUTURE_TTL, 
             KERBEROS_CLIENT, SPNEGO_CLIENT_ACTION, KERBEROS_JAAS_CONTEXT_NAME, KERBEROS_SPN, 
             NONCE_CACHE_INSTANCE, TIMESTAMP_CACHE_INSTANCE, CACHE_CONFIG_FILE, 
-            TOKEN_STORE_CACHE_INSTANCE, SUBJECT_CERT_CONSTRAINTS,
-            USERNAME_TOKEN_VALIDATOR, SAML1_TOKEN_VALIDATOR, SAML2_TOKEN_VALIDATOR, 
-            TIMESTAMP_TOKEN_VALIDATOR, SIGNATURE_TOKEN_VALIDATOR, BST_TOKEN_VALIDATOR, 
-            SCT_TOKEN_VALIDATOR, STS_CLIENT, STS_APPLIES_TO, STS_TOKEN_USE_CERT_FOR_KEYINFO,
-            STS_TOKEN_DO_CANCEL, CACHE_ISSUED_TOKEN_IN_ENDPOINT,
-            DISABLE_STS_CLIENT_WSMEX_CALL_USING_EPR_ADDRESS, STS_TOKEN_CRYPTO,
-            STS_TOKEN_PROPERTIES, STS_TOKEN_USERNAME, STS_TOKEN_ACT_AS, STS_TOKEN_ON_BEHALF_OF,
-            TOKEN, TOKEN_ID, SUBJECT_ROLE_CLASSIFIER, SUBJECT_ROLE_CLASSIFIER_TYPE, MUST_UNDERSTAND,
-            ASYMMETRIC_SIGNATURE_ALGORITHM, PASSWORD_ENCRYPTOR_INSTANCE, ENABLE_SAML_ONE_TIME_USE_CACHE,
+            TOKEN_STORE_CACHE_INSTANCE, USERNAME_TOKEN_VALIDATOR, SAML1_TOKEN_VALIDATOR, 
+            SAML2_TOKEN_VALIDATOR, TIMESTAMP_TOKEN_VALIDATOR, SIGNATURE_TOKEN_VALIDATOR, 
+            BST_TOKEN_VALIDATOR, SCT_TOKEN_VALIDATOR, TOKEN, TOKEN_ID, SUBJECT_ROLE_CLASSIFIER, 
+            SUBJECT_ROLE_CLASSIFIER_TYPE, MUST_UNDERSTAND, ASYMMETRIC_SIGNATURE_ALGORITHM, 
+            PASSWORD_ENCRYPTOR_INSTANCE, ENABLE_SAML_ONE_TIME_USE_CACHE,
             SAML_ONE_TIME_USE_CACHE_INSTANCE, ENABLE_STREAMING_SECURITY, RETURN_SECURITY_ERROR,
-            CACHE_IDENTIFIER, CACHE_ISSUED_TOKEN_IN_ENDPOINT, PREFER_WSMEX_OVER_STS_CLIENT_CONFIG,
-            DELEGATED_CREDENTIAL, KERBEROS_USE_CREDENTIAL_DELEGATION, 
-            KERBEROS_IS_USERNAME_IN_SERVICENAME_FORM, STS_TOKEN_IMMINENT_EXPIRY_VALUE,
-            KERBEROS_REQUEST_CREDENTIAL_DELEGATION, ENABLE_UNSIGNED_SAML_ASSERTION_PRINCIPAL
+            CACHE_IDENTIFIER, DELEGATED_CREDENTIAL, KERBEROS_USE_CREDENTIAL_DELEGATION, 
+            KERBEROS_IS_USERNAME_IN_SERVICENAME_FORM, KERBEROS_REQUEST_CREDENTIAL_DELEGATION, 
+            POLICY_VALIDATOR_MAP, STORE_BYTES_IN_ATTACHMENT, USE_ATTACHMENT_ENCRYPTION_CONTENT_ONLY_TRANSFORM,
+            SYMMETRIC_SIGNATURE_ALGORITHM, SECURITY_CONTEXT_CREATOR
         }));
+        for (String commonProperty : COMMON_PROPERTIES) {
+            s.add(commonProperty);
+            s.add("ws-" + commonProperty);
+        }
         ALL_PROPERTIES = Collections.unmodifiableSet(s);
     }
     

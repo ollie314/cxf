@@ -34,8 +34,8 @@ import org.apache.wss4j.common.saml.bean.AuthDecisionStatementBean;
 import org.apache.wss4j.common.saml.bean.AuthenticationStatementBean;
 import org.apache.wss4j.common.saml.bean.ConditionsBean;
 import org.apache.wss4j.common.saml.bean.SubjectBean;
+import org.apache.wss4j.common.saml.bean.Version;
 import org.apache.wss4j.dom.WSConstants;
-import org.opensaml.common.SAMLVersion;
 
 /**
  * This CallbackHandler implementation is populated with SAML Beans by the SAMLTokenProvider, and is tasked
@@ -100,48 +100,48 @@ public class SamlCallbackHandler implements CallbackHandler {
     }
     
     public void handle(Callback[] callbacks) throws IOException, UnsupportedCallbackException {
-        for (int i = 0; i < callbacks.length; i++) {
-            if (callbacks[i] instanceof SAMLCallback) {
-                SAMLCallback callback = (SAMLCallback) callbacks[i];
+        for (Callback callback : callbacks) {
+            if (callback instanceof SAMLCallback) {
+                SAMLCallback samlCallback = (SAMLCallback) callback;
 
                 // Set the Subject
                 if (subjectBean != null) {
-                    callback.setSubject(subjectBean);
+                    samlCallback.setSubject(subjectBean);
                 }
                 
                 // Set the token Type.
                 TokenRequirements tokenRequirements = tokenParameters.getTokenRequirements();
                 String tokenType = tokenRequirements.getTokenType();
                 boolean saml1 = false;
-                if (WSConstants.WSS_SAML2_TOKEN_TYPE.equals(tokenType)
-                    || WSConstants.SAML2_NS.equals(tokenType)) {
-                    callback.setSamlVersion(SAMLVersion.VERSION_20);
-                } else {
-                    callback.setSamlVersion(SAMLVersion.VERSION_11);
+                if (WSConstants.WSS_SAML_TOKEN_TYPE.equals(tokenType)
+                    || WSConstants.SAML_NS.equals(tokenType)) {
+                    samlCallback.setSamlVersion(Version.SAML_11);
                     saml1 = true;
                     setSubjectOnBeans();
+                } else {
+                    samlCallback.setSamlVersion(Version.SAML_20);
                 }
                 
                 // Set the issuer
                 if (issuer == null) {
                     STSPropertiesMBean stsProperties = tokenParameters.getStsProperties();
-                    callback.setIssuer(stsProperties.getIssuer());
+                    samlCallback.setIssuer(stsProperties.getIssuer());
                 } else {
-                    callback.setIssuer(issuer);
+                    samlCallback.setIssuer(issuer);
                 }
 
                 // Set the statements
                 boolean statementAdded = false;
                 if (attributeBeans != null && !attributeBeans.isEmpty()) {
-                    callback.setAttributeStatementData(attributeBeans);
+                    samlCallback.setAttributeStatementData(attributeBeans);
                     statementAdded = true;
                 }
                 if (authBeans != null && !authBeans.isEmpty()) {
-                    callback.setAuthenticationStatementData(authBeans);
+                    samlCallback.setAuthenticationStatementData(authBeans);
                     statementAdded = true;
                 }
                 if (authDecisionBeans != null && !authDecisionBeans.isEmpty()) {
-                    callback.setAuthDecisionStatementData(authDecisionBeans);
+                    samlCallback.setAuthDecisionStatementData(authDecisionBeans);
                     statementAdded = true;
                 }
                 
@@ -150,11 +150,11 @@ public class SamlCallbackHandler implements CallbackHandler {
                     AttributeStatementBean defaultStatement = 
                         new DefaultAttributeStatementProvider().getStatement(tokenParameters);
                     defaultStatement.setSubject(subjectBean);
-                    callback.setAttributeStatementData(Collections.singletonList(defaultStatement));
+                    samlCallback.setAttributeStatementData(Collections.singletonList(defaultStatement));
                 }
                 
                 // Set the conditions
-                callback.setConditions(conditionsBean);
+                samlCallback.setConditions(conditionsBean);
             }
         }
     }

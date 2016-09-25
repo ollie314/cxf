@@ -22,15 +22,16 @@ package org.apache.cxf.rs.security.saml.sso;
 import java.util.UUID;
 
 import org.joda.time.DateTime;
-import org.opensaml.Configuration;
-import org.opensaml.common.SAMLObjectBuilder;
-import org.opensaml.common.SAMLVersion;
-import org.opensaml.saml2.core.Issuer;
-import org.opensaml.saml2.core.Response;
-import org.opensaml.saml2.core.Status;
-import org.opensaml.saml2.core.StatusCode;
-import org.opensaml.saml2.core.StatusMessage;
-import org.opensaml.xml.XMLObjectBuilderFactory;
+import org.opensaml.core.xml.XMLObjectBuilderFactory;
+import org.opensaml.core.xml.config.XMLObjectProviderRegistrySupport;
+import org.opensaml.saml.common.SAMLObjectBuilder;
+import org.opensaml.saml.common.SAMLVersion;
+import org.opensaml.saml.saml2.core.AuthnContextClassRef;
+import org.opensaml.saml.saml2.core.Issuer;
+import org.opensaml.saml.saml2.core.Response;
+import org.opensaml.saml.saml2.core.Status;
+import org.opensaml.saml.saml2.core.StatusCode;
+import org.opensaml.saml.saml2.core.StatusMessage;
 
 /**
 * A (basic) set of utility methods to construct SAML 2.0 Protocol Response statements
@@ -47,7 +48,10 @@ public final class SAML2PResponseComponentBuilder {
     
     private static SAMLObjectBuilder<StatusMessage> statusMessageBuilder;
     
-    private static XMLObjectBuilderFactory builderFactory = Configuration.getBuilderFactory();
+    private static SAMLObjectBuilder<AuthnContextClassRef> authnContextClassRefBuilder;
+    
+    private static XMLObjectBuilderFactory builderFactory = 
+        XMLObjectProviderRegistrySupport.getBuilderFactory();
     
     private SAML2PResponseComponentBuilder() {
         
@@ -122,5 +126,17 @@ public final class SAML2PResponseComponentBuilder {
         return status;
     }
     
+    @SuppressWarnings("unchecked")
+    public static AuthnContextClassRef createAuthnContextClassRef(String newAuthnContextClassRef) {
+        if (authnContextClassRefBuilder == null) {
+            authnContextClassRefBuilder = (SAMLObjectBuilder<AuthnContextClassRef>)
+                builderFactory.getBuilder(AuthnContextClassRef.DEFAULT_ELEMENT_NAME);
+        }
+        
+        AuthnContextClassRef authnContextClassRef = authnContextClassRefBuilder.buildObject();
+        authnContextClassRef.setAuthnContextClassRef(newAuthnContextClassRef);
+        
+        return authnContextClassRef;
+    }
     
 }

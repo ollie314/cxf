@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.PushbackInputStream;
 import java.io.Reader;
 import java.io.UnsupportedEncodingException;
 import java.io.Writer;
@@ -43,6 +44,46 @@ public final class IOUtils {
 
     }
     
+    public static boolean isEmpty(InputStream is) throws IOException {
+        if (is == null) {
+            return true;
+        }
+        try {
+            // if available is 0 it does not mean it is empty; it can also throw IOException
+            if (is.available() > 0) {
+                return false;
+            }
+        } catch (IOException ex) {
+            // ignore
+        }
+        
+        final byte[] bytes = new byte[1];
+        try {
+            if (is.markSupported()) {
+                is.mark(1);
+                try {
+                    return isEof(is.read(bytes));
+                } finally {
+                    is.reset();
+                }
+            }
+        } catch (IOException ex) {
+            // ignore
+        }
+        if (!(is instanceof PushbackInputStream)) {
+            return false;
+        }
+        // it may be an attachment stream
+        PushbackInputStream pbStream = (PushbackInputStream)is;
+        boolean isEmpty = isEof(pbStream.read(bytes));
+        if (!isEmpty) {
+            pbStream.unread(bytes);
+        }
+        return isEmpty;
+    }
+    private static boolean isEof(int result) {
+        return result == -1;
+    }
     /**
      * Use this function instead of new String(byte[], String) to avoid surprises from 
      * non-standard default encodings.
@@ -101,6 +142,9 @@ public final class IOUtils {
 
     public static int copy(final InputStream input, final OutputStream output)
         throws IOException {
+        if (input == null) {
+            return 0;
+        }
         if (output instanceof CopyingOutputStream) {
             return ((CopyingOutputStream)output).copyFrom(input);
         }
@@ -194,13 +238,32 @@ public final class IOUtils {
             n = input.read(buffer, 0, n);
         }
     }
+    
+    public static void copyAtLeast(final Reader input, 
+                                   final Writer output,
+                                   int atLeast) throws IOException {
+        final char[] buffer = new char[4096];
+        int n = atLeast > buffer.length ? buffer.length : atLeast;
+        n = input.read(buffer, 0, n);
+        while (-1 != n) {
+            if (n == 0) {
+                throw new IOException("0 bytes read in violation of Reader.read(char[])");
+            }
+            output.write(buffer, 0, n);
+            atLeast -= n;
+            if (atLeast <= 0) {
+                return;
+            }
+            n = atLeast > buffer.length ? buffer.length : atLeast;
+            n = input.read(buffer, 0, n);
+        }
+    }
 
 
     public static void copy(final Reader input, final Writer output,
             final int bufferSize) throws IOException {
         final char[] buffer = new char[bufferSize];
-        int n = 0;
-        n = input.read(buffer);
+        int n = input.read(buffer);
         while (-1 != n) {
             output.write(buffer, 0, n);
             n = input.read(buffer);
@@ -211,15 +274,8 @@ public final class IOUtils {
         if (Transferable.class.isAssignableFrom(inputStream.getClass())) {
             ((Transferable)inputStream).transferTo(destinationFile);
         } else {
-            FileOutputStream fout = new FileOutputStream(destinationFile);
-            try {
+            try (FileOutputStream fout = new FileOutputStream(destinationFile)) {
                 copyAndCloseInput(inputStream, fout);
-            } finally {
-                try {
-                    fout.close();
-                } catch (IOException ex) {
-                    //ignore
-                }
             }
         }
     }
@@ -255,31 +311,25 @@ public final class IOUtils {
 
         StringBuilder buf = new StringBuilder();
         final char[] buffer = new char[bufSize];
-        int n = 0;
-        n = input.read(buffer);
-        while (-1 != n) {
-            if (n == 0) {
-                throw new IOException("0 bytes read in violation of InputStream.read(byte[])");
-            }
-            buf.append(new String(buffer, 0, n));
+        try {
+            int n = 0;
             n = input.read(buffer);
+            while (-1 != n) {
+                if (n == 0) {
+                    throw new IOException("0 bytes read in violation of InputStream.read(byte[])");
+                }
+                buf.append(new String(buffer, 0, n));
+                n = input.read(buffer);
+            }
+            return buf.toString();
+        } finally {
+            input.close();
         }
-        input.close();
-        return buf.toString();
     }
 
     public static String readStringFromStream(InputStream in)
         throws IOException {
-
-        StringBuilder sb = new StringBuilder(1024);
-
-        for (int i = in.read(); i != -1; i = in.read()) {
-            sb.append((char) i);
-        }
-
-        in.close();
-
-        return sb.toString();
+        return toString(in);
     }
 
     /**
@@ -354,9 +404,11 @@ public final class IOUtils {
         if (i < DEFAULT_BUFFER_SIZE) {
             i = DEFAULT_BUFFER_SIZE;
         }
-        ByteArrayOutputStream bos = new ByteArrayOutputStream(i);
-        copy(in, bos);
-        in.close();
-        return bos.toByteArray();
+        try (ByteArrayOutputStream bos = new ByteArrayOutputStream(i)) {
+            copy(in, bos);
+            return bos.toByteArray();
+        } finally {
+            in.close();
+        }
     }
 }

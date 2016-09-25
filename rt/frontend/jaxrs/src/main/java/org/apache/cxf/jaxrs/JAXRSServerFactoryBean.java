@@ -97,10 +97,10 @@ public class JAXRSServerFactoryBean extends AbstractJAXRSFactoryBean {
      * @param app
      */
     public void setApplication(Application app) {
-        setApplication(new ApplicationInfo(app, getBus()));
+        setApplicationInfo(new ApplicationInfo(app, getBus()));
     }
     
-    public void setApplication(ApplicationInfo provider) {
+    public void setApplicationInfo(ApplicationInfo provider) {
         appProvider = provider;
         Set<String> appNameBindings = AnnotationUtils.getNameBindings(provider.getProvider()
                                                                       .getClass().getAnnotations());
@@ -193,6 +193,7 @@ public class JAXRSServerFactoryBean extends AbstractJAXRSFactoryBean {
             checkPrivateEndpoint(ep);
             
             factory.applyDynamicFeatures(getServiceFactory().getClassResourceInfo());
+            applyBusFeatures(getBus());
             applyFeatures();
 
             getServiceFactory().sendEvent(FactoryBeanListener.Event.SERVER_CREATED,
@@ -244,6 +245,14 @@ public class JAXRSServerFactoryBean extends AbstractJAXRSFactoryBean {
             cri.initBeanParamInfo(factory);
         }
         
+    }
+    
+    protected void applyBusFeatures(final Bus bus) {
+        if (bus.getFeatures() != null) {
+            for (Feature feature : bus.getFeatures()) {
+                feature.initialize(server, bus);
+            }
+        }
     }
     
     protected void applyFeatures() {
@@ -398,7 +407,7 @@ public class JAXRSServerFactoryBean extends AbstractJAXRSFactoryBean {
         this.start = start;
     }
 
-    private void injectContexts() {
+    protected void injectContexts() {
         Application application = appProvider == null ? null : appProvider.getProvider();
         for (ClassResourceInfo cri : serviceFactory.getClassResourceInfo()) {
             if (cri.isSingleton()) {
@@ -413,7 +422,7 @@ public class JAXRSServerFactoryBean extends AbstractJAXRSFactoryBean {
         }
     }
     
-    private void updateClassResourceProviders() {
+    protected void updateClassResourceProviders() {
         for (ClassResourceInfo cri : serviceFactory.getClassResourceInfo()) {
             if (cri.getResourceProvider() != null) {
                 continue;
@@ -423,14 +432,16 @@ public class JAXRSServerFactoryBean extends AbstractJAXRSFactoryBean {
             if (rp != null) {
                 cri.setResourceProvider(rp);
             } else {
-                //default lifecycle is per-request
-                rp = new PerRequestResourceProvider(cri.getResourceClass());
-                cri.setResourceProvider(rp);  
+                setDefaultResourceProvider(cri);  
             }
         }
         injectContexts();
     }
 
+    protected void setDefaultResourceProvider(ClassResourceInfo cri) {
+        cri.setResourceProvider(new PerRequestResourceProvider(cri.getResourceClass()));
+    }
+    
     /**
      * Set the reference to the document (WADL, etc) describing the endpoint
      * @param documentLocation document location

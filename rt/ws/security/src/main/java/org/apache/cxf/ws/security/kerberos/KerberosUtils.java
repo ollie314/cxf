@@ -21,10 +21,11 @@ package org.apache.cxf.ws.security.kerberos;
 
 import javax.security.auth.callback.CallbackHandler;
 
-import org.apache.cxf.common.classloader.ClassLoaderUtils;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.message.MessageUtils;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.wss4j.common.ext.WSSecurityException;
 
 /**
  * 
@@ -35,7 +36,7 @@ public final class KerberosUtils {
         //utility class
     }
     
-    public static KerberosClient getClient(Message message, String type) {
+    public static KerberosClient getClient(Message message, String type) throws WSSecurityException {
         KerberosClient client = (KerberosClient)message
             .getContextualProperty(SecurityConstants.KERBEROS_CLIENT);
         if (client == null) {
@@ -45,10 +46,15 @@ public final class KerberosUtils {
                 (String)message.getContextualProperty(SecurityConstants.KERBEROS_JAAS_CONTEXT_NAME);
             String kerberosSpn = 
                 (String)message.getContextualProperty(SecurityConstants.KERBEROS_SPN);
-            CallbackHandler callbackHandler = 
-                getCallbackHandler(
-                    message.getContextualProperty(SecurityConstants.CALLBACK_HANDLER)
-                );
+            try {
+                CallbackHandler callbackHandler = 
+                    SecurityUtils.getCallbackHandler(
+                        SecurityUtils.getSecurityPropertyValue(SecurityConstants.CALLBACK_HANDLER, message)
+                    );
+                client.setCallbackHandler(callbackHandler);
+            } catch (Exception ex) {
+                throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, ex);
+            }
             boolean useCredentialDelegation = 
                 MessageUtils.getContextualBoolean(message, 
                                               SecurityConstants.KERBEROS_USE_CREDENTIAL_DELEGATION, 
@@ -66,27 +72,11 @@ public final class KerberosUtils {
             
             client.setContextName(jaasContext);
             client.setServiceName(kerberosSpn);
-            client.setCallbackHandler(callbackHandler);
             client.setUseDelegatedCredential(useCredentialDelegation);
             client.setUsernameServiceNameForm(isInServiceNameForm);
             client.setRequestCredentialDelegation(requestCredentialDelegation);
         }
         return client;
-    }
-    
-    private static CallbackHandler getCallbackHandler(Object o) {
-        CallbackHandler handler = null;
-        if (o instanceof CallbackHandler) {
-            handler = (CallbackHandler)o;
-        } else if (o instanceof String) {
-            try {
-                handler = (CallbackHandler)ClassLoaderUtils.loadClass((String)o, 
-                                                                      KerberosUtils.class).newInstance();
-            } catch (Exception e) {
-                handler = null;
-            }
-        }
-        return handler;
     }
     
 }

@@ -21,18 +21,22 @@ package org.apache.cxf.transport.jms.uri;
 
 import java.util.Map;
 
+import org.apache.cxf.service.model.EndpointInfo;
 import org.apache.cxf.transport.jms.uri.JMSEndpoint.DeliveryModeType;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class JMSEndpointTest extends Assert {
 
+    private static final String TEST_VALUE = "testValue";
+
     @Test
     public void testBasicQueue() throws Exception {
-        JMSEndpoint endpoint = new JMSEndpoint("jms:queue:Foo.Bar");
+        JMSEndpoint endpoint = new JMSEndpoint("jms:queue:Foo.Bar?concurrentConsumers=21");
         assertEquals(JMSEndpoint.QUEUE, endpoint.getJmsVariant());
         assertEquals("Foo.Bar", endpoint.getDestinationName());
         assertEquals(JMSEndpoint.QUEUE, endpoint.getJmsVariant());
+        assertEquals(21, endpoint.getConcurrentConsumers());
     }
 
     @Test
@@ -191,4 +195,13 @@ public class JMSEndpointTest extends Assert {
         JMSEndpoint endpoint = new JMSEndpoint("jms:queue:Foo.Bar?jndiTransactionManagerName=test");
         assertEquals("test", endpoint.getJndiTransactionManagerName());
     }
+    
+    @Test
+    public void testJaxWsProps() throws Exception {
+        EndpointInfo ei = new EndpointInfo();
+        ei.setProperty(JMSEndpoint.JAXWS_PROPERTY_PREFIX + "durableSubscriptionName", TEST_VALUE);
+        JMSEndpoint endpoint = new JMSEndpoint(ei, "jms:queue:Foo.Bar");
+        assertEquals(endpoint.getDurableSubscriptionName(), TEST_VALUE);
+    }
+
 }

@@ -23,7 +23,10 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 
+import javax.ws.rs.Consumes;
+import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.ext.MessageBodyReader;
@@ -35,22 +38,28 @@ import org.apache.cxf.jaxrs.model.ParameterType;
 import org.apache.cxf.jaxrs.utils.HttpUtils;
 import org.apache.cxf.jaxrs.utils.InjectionUtils;
 
-public class PrimitiveTextProvider<T> 
+@Consumes("text/plain")
+@Produces("text/plain")
+public class PrimitiveTextProvider<T> extends AbstractConfigurableProvider
     implements MessageBodyReader<T>, MessageBodyWriter<T> {
-
-    private static boolean isSupported(Class<?> type) { 
-        return InjectionUtils.isPrimitive(type);
+    
+    private static boolean isSupported(Class<?> type, MediaType mt) { 
+        boolean isPrimitive = InjectionUtils.isPrimitiveOnly(type);
+        return isPrimitive && mt.isCompatible(MediaType.TEXT_PLAIN_TYPE);
     }
     
     public boolean isReadable(Class<?> type, Type genericType, Annotation[] annotations, MediaType mt) {
-        return isSupported(type);
+        return isSupported(type, mt);
     }
 
     public T readFrom(Class<T> type, Type genType, Annotation[] anns, MediaType mt, 
                       MultivaluedMap<String, String> headers, InputStream is) throws IOException {
-        String string = IOUtils.toString(is, HttpUtils.getEncoding(mt, "UTF-8"));
+        String string = IOUtils.toString(is, HttpUtils.getEncoding(mt, StandardCharsets.UTF_8.name()));
+        if (StringUtils.isEmpty(string)) {
+            reportEmptyContentLength();
+        }
         if (type == Character.class) {
-            char character = StringUtils.isEmpty(string) ? ' ' : string.charAt(0);
+            char character = string.charAt(0);
             return type.cast(Character.valueOf(character));
         }
         return InjectionUtils.handleParameter(
@@ -68,14 +77,16 @@ public class PrimitiveTextProvider<T>
     }
 
     public boolean isWriteable(Class<?> type, Type genericType, Annotation[] annotations, MediaType mt) {
-        return isSupported(type);
+        return isSupported(type, mt);
     }
 
     public void writeTo(T obj, Class<?> type, Type genType, Annotation[] anns, 
                         MediaType mt, MultivaluedMap<String, Object> headers,
                         OutputStream os) throws IOException {
-        String encoding = HttpUtils.getSetEncoding(mt, headers, "UTF-8");
-        os.write(obj.toString().getBytes(encoding));
+        String encoding = HttpUtils.getSetEncoding(mt, headers, StandardCharsets.UTF_8.name());
+        byte[] bytes = obj.toString().getBytes(encoding);
+        os.write(bytes);
+        
     }
-
+    
 }

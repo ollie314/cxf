@@ -19,7 +19,7 @@
 package org.apache.cxf.rs.security.xml;
 
 import java.io.OutputStream;
-import java.security.NoSuchAlgorithmException;
+import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -46,14 +46,13 @@ import org.apache.cxf.message.MessageUtils;
 import org.apache.cxf.phase.AbstractPhaseInterceptor;
 import org.apache.cxf.phase.Phase;
 import org.apache.cxf.rs.security.common.CryptoLoader;
-import org.apache.cxf.rs.security.common.SecurityUtils;
-import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.cxf.rs.security.common.RSSecurityUtils;
+import org.apache.cxf.rt.security.SecurityConstants;
 import org.apache.wss4j.common.crypto.Crypto;
 import org.apache.wss4j.common.ext.WSPasswordCallback;
 import org.apache.wss4j.common.ext.WSSecurityException;
-import org.apache.wss4j.dom.WSConstants;
+import org.apache.wss4j.common.util.KeyUtils;
 import org.apache.xml.security.Init;
-import org.apache.xml.security.algorithms.JCEMapper;
 import org.apache.xml.security.encryption.XMLCipher;
 import org.apache.xml.security.exceptions.XMLSecurityException;
 import org.apache.xml.security.stax.ext.OutboundXMLSec;
@@ -67,7 +66,7 @@ import org.apache.xml.security.stax.securityToken.SecurityToken;
 import org.apache.xml.security.stax.securityToken.SecurityTokenConstants;
 import org.apache.xml.security.utils.Constants;
 import org.apache.xml.security.utils.EncryptionConstants;
-import org.opensaml.xml.signature.SignatureConstants;
+import org.opensaml.xmlsec.signature.support.SignatureConstants;
 
 /**
  * A new StAX-based interceptor for creating messages with XML Signature + Encryption content.
@@ -84,8 +83,8 @@ public class XmlSecOutInterceptor extends AbstractPhaseInterceptor<Message> {
     private SecretKey symmetricKey;
     private boolean signRequest;
     private boolean encryptRequest;
-    private List<QName> elementsToSign = new ArrayList<QName>();
-    private List<QName> elementsToEncrypt = new ArrayList<QName>();
+    private List<QName> elementsToSign = new ArrayList<>();
+    private List<QName> elementsToEncrypt = new ArrayList<>();
     private boolean keyInfoMustBeAvailable = true;
     
     static {
@@ -161,8 +160,9 @@ public class XmlSecOutInterceptor extends AbstractPhaseInterceptor<Message> {
         if (encryptSymmetricKey) {
             X509Certificate sendingCert = null;
             String userName = 
-                (String)message.getContextualProperty(SecurityConstants.ENCRYPT_USERNAME);
-            if (SecurityUtils.USE_REQUEST_SIGNATURE_CERT.equals(userName)
+                (String)org.apache.cxf.rt.security.utils.SecurityUtils.getSecurityPropertyValue(
+                    SecurityConstants.ENCRYPT_USERNAME, message);
+            if (RSSecurityUtils.USE_REQUEST_SIGNATURE_CERT.equals(userName)
                 && !MessageUtils.isRequestor(message)) {
                 sendingCert = 
                     message.getExchange().getInMessage().getContent(X509Certificate.class);
@@ -178,7 +178,7 @@ public class XmlSecOutInterceptor extends AbstractPhaseInterceptor<Message> {
                                           SecurityConstants.ENCRYPT_CRYPTO,
                                           SecurityConstants.ENCRYPT_PROPERTIES);
                 
-                userName = SecurityUtils.getUserName(crypto, userName);
+                userName = RSSecurityUtils.getUserName(crypto, userName);
                 if (StringUtils.isEmpty(userName)) {
                     throw new Exception("User name is not available");
                 }
@@ -252,40 +252,17 @@ public class XmlSecOutInterceptor extends AbstractPhaseInterceptor<Message> {
     }
     
     private X509Certificate getCertificateFromCrypto(Crypto crypto, String user) throws Exception {
-        X509Certificate[] certs = SecurityUtils.getCertificates(crypto, user);
+        X509Certificate[] certs = RSSecurityUtils.getCertificates(crypto, user);
         return certs[0];
     }
     
     private SecretKey getSymmetricKey(String symEncAlgo) throws Exception {
         synchronized (this) {
             if (symmetricKey == null) {
-                KeyGenerator keyGen = getKeyGenerator(symEncAlgo);
+                KeyGenerator keyGen = KeyUtils.getKeyGenerator(symEncAlgo);
                 symmetricKey = keyGen.generateKey();
             } 
             return symmetricKey;
-        }
-    }
-    
-    private KeyGenerator getKeyGenerator(String symEncAlgo) throws WSSecurityException {
-        try {
-            //
-            // Assume AES as default, so initialize it
-            //
-            String keyAlgorithm = JCEMapper.getJCEKeyAlgorithmFromURI(symEncAlgo);
-            KeyGenerator keyGen = KeyGenerator.getInstance(keyAlgorithm);
-            if (symEncAlgo.equalsIgnoreCase(WSConstants.AES_128)
-                || symEncAlgo.equalsIgnoreCase(WSConstants.AES_128_GCM)) {
-                keyGen.init(128);
-            } else if (symEncAlgo.equalsIgnoreCase(WSConstants.AES_192)
-                || symEncAlgo.equalsIgnoreCase(WSConstants.AES_192_GCM)) {
-                keyGen.init(192);
-            } else if (symEncAlgo.equalsIgnoreCase(WSConstants.AES_256)
-                || symEncAlgo.equalsIgnoreCase(WSConstants.AES_256_GCM)) {
-                keyGen.init(256);
-            }
-            return keyGen;
-        } catch (NoSuchAlgorithmException e) {
-            throw new WSSecurityException(WSSecurityException.ErrorCode.UNSUPPORTED_ALGORITHM, e);
         }
     }
     
@@ -298,16 +275,16 @@ public class XmlSecOutInterceptor extends AbstractPhaseInterceptor<Message> {
         Crypto crypto = loader.getCrypto(message, 
                                          SecurityConstants.SIGNATURE_CRYPTO,
                                          SecurityConstants.SIGNATURE_PROPERTIES);
-        String user = SecurityUtils.getUserName(message, crypto, userNameKey);
+        String user = RSSecurityUtils.getUserName(message, crypto, userNameKey);
          
-        if (StringUtils.isEmpty(user) || SecurityUtils.USE_REQUEST_SIGNATURE_CERT.equals(user)) {
+        if (StringUtils.isEmpty(user) || RSSecurityUtils.USE_REQUEST_SIGNATURE_CERT.equals(user)) {
             throw new Exception("User name is not available");
         }
 
         String password = 
-            SecurityUtils.getPassword(message, user, WSPasswordCallback.SIGNATURE, this.getClass());
+            RSSecurityUtils.getPassword(message, user, WSPasswordCallback.SIGNATURE, this.getClass());
     
-        X509Certificate[] issuerCerts = SecurityUtils.getCertificates(crypto, user);
+        X509Certificate[] issuerCerts = RSSecurityUtils.getCertificates(crypto, user);
         properties.setSignatureCerts(issuerCerts);
         
         String sigAlgo = sigProps.getSignatureAlgo() == null 
@@ -442,7 +419,7 @@ public class XmlSecOutInterceptor extends AbstractPhaseInterceptor<Message> {
         }
 
         if (encoding == null) {
-            encoding = "UTF-8";
+            encoding = StandardCharsets.UTF_8.name();
             message.put(Message.ENCODING, encoding);
         }
         return encoding;
@@ -494,7 +471,7 @@ public class XmlSecOutInterceptor extends AbstractPhaseInterceptor<Message> {
     }
 
     final class XmlSecStaxOutInterceptorInternal extends AbstractPhaseInterceptor<Message> {
-        public XmlSecStaxOutInterceptorInternal() {
+        XmlSecStaxOutInterceptorInternal() {
             super(Phase.PRE_STREAM_ENDING);
         }
         

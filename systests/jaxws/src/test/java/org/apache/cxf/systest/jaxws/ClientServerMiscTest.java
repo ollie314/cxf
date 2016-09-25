@@ -39,6 +39,7 @@ import javax.xml.namespace.QName;
 import javax.xml.ws.BindingProvider;
 import javax.xml.ws.Holder;
 import javax.xml.ws.Service;
+import javax.xml.ws.WebServiceException;
 import javax.xml.ws.soap.SOAPBinding;
 import javax.xml.ws.soap.SOAPFaultException;
 import javax.xml.xpath.XPathConstants;
@@ -570,7 +571,7 @@ public class ClientServerMiscTest extends AbstractBusClientServerTestBase {
         assertEquals(2, foos2.get(0).length);
         assertEquals(2, foos2.get(1).length);
         
-        int ints[] = port.echoIntArray(new int[] {1, 2 , 3}, null);
+        int ints[] = port.echoIntArray(new int[] {1, 2, 3}, null);
         assertEquals(3, ints.length);
         assertEquals(1, ints[0]);
 
@@ -621,6 +622,12 @@ public class ClientServerMiscTest extends AbstractBusClientServerTestBase {
             assertEquals("Throw user fault -3", ex.getMessage());
         }    
         
+        try {
+            port.throwException(-4);
+            fail("Expected exception not found");
+        } catch (WebServiceException ex) {
+            assertEquals("RuntimeException!!", ex.getMessage());
+        }    
         try {
             Foo foo = new Foo();
             foo.setNameIgnore("DoNoName");
@@ -673,7 +680,7 @@ public class ClientServerMiscTest extends AbstractBusClientServerTestBase {
 
     private void runRpcLitTest(RpcLitCodeFirstService port) throws Exception {
        
-        String ret[] = port.convertToString(new int[] {1, 2 , 3});
+        String ret[] = port.convertToString(new int[] {1, 2, 3});
         assertEquals(3, ret.length);
 
         List<String> rev = new ArrayList<String>(Arrays.asList(RpcLitCodeFirstServiceImpl.DATA));
@@ -887,14 +894,15 @@ public class ClientServerMiscTest extends AbstractBusClientServerTestBase {
         String str = IOUtils.readStringFromStream(con.getInputStream());
         
         //Check to make sure SESSIONID is a string
-        BufferedReader reader = new BufferedReader(new StringReader(str)); 
-        String s = reader.readLine();
-        while (s != null) {
-            if (s.contains("SESSIONID") && s.contains("element ")) {
-                assertTrue(s.contains("string"));
-                assertFalse(s.contains("headerObj"));
+        try (BufferedReader reader = new BufferedReader(new StringReader(str))) {
+            String s = reader.readLine();
+            while (s != null) {
+                if (s.contains("SESSIONID") && s.contains("element ")) {
+                    assertTrue(s.contains("string"));
+                    assertFalse(s.contains("headerObj"));
+                }
+                s = reader.readLine();   
             }
-            s = reader.readLine();   
         }
         //wsdl is correct, now make sure we can actually invoke it 
         QName name = new QName("http://cxf.apache.org/cxf5064", 

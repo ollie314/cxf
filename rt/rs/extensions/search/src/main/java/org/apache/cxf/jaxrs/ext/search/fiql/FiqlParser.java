@@ -302,7 +302,7 @@ public class FiqlParser<T> extends AbstractSearchConditionParser<T> {
         private String operator;
         private List<ASTNode<T>> subnodes = new ArrayList<ASTNode<T>>();
 
-        public SubExpression(String operator) {
+        SubExpression(String operator) {
             this.operator = operator;
         }
 
@@ -348,7 +348,7 @@ public class FiqlParser<T> extends AbstractSearchConditionParser<T> {
         private String operator;
         private TypeInfoObject tvalue;
 
-        public Comparison(String name, String operator, TypeInfoObject value) {
+        Comparison(String name, String operator, TypeInfoObject value) {
             this.name = name;
             this.operator = operator;
             this.tvalue = value;
@@ -401,7 +401,7 @@ public class FiqlParser<T> extends AbstractSearchConditionParser<T> {
         private Object object;
         private TypeInfo typeInfo;
         
-        public TypeInfoObject(Object object, TypeInfo typeInfo) {
+        TypeInfoObject(Object object, TypeInfo typeInfo) {
             this.object = object;
             this.typeInfo = typeInfo;
         }

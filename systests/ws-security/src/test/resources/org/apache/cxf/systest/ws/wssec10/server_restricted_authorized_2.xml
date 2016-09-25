@@ -32,11 +32,6 @@
                 <sec:trustManagers>
                     <sec:keyStore type="jks" password="password" resource="certs/restricted/alice.jks"/>
                 </sec:trustManagers>
-                <sec:cipherSuitesFilter>
-                    <sec:include>.*_EXPORT_.*</sec:include>
-                    <sec:include>.*_EXPORT1024_.*</sec:include>
-                    <sec:include>.*_WITH_AES_.*</sec:include>
-                </sec:cipherSuitesFilter>
                 <!--
                 <sec:clientAuthentication want="true" required="true"/>
                 -->
@@ -62,8 +57,8 @@
     <!-- -->
     <jaxws:endpoint id="UserNameOverTransport" address="https://localhost:${testutil.ports.AuthorizedServer2.1}/UserNameOverTransport" serviceName="interop:PingService" endpointName="interop:UserNameOverTransport_IPingService" implementor="org.apache.cxf.systest.ws.wssec10.server.UserNameOverTransportRestricted" depends-on="tls-settings">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
             <!-- new property -->
             <entry key="ws-security.validate.token" value="false"/>
         </jaxws:properties>

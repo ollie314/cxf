@@ -44,6 +44,7 @@ import org.springframework.context.ApplicationContextAware;
 public class SpringResourceFactory implements ResourceProvider, ApplicationContextAware {
 
     private Constructor<?> c;
+    private Class<?> type;
     private ApplicationContext ac;
     private String beanId;
     private Method postConstructMethod;
@@ -54,6 +55,7 @@ public class SpringResourceFactory implements ResourceProvider, ApplicationConte
     private boolean callPreDestroy = true;
     private String postConstructMethodName;
     private String preDestroyMethodName;
+    private Object singletonInstance; 
     
     public SpringResourceFactory() {
         
@@ -64,35 +66,50 @@ public class SpringResourceFactory implements ResourceProvider, ApplicationConte
     }
     
     private void init() {
-        Class<?> type = ClassHelper.getRealClassFromClass(ac.getType(beanId));
+        type = ClassHelper.getRealClassFromClass(ac.getType(beanId));
         if (Proxy.isProxyClass(type)) {
             type = ClassHelper.getRealClass(ac.getBean(beanId));
+        }
+        isSingleton = ac.isSingleton(beanId);
+        postConstructMethod = ResourceUtils.findPostConstructMethod(type, postConstructMethodName);
+        preDestroyMethod = ResourceUtils.findPreDestroyMethod(type, preDestroyMethodName);
+        
+        if (isSingleton()) {
+            try {
+                singletonInstance = ac.getBean(beanId);
+            } catch (BeansException ex) {
+                // ignore for now, try resolving resource constructor later
+            }
+            if (singletonInstance != null) {
+                return;
+            }
+        } else {
+            isPrototype = ac.isPrototype(beanId);
         }
         c = ResourceUtils.findResourceConstructor(type, !isSingleton());
         if (c == null) {
             throw new RuntimeException("Resource class " + type
                                        + " has no valid constructor");
         }
-        postConstructMethod = ResourceUtils.findPostConstructMethod(type, postConstructMethodName);
-        preDestroyMethod = ResourceUtils.findPreDestroyMethod(type, preDestroyMethodName);
-        isSingleton = ac.isSingleton(beanId);
-        if (!isSingleton) {
-            isPrototype = ac.isPrototype(beanId);
-        }
+        
     }
     
     /**
      * {@inheritDoc}
      */
     public Object getInstance(Message m) {
-        ProviderInfo<?> application = m == null ? null
-            : (ProviderInfo<?>)m.getExchange().getEndpoint().get(Application.class.getName());
-        Map<Class<?>, Object> mapValues = CastUtils.cast(application == null ? null 
-            : Collections.singletonMap(Application.class, application.getProvider()));
-        Object[] values = ResourceUtils.createConstructorArguments(c, m, !isSingleton(), mapValues);
-        Object instance = values.length > 0 ? ac.getBean(beanId, values) : ac.getBean(beanId);
-        initInstance(m, instance);
-        return instance;
+        if (singletonInstance != null) {
+            return singletonInstance;
+        } else {
+            ProviderInfo<?> application = m == null ? null
+                : (ProviderInfo<?>)m.getExchange().getEndpoint().get(Application.class.getName());
+            Map<Class<?>, Object> mapValues = CastUtils.cast(application == null ? null 
+                : Collections.singletonMap(Application.class, application.getProvider()));
+            Object[] values = ResourceUtils.createConstructorArguments(c, m, !isSingleton(), mapValues);
+            Object instance = values.length > 0 ? ac.getBean(beanId, values) : ac.getBean(beanId);
+            initInstance(m, instance);
+            return instance;
+        }
     }
 
     protected void initInstance(Message m, Object instance) {
@@ -144,7 +161,7 @@ public class SpringResourceFactory implements ResourceProvider, ApplicationConte
      * {@inheritDoc}
      */
     public Class<?> getResourceClass() {
-        return c.getDeclaringClass();
+        return type;
     }
 
     public void setCallPostConstruct(boolean callPostConstruct) {

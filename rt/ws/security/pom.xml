@@ -27,13 +27,13 @@
     <parent>
         <groupId>org.apache.cxf</groupId>
         <artifactId>cxf-parent</artifactId>
-        <version>3.1.0-SNAPSHOT</version>
+        <version>3.2.0-SNAPSHOT</version>
         <relativePath>../../../parent/pom.xml</relativePath>
     </parent>
     <properties>
         <cxf.osgi.import>
             net.sf.ehcache*;resolution:=optional;version="[2.5, 3.0.0)",
-            org.opensaml*;resolution:=optional,
+            org.opensaml*;version="${cxf.opensaml.osgi.version.range}",
         </cxf.osgi.import>
     </properties>
     <dependencies>
@@ -49,7 +49,7 @@
         </dependency>
         <dependency>
             <groupId>org.apache.cxf</groupId>
-            <artifactId>cxf-rt-security</artifactId>
+            <artifactId>cxf-rt-security-saml</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -79,6 +79,11 @@
             <optional>true</optional>
         </dependency>
         <dependency>
+            <groupId>org.codehaus.woodstox</groupId>
+            <artifactId>woodstox-core-asl</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
             <groupId>net.sf.ehcache</groupId>
             <artifactId>ehcache</artifactId>
             <version>${cxf.ehcache.version}</version>
@@ -88,16 +93,6 @@
             <groupId>org.apache.wss4j</groupId>
             <artifactId>wss4j-ws-security-dom</artifactId>
             <version>${cxf.wss4j.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>xerces</groupId>
-                    <artifactId>xercesImpl</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>xml-apis</groupId>
-                    <artifactId>xml-apis</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.wss4j</groupId>

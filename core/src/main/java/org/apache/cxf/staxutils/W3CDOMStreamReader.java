@@ -146,11 +146,6 @@ public class W3CDOMStreamReader extends AbstractDOMStreamReader<Node, Node> {
         }
     }
 
-    @Override
-    protected void endElement() {
-        super.endElement();
-    }
-
     public final Node getCurrentNode() {
         return getCurrentFrame().element;
     }
@@ -361,11 +356,7 @@ public class W3CDOMStreamReader extends AbstractDOMStreamReader<Node, Node> {
         String prefix = getPrefix();
         String ln = getLocalName();
 
-        if (prefix == null) {
-            return new QName(el.getNamespaceURI(), ln);
-        } else {
-            return new QName(el.getNamespaceURI(), ln, prefix);
-        }
+        return new QName(el.getNamespaceURI(), ln, prefix);
     }
 
     public String getLocalName() {

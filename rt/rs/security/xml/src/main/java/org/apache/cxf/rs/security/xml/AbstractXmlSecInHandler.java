@@ -21,6 +21,7 @@ package org.apache.cxf.rs.security.xml;
 
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.logging.Logger;
 
 import javax.ws.rs.core.Response;
@@ -29,22 +30,37 @@ import javax.xml.stream.XMLStreamReader;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
-
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.jaxrs.utils.ExceptionUtils;
 import org.apache.cxf.jaxrs.utils.JAXRSUtils;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.staxutils.StaxUtils;
 import org.apache.cxf.staxutils.W3CDOMStreamReader;
-import org.apache.wss4j.dom.WSSConfig;
+import org.apache.wss4j.common.crypto.WSProviderConfig;
 
 
 public abstract class AbstractXmlSecInHandler {
+    /**
+     * A key used to reference the cert that was used to verify the signed request
+     */
+    public static final String SIGNING_CERT = "xml.security.signing.cert";
+    /**
+     * A key used to reference the public key that was used to verify the signed request
+     */
+    public static final String SIGNING_PUBLIC_KEY = "xml.security.signing.public.key";
+    
+    protected static final String SIG_NS = "http://www.w3.org/2000/09/xmldsig#";
+    protected static final String SIG_PREFIX = "ds";
+    protected static final String ENC_NS = "http://www.w3.org/2001/04/xmlenc#";
+    protected static final String ENC_PREFIX = "xenc";
+    protected static final String WSU_NS = 
+        "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd";
+    
     private static final Logger LOG = 
         LogUtils.getL7dLogger(AbstractXmlSecInHandler.class);
     
     static {
-        WSSConfig.init();
+        WSProviderConfig.init();
     }
     
     private boolean allowEmptyBody;
@@ -63,7 +79,7 @@ public abstract class AbstractXmlSecInHandler {
         InputStream is = message.getContent(InputStream.class);
         if (is != null) {
             try {
-                doc = StaxUtils.read(new InputStreamReader(is, "UTF-8"));
+                doc = StaxUtils.read(new InputStreamReader(is, StandardCharsets.UTF_8));
             } catch (Exception ex) {
                 throwFault("Invalid XML payload", ex);
             }

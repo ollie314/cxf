@@ -103,7 +103,7 @@ public class LogicalHandlerOutInterceptor
     private class LogicalHandlerOutEndingInterceptor 
         extends AbstractJAXWSHandlerInterceptor<Message> {
     
-        public LogicalHandlerOutEndingInterceptor(Binding binding) {
+        LogicalHandlerOutEndingInterceptor(Binding binding) {
             super(binding, Phase.POST_MARSHAL);
         }
     
@@ -147,7 +147,7 @@ public class LogicalHandlerOutInterceptor
                     // client side - abort
                     message.getInterceptorChain().abort();
                     if (!message.getExchange().isOneWay()) {
-                        Endpoint e = message.getExchange().get(Endpoint.class);
+                        Endpoint e = message.getExchange().getEndpoint();
                         Message responseMsg = new MessageImpl();
                         responseMsg.setExchange(message.getExchange());
                         responseMsg = e.getBinding().createMessage(responseMsg);            

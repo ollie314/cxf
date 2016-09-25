@@ -26,12 +26,16 @@ import java.util.Map;
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBElement;
 import javax.xml.bind.JAXBException;
+import javax.xml.bind.Unmarshaller;
 import javax.xml.namespace.QName;
 //import javax.xml.ws.EndpointReference;
 //import javax.xml.ws.wsaddressing.W3CEndpointReference;
 
+
+
 import org.w3c.dom.Element;
 
+import org.apache.cxf.common.jaxb.JAXBUtils;
 // importation convention: if the same class name is used for 
 // 2005/08 and 2004/08, then the former version is imported
 // and the latter is fully qualified when used
@@ -112,6 +116,7 @@ public class VersionTransformer {
      */
     public static org.apache.cxf.ws.addressing.v200403.AttributedURI 
     convertTo200403(AttributedURIType internal) {
+        
         org.apache.cxf.ws.addressing.v200403.AttributedURI exposed = Names200403.WSA_OBJECT_FACTORY
             .createAttributedURI();
         String exposedValue = Names.WSA_ANONYMOUS_ADDRESS.equals(internal.getValue())
@@ -264,8 +269,7 @@ public class VersionTransformer {
      * @param exposed the 2004/03 EndpointReferenceType
      * @return an equivalent 2005/08 EndpointReferenceType
      */
-    public static EndpointReferenceType 
-    convert(org.apache.cxf.ws.addressing.v200403.EndpointReferenceType exposed) {
+    public static EndpointReferenceType convert(org.apache.cxf.ws.addressing.v200403.EndpointReferenceType exposed) {
         EndpointReferenceType internal = ContextUtils.WSA_OBJECT_FACTORY.createEndpointReferenceType();
         internal.setAddress(convert(exposed.getAddress()));
         // TODO ref parameters not present in 2004/03
@@ -436,12 +440,17 @@ public class VersionTransformer {
             return null;
         }
         JAXBContext ctx = getExposedJAXBContext(tns);
-        JAXBElement<?> o = ctx.createUnmarshaller().unmarshal(ref, getExposedReferenceType(tns));
-        if (o != null) {
-            return convertToNative(o.getValue());
+        Unmarshaller um = ctx.createUnmarshaller();
+        um.setEventHandler(null);
+        try {
+            JAXBElement<?> o = um.unmarshal(ref, getExposedReferenceType(tns));
+            if (o != null) {
+                return convertToNative(o.getValue());
+            }
+            return convertToNative(null);
+        } finally {
+            JAXBUtils.closeUnmarshaller(um);
         }
-        return convertToNative(null);
-        
     }
     /**
      * Converts a version specific EndpointReferenceType to the native version
@@ -536,7 +545,7 @@ public class VersionTransformer {
         public static JAXBContext getJAXBContext() throws JAXBException {
             synchronized (Names200408.class) {
                 if (jaxbContext == null) {
-                    jaxbContext = JAXBContext.newInstance(org.apache.cxf.ws.addressing.v200408.ObjectFactory.class);
+                    jaxbContext = JAXBContext.newInstance(ObjectFactory.class);
                 }
             }
             return jaxbContext;

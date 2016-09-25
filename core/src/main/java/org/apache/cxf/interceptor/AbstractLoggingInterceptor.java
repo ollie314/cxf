@@ -21,6 +21,7 @@ package org.apache.cxf.interceptor;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
@@ -36,6 +37,7 @@ import javax.xml.stream.XMLStreamWriter;
 import javax.xml.transform.stream.StreamSource;
 
 import org.apache.cxf.common.logging.LogUtils;
+import org.apache.cxf.common.util.PropertyUtils;
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.endpoint.Endpoint;
 import org.apache.cxf.io.CachedOutputStream;
@@ -53,6 +55,9 @@ import org.apache.cxf.staxutils.StaxUtils;
 public abstract class AbstractLoggingInterceptor extends AbstractPhaseInterceptor<Message> {
     public static final int DEFAULT_LIMIT = 48 * 1024;
     protected static final String BINARY_CONTENT_MESSAGE = "--- Binary Content ---";
+    protected static final String MULTIPART_CONTENT_MESSAGE = "--- Multipart Content ---";
+    private static final String MULTIPART_CONTENT_MEDIA_TYPE = "multipart";
+    private static final String  LIVE_LOGGING_PROP = "org.apache.cxf.logging.enable";
     private static final List<String> BINARY_CONTENT_MEDIA_TYPES;
     static {
         BINARY_CONTENT_MEDIA_TYPES = new ArrayList<String>();
@@ -67,6 +72,7 @@ public abstract class AbstractLoggingInterceptor extends AbstractPhaseIntercepto
     protected PrintWriter writer;
     protected boolean prettyLogging;
     private boolean showBinaryContent;
+    private boolean showMultipartContent = true;
     
     public AbstractLoggingInterceptor(String phase) {
         super(phase);
@@ -75,9 +81,17 @@ public abstract class AbstractLoggingInterceptor extends AbstractPhaseIntercepto
         super(id, phase);
     }
     
+    protected static boolean isLoggingDisabledNow(Message message) throws Fault {
+        Object liveLoggingProp = message.getContextualProperty(LIVE_LOGGING_PROP);
+        return liveLoggingProp != null && PropertyUtils.isFalse(liveLoggingProp);
+    }
+    
     protected abstract Logger getLogger();
     
     Logger getMessageLogger(Message message) {
+        if (isLoggingDisabledNow(message)) {
+            return null; 
+        }
         Endpoint ep = message.getExchange().getEndpoint();
         if (ep == null || ep.getEndpointInfo() == null) {
             return getLogger();
@@ -154,15 +168,15 @@ public abstract class AbstractLoggingInterceptor extends AbstractPhaseIntercepto
                                 String encoding, String contentType) 
         throws Exception {
         // Just transform the XML message when the cos has content
-        if (isPrettyLogging() && (contentType != null && contentType.indexOf("xml") >= 0 
-            && contentType.toLowerCase().indexOf("multipart/related") < 0) && cos.size() > 0) {
+        if (isPrettyLogging() && contentType != null && contentType.contains("xml") 
+            && !contentType.toLowerCase().contains("multipart/related") && cos.size() > 0) {
 
             StringWriter swriter = new StringWriter();
             XMLStreamWriter xwriter = StaxUtils.createXMLStreamWriter(swriter);
             xwriter = new PrettyPrintXMLStreamWriter(xwriter, 2);
             InputStream in = cos.getInputStream();
             try {
-                StaxUtils.copy(new StreamSource(in), xwriter);
+                StaxUtils.copy(new StreamSource(new InputStreamReader(in, encoding)), xwriter);
             } catch (XMLStreamException xse) {
                 //ignore
             } finally {
@@ -177,9 +191,9 @@ public abstract class AbstractLoggingInterceptor extends AbstractPhaseIntercepto
             
             String result = swriter.toString();
             if (result.length() < limit || limit == -1) {
-                builder.append(swriter.toString());
+                builder.append(result);
             } else {
-                builder.append(swriter.toString().substring(0, limit));
+                builder.append(result.substring(0, limit));
             }
 
         } else {
@@ -194,32 +208,41 @@ public abstract class AbstractLoggingInterceptor extends AbstractPhaseIntercepto
                                 StringWriter stringWriter,
                                 String contentType) 
         throws Exception {
-        // Just transform the XML message when the cos has content
         if (isPrettyLogging() 
             && contentType != null 
-            && contentType.indexOf("xml") >= 0 
+            && contentType.contains("xml")
             && stringWriter.getBuffer().length() > 0) {
-
-            StringWriter swriter = new StringWriter();
-            XMLStreamWriter xwriter = StaxUtils.createXMLStreamWriter(swriter);
-            xwriter = new PrettyPrintXMLStreamWriter(xwriter, 2);
-            StaxUtils.copy(new StreamSource(new StringReader(stringWriter.getBuffer().toString())), xwriter);
-            xwriter.close();
-            
-            String result = swriter.toString();
-            if (result.length() < limit || limit == -1) {
-                builder.append(swriter.toString());
-            } else {
-                builder.append(swriter.toString().substring(0, limit));
+            try {
+                writePrettyPayload(builder, stringWriter, contentType);
+                return;
+            } catch (Exception ex) { 
+                // log it as is    
             }
-
+        }
+        StringBuffer buffer = stringWriter.getBuffer();
+        if (buffer.length() > limit) {
+            builder.append(buffer.subSequence(0, limit));
         } else {
-            StringBuffer buffer = stringWriter.getBuffer();
-            if (buffer.length() > limit) {
-                builder.append(buffer.subSequence(0, limit));
-            } else {
-                builder.append(buffer);
-            }
+            builder.append(buffer);
+        }
+    }
+    protected void writePrettyPayload(StringBuilder builder, 
+                                StringWriter stringWriter,
+                                String contentType) 
+        throws Exception {
+        // Just transform the XML message when the cos has content
+        
+        StringWriter swriter = new StringWriter();
+        XMLStreamWriter xwriter = StaxUtils.createXMLStreamWriter(swriter);
+        xwriter = new PrettyPrintXMLStreamWriter(xwriter, 2);
+        StaxUtils.copy(new StreamSource(new StringReader(stringWriter.getBuffer().toString())), xwriter);
+        xwriter.close();
+        
+        String result = swriter.toString();
+        if (result.length() < limit || limit == -1) {
+            builder.append(swriter.toString());
+        } else {
+            builder.append(swriter.toString().substring(0, limit));
         }
     }
 
@@ -256,7 +279,17 @@ public abstract class AbstractLoggingInterceptor extends AbstractPhaseIntercepto
     public boolean isShowBinaryContent() {
         return showBinaryContent;
     }
-    public boolean isBinaryContent(String contentType) {
+    protected boolean isBinaryContent(String contentType) {
         return contentType != null && BINARY_CONTENT_MEDIA_TYPES.contains(contentType);
     }
+    public boolean isShowMultipartContent() {
+        return showMultipartContent;
+    }
+    public void setShowMultipartContent(boolean showMultipartContent) {
+        this.showMultipartContent = showMultipartContent;
+    }
+    protected boolean isMultipartContent(String contentType) {
+        return contentType != null && contentType.startsWith(MULTIPART_CONTENT_MEDIA_TYPE);
+    }
+    
 }

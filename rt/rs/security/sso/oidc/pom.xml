@@ -27,14 +27,30 @@
     <parent>
         <groupId>org.apache.cxf</groupId>
         <artifactId>cxf-parent</artifactId>
-        <version>3.1.0-SNAPSHOT</version>
+        <version>3.2.0-SNAPSHOT</version>
         <relativePath>../../../../../parent/pom.xml</relativePath>
     </parent>
+    <properties>
+        <hibernate.em.version>4.1.0.Final</hibernate.em.version>
+        <hsqldb.version>1.8.0.10</hsqldb.version>
+    </properties>
     <dependencies>
         <dependency>
             <groupId>org.apache.cxf</groupId>
             <artifactId>cxf-rt-rs-security-oauth2</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-rs-security-jose-jaxrs</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.geronimo.specs</groupId>
+            <artifactId>geronimo-jpa_2.0_spec</artifactId>
+            <version>${cxf.geronimo.jpa.version}</version>
+            <scope>provided</scope>
+            <optional>true</optional>
         </dependency>
         <!--test dependencies-->
         <dependency>
@@ -47,5 +63,106 @@
             <artifactId>easymock</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>hsqldb</groupId>
+            <artifactId>hsqldb</artifactId>
+            <version>${hsqldb.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+        <dependency>
+             <groupId>org.apache.openjpa</groupId>
+             <artifactId>openjpa</artifactId>
+             <version>${cxf.openjpa.version}</version>
+             <scope>provided</scope>
+        </dependency>
+        -->
+        <dependency>
+            <groupId>org.hibernate</groupId>
+            <artifactId>hibernate-entitymanager</artifactId>
+            <version>${hibernate.em.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
+    <build>
+       <plugins>
+         <plugin>
+	       <groupId>org.bsc.maven</groupId>
+	       <artifactId>maven-processor-plugin</artifactId>
+	       <version>3.1.0</version>
+	       <executions>
+	        <execution>
+		     <id>process</id>
+		     <goals>
+		       <goal>process</goal>
+		     </goals>
+		     <phase>generate-sources</phase>
+		     <configuration>
+               <compilerArguments>-Aopenjpa.source=7 -Aopenjpa.metamodel=true</compilerArguments>
+		       <processors>
+		         <processor>org.apache.openjpa.persistence.meta.AnnotationProcessor6</processor>
+	           </processors>
+               <outputDirectory>target/generated-sources/metamodel</outputDirectory>
+		     </configuration>
+            </execution>
+	    </executions>
+		   <dependencies>
+		     <dependency>
+		       <groupId>org.apache.openjpa</groupId>
+		       <artifactId>openjpa</artifactId>
+		       <version>${cxf.openjpa.version}</version>
+		     </dependency>
+		   </dependencies>
+		 </plugin>
+		 <plugin>
+		  <groupId>org.codehaus.mojo</groupId>
+		  <artifactId>build-helper-maven-plugin</artifactId>
+		  <version>1.10</version>
+		  <executions>
+		    <execution>
+		      <id>add-source</id>
+		      <phase>generate-sources</phase>
+		      <goals>
+			<goal>add-source</goal>
+		      </goals>
+		      <configuration>
+			<sources>
+			  <source>target/generated-sources/metamodel</source>
+			</sources>
+		      </configuration>
+		    </execution>
+		  </executions>
+		 </plugin>
+            <!--  
+            <plugin>
+                <groupId>org.apache.openjpa</groupId>
+                <artifactId>openjpa-maven-plugin</artifactId>
+                <version>${cxf.openjpa.version}</version>
+                <configuration>
+                    <includes>
+                       org/apache/cxf/rs/security/oidc/idp/OidcUserSubject.class,
+                       org/apache/cxf/rs/security/oauth2/common/Client.class,
+                       org/apache/cxf/rs/security/oauth2/common/UserSubject.class,
+                       org/apache/cxf/rs/security/oauth2/grants/code/AuthorizationCodeGrant,
+                       org/apache/cxf/rs/security/oauth2/grants/code/ServerAuthorizationCodeGrant.class,
+                       org/apache/cxf/rs/security/oauth2/tokens/bearer/BearerAccessToken.class,
+                       org/apache/cxf/rs/security/oauth2/common/ServerAccessToken.class,
+                       org/apache/cxf/rs/security/oauth2/common/AccessToken.class,
+                       org/apache/cxf/rs/security/oauth2/tokens/refresh/RefreshToken.class,
+                       org/apache/cxf/rs/security/oauth2/common/OAuthPermission.class
+                    </includes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>enhancer</id>
+                        <phase>process-test-classes</phase>
+                        <goals>
+                            <goal>test-enhance</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            -->
+        </plugins>
+      </build>
 </project>

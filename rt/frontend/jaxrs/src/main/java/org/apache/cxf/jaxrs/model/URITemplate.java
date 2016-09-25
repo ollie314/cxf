@@ -188,7 +188,8 @@ public final class URITemplate {
         for (String name : variables) {
             while (i <= groupCount) {
                 String value = m.group(i++);
-                if (value == null || value.length() == 0 && i < groupCount) {
+                if ((value == null || value.length() == 0 && i < groupCount) 
+                    && variables.size() + 1 < groupCount) {
                     continue;
                 }
                 templateVariableToValue.add(name, value);
@@ -510,7 +511,7 @@ public final class URITemplate {
         private List<String> tokens = new ArrayList<String>();
         private int tokenIdx;
 
-        public CurlyBraceTokenizer(String string) {
+        CurlyBraceTokenizer(String string) {
             boolean outside = true;
             int level = 0;
             int lastIdx = 0;

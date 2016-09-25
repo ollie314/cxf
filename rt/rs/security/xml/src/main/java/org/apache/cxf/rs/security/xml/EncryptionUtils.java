@@ -29,7 +29,7 @@ import javax.crypto.spec.OAEPParameterSpec;
 import javax.crypto.spec.PSource;
 
 import org.apache.wss4j.common.ext.WSSecurityException;
-import org.apache.wss4j.dom.util.WSSecurityUtil;
+import org.apache.wss4j.common.util.KeyUtils;
 import org.apache.xml.security.algorithms.JCEMapper;
 import org.apache.xml.security.encryption.XMLCipher;
 import org.apache.xml.security.encryption.XMLEncryptionException;
@@ -51,7 +51,7 @@ public final class EncryptionUtils {
         int mode, 
         X509Certificate cert
     ) throws WSSecurityException {
-        Cipher cipher = WSSecurityUtil.getCipherInstance(keyEncAlgo);
+        Cipher cipher = KeyUtils.getCipherInstance(keyEncAlgo);
         try {
             OAEPParameterSpec oaepParameters = 
                 constructOAEPParameters(
@@ -62,13 +62,9 @@ public final class EncryptionUtils {
             } else {
                 cipher.init(mode, cert.getPublicKey(), oaepParameters);
             }
-        } catch (InvalidKeyException e) {
+        } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
             throw new WSSecurityException(
-                WSSecurityException.ErrorCode.FAILED_ENCRYPTION, null, null, e
-            );
-        } catch (InvalidAlgorithmParameterException e) {
-            throw new WSSecurityException(
-                WSSecurityException.ErrorCode.FAILED_ENCRYPTION, null, null, e
+                WSSecurityException.ErrorCode.FAILED_ENCRYPTION, e
             );
         }
         return cipher;
@@ -81,7 +77,7 @@ public final class EncryptionUtils {
     
     public static Cipher initCipherWithKey(String keyEncAlgo, String digestAlgo, int mode, Key key)
         throws WSSecurityException {
-        Cipher cipher = WSSecurityUtil.getCipherInstance(keyEncAlgo);
+        Cipher cipher = KeyUtils.getCipherInstance(keyEncAlgo);
         try {
             OAEPParameterSpec oaepParameters = 
                 constructOAEPParameters(
@@ -92,13 +88,9 @@ public final class EncryptionUtils {
             } else {
                 cipher.init(mode, key, oaepParameters);
             }
-        } catch (InvalidKeyException e) {
+        } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
             throw new WSSecurityException(
-                WSSecurityException.ErrorCode.FAILED_ENCRYPTION, null, null, e
-            );
-        } catch (InvalidAlgorithmParameterException e) {
-            throw new WSSecurityException(
-                WSSecurityException.ErrorCode.FAILED_ENCRYPTION, null, null, e
+                WSSecurityException.ErrorCode.FAILED_ENCRYPTION, e
             );
         }
         return cipher;

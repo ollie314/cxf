@@ -134,8 +134,7 @@ public class JMSConduit extends AbstractConduit implements JMSExchangeSender, Me
         jmsConfig.ensureProperlyConfigured();        
         assertIsNotTextMessageAndMtom(outMessage);
 
-        ResourceCloser closer = new ResourceCloser();
-        try {
+        try (ResourceCloser closer = new ResourceCloser()) {
             Connection c = getConnection();
             Session session = closer.register(c.createSession(false, 
                                                               Session.AUTO_ACKNOWLEDGE));
@@ -160,8 +159,6 @@ public class JMSConduit extends AbstractConduit implements JMSExchangeSender, Me
                 // Ignore
             }
             throw JMSUtil.convertJmsException(e);
-        } finally {
-            closer.close();
         }
     }
     
@@ -181,8 +178,10 @@ public class JMSConduit extends AbstractConduit implements JMSExchangeSender, Me
                                                                                       staticReplyDestination, 
                                                                                       this);
                     container.setMessageSelector(messageSelector);
-                    Executor executor = JMSFactory.createExecutor(bus, "jms-conduit");
-                    container.setExecutor(executor);
+                    Object executor = bus.getProperty(JMSFactory.JMS_CONDUIT_EXECUTOR);
+                    if (executor instanceof Executor) {
+                        container.setExecutor((Executor) executor);
+                    }
                     container.start();
                     jmsListener = container;
                     addBusListener();
@@ -212,7 +211,7 @@ public class JMSConduit extends AbstractConduit implements JMSExchangeSender, Me
             String jmsMessageID = sendMessage(request, outMessage, replyToDestination, correlationId, closer,
                                               session);
             boolean useSyncReceive = ((correlationId == null || userCID != null) && !jmsConfig.isPubSubDomain())
-                || !replyToDestination.equals(staticReplyDestination);
+                || (!replyToDestination.equals(staticReplyDestination) && headers.getJMSReplyTo() != null);
             if (correlationId == null) {
                 correlationId = jmsMessageID;
                 correlationMap.put(correlationId, exchange);
@@ -231,10 +230,10 @@ public class JMSConduit extends AbstractConduit implements JMSExchangeSender, Me
                     try {
                         exchange.wait(jmsConfig.getReceiveTimeout());
                     } catch (InterruptedException e) {
-                        throw new RuntimeException("Interrupted while correlating", e);
+                        throw new JMSException("Interrupted while correlating " +  e.getMessage());
                     }
                     if (exchange.get(CORRELATED) != Boolean.TRUE) {
-                        throw new RuntimeException("Timeout receiving message with correlationId "
+                        throw new JMSException("Timeout receiving message with correlationId "
                                                    + correlationId);
                     }
 
@@ -396,8 +395,10 @@ public class JMSConduit extends AbstractConduit implements JMSExchangeSender, Me
         try {
             Message inMessage = JMSMessageUtils.asCXFMessage(jmsMessage, 
                                                              JMSConstants.JMS_CLIENT_RESPONSE_HEADERS);
-            SecurityContext securityContext = JMSMessageUtils.buildSecurityContext(jmsMessage, jmsConfig);
-            inMessage.put(SecurityContext.class, securityContext);
+            if (jmsConfig.isCreateSecurityContext()) {
+                SecurityContext securityContext = JMSMessageUtils.buildSecurityContext(jmsMessage, jmsConfig);
+                inMessage.put(SecurityContext.class, securityContext);
+            }
             exchange.setInMessage(inMessage);
             Object responseCode = inMessage.get(org.apache.cxf.message.Message.RESPONSE_CODE);
             exchange.put(org.apache.cxf.message.Message.RESPONSE_CODE, responseCode);

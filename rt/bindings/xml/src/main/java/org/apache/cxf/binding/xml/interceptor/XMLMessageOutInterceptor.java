@@ -52,7 +52,7 @@ public class XMLMessageOutInterceptor extends AbstractOutDatabindingInterceptor 
     }
 
     public void handleMessage(Message message) throws Fault {
-        BindingOperationInfo boi = message.getExchange().get(BindingOperationInfo.class);
+        BindingOperationInfo boi = message.getExchange().getBindingOperationInfo();
         MessageInfo mi;
         BindingMessageInfo bmi;
         if (isRequestor(message)) {
@@ -67,8 +67,9 @@ public class XMLMessageOutInterceptor extends AbstractOutDatabindingInterceptor 
         if (xmf != null) {
             rootInModel = xmf.getRootNode();
         }
+        final int mpn = mi.getMessagePartsNumber();
         if (boi.isUnwrapped() 
-            || mi.getMessageParts().size() == 1) {
+            || mpn == 1) {
             // wrapper out interceptor created the wrapper
             // or if bare-one-param
             new BareOutInterceptor().handleMessage(message);
@@ -76,7 +77,7 @@ public class XMLMessageOutInterceptor extends AbstractOutDatabindingInterceptor 
             if (rootInModel == null) {
                 rootInModel = boi.getName();
             }
-            if (mi.getMessageParts().size() == 0 && !boi.isUnwrapped()) {
+            if (mpn == 0 && !boi.isUnwrapped()) {
                 // write empty operation qname
                 writeMessage(message, rootInModel, false);
             } else {

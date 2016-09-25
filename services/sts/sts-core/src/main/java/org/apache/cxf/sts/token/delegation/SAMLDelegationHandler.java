@@ -24,15 +24,15 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.w3c.dom.Element;
-
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.sts.request.ReceivedToken;
+import org.apache.cxf.sts.request.ReceivedToken.STATE;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.common.saml.SamlAssertionWrapper;
 import org.apache.wss4j.common.saml.builder.SAML1Constants;
 import org.apache.wss4j.common.saml.builder.SAML2Constants;
 import org.apache.wss4j.dom.WSConstants;
-import org.opensaml.saml1.core.AudienceRestrictionCondition;
+import org.opensaml.saml.saml1.core.AudienceRestrictionCondition;
 
 /**
  * The SAML TokenDelegationHandler implementation. It disallows ActAs or OnBehalfOf for
@@ -66,12 +66,18 @@ public class SAMLDelegationHandler implements TokenDelegationHandler {
         ReceivedToken delegateTarget = tokenParameters.getToken();
         response.setToken(delegateTarget);
         
-        if (!delegateTarget.isDOMElement()) {
+        if (delegateTarget.getState() != STATE.VALID || !delegateTarget.isDOMElement()) {
+            LOG.fine("Delegation token is not valid");
             return response;
         }
         
         if (isDelegationAllowed(delegateTarget, tokenParameters.getAppliesToAddress())) {
+            if (LOG.isLoggable(Level.FINE)) {
+                LOG.fine("Delegation is allowed for principal " + tokenParameters.getPrincipal());
+            }
             response.setDelegationAllowed(true);
+        } else if (LOG.isLoggable(Level.FINE)) {
+            LOG.fine("Delegation is not allowed for principal " + tokenParameters.getPrincipal());
         }
         
         return response;
@@ -112,18 +118,18 @@ public class SAMLDelegationHandler implements TokenDelegationHandler {
     }
     
     protected List<String> getAudienceRestrictions(SamlAssertionWrapper assertion) {
-        List<String> addresses = new ArrayList<String>();
+        List<String> addresses = new ArrayList<>();
         if (assertion.getSaml1() != null) {
             for (AudienceRestrictionCondition restriction 
                 : assertion.getSaml1().getConditions().getAudienceRestrictionConditions()) {
-                for (org.opensaml.saml1.core.Audience audience : restriction.getAudiences()) {
+                for (org.opensaml.saml.saml1.core.Audience audience : restriction.getAudiences()) {
                     addresses.add(audience.getUri());
                 }
             }
         } else if (assertion.getSaml2() != null) {
-            for (org.opensaml.saml2.core.AudienceRestriction restriction 
+            for (org.opensaml.saml.saml2.core.AudienceRestriction restriction 
                 : assertion.getSaml2().getConditions().getAudienceRestrictions()) {
-                for (org.opensaml.saml2.core.Audience audience : restriction.getAudiences()) {
+                for (org.opensaml.saml.saml2.core.Audience audience : restriction.getAudiences()) {
                     addresses.add(audience.getAudienceURI());
                 }
             }

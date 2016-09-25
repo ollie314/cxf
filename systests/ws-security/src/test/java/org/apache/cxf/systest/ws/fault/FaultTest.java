@@ -86,12 +86,12 @@ public class FaultTest extends AbstractBusClientServerTestBase {
         updateAddressPort(utPort, PORT);
         
         // Make a successful invocation
-        ((BindingProvider)utPort).getRequestContext().put("ws-security.username", "alice");
+        ((BindingProvider)utPort).getRequestContext().put("security.username", "alice");
         utPort.doubleIt(25);
         
         // Now make an invocation using another username
-        ((BindingProvider)utPort).getRequestContext().put("ws-security.username", "bob");
-        ((BindingProvider)utPort).getRequestContext().put("ws-security.password", "password");
+        ((BindingProvider)utPort).getRequestContext().put("security.username", "bob");
+        ((BindingProvider)utPort).getRequestContext().put("security.password", "password");
         try {
             utPort.doubleIt(25);
             fail("Expected failure on bob");
@@ -119,12 +119,45 @@ public class FaultTest extends AbstractBusClientServerTestBase {
         updateAddressPort(utPort, PORT);
         
         // Make a successful invocation
-        ((BindingProvider)utPort).getRequestContext().put("ws-security.username", "alice");
+        ((BindingProvider)utPort).getRequestContext().put("security.username", "alice");
         utPort.doubleIt(25);
         
         // Now make an invocation using another username
-        ((BindingProvider)utPort).getRequestContext().put("ws-security.username", "bob");
-        ((BindingProvider)utPort).getRequestContext().put("ws-security.password", "password");
+        ((BindingProvider)utPort).getRequestContext().put("security.username", "bob");
+        ((BindingProvider)utPort).getRequestContext().put("security.password", "password");
+        try {
+            utPort.doubleIt(25);
+            fail("Expected failure on bob");
+        } catch (Exception ex) {
+            assertTrue(ex.getMessage().contains("This is a fault"));
+        }
+        ((java.io.Closeable)utPort).close();
+        bus.shutdown(true);
+    }
+    
+    @org.junit.Test
+    public void testSoap12Mtom() throws Exception {
+        SpringBusFactory bf = new SpringBusFactory();
+        URL busFile = FaultTest.class.getResource("client.xml");
+
+        Bus bus = bf.createBus(busFile.toString());
+        SpringBusFactory.setDefaultBus(bus);
+        SpringBusFactory.setThreadDefaultBus(bus);
+
+        URL wsdl = FaultTest.class.getResource("DoubleItFault.wsdl");
+        Service service = Service.create(wsdl, SERVICE_QNAME);
+        QName portQName = new QName(NAMESPACE, "DoubleItSoap12MtomPort");
+        DoubleItPortType utPort = 
+                service.getPort(portQName, DoubleItPortType.class);
+        updateAddressPort(utPort, PORT);
+        
+        // Make a successful invocation
+        ((BindingProvider)utPort).getRequestContext().put("security.username", "alice");
+        utPort.doubleIt(25);
+        
+        // Now make an invocation using another username
+        ((BindingProvider)utPort).getRequestContext().put("security.username", "bob");
+        ((BindingProvider)utPort).getRequestContext().put("security.password", "password");
         try {
             utPort.doubleIt(25);
             fail("Expected failure on bob");
@@ -148,6 +181,7 @@ public class FaultTest extends AbstractBusClientServerTestBase {
         
         // Creating a DOMSource Object for the request
         DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        dbf.setNamespaceAware(true);
         DocumentBuilder db = dbf.newDocumentBuilder();
         Document requestDoc = db.newDocument();
         Element root = requestDoc.createElementNS("http://www.example.org/schema/DoubleIt", "ns2:DoubleIt");
@@ -161,25 +195,25 @@ public class FaultTest extends AbstractBusClientServerTestBase {
         // Add WS-Security configuration
         Client client = ((DispatchImpl<DOMSource>) dispatch).getClient();
         client.getRequestContext().put(
-            "ws-security.callback-handler",
+            "security.callback-handler",
             "org.apache.cxf.systest.ws.common.KeystorePasswordCallback"
         );
         client.getRequestContext().put(
-            "ws-security.encryption.properties", 
+            "security.encryption.properties", 
             "bob.properties"
         );
-        client.getRequestContext().put("ws-security.encryption.username", "bob");
+        client.getRequestContext().put("security.encryption.username", "bob");
 
         updateAddressPort(dispatch, PORT);
         
         // Make a successful request
-        client.getRequestContext().put("ws-security.username", "alice");
+        client.getRequestContext().put("security.username", "alice");
         DOMSource response = dispatch.invoke(request);
         assertNotNull(response);
         
         // Now make an invocation using another username
-        client.getRequestContext().put("ws-security.username", "bob");
-        client.getRequestContext().put("ws-security.password", "password");
+        client.getRequestContext().put("security.username", "bob");
+        client.getRequestContext().put("security.password", "password");
         try {
             dispatch.invoke(request);
             fail("Expected failure on bob");
@@ -190,5 +224,74 @@ public class FaultTest extends AbstractBusClientServerTestBase {
         client.destroy();
     }
     
+    @org.junit.Test
+    public void testSoap11PolicyWithParts() throws Exception {
+
+        SpringBusFactory bf = new SpringBusFactory();
+        URL busFile = FaultTest.class.getResource("client.xml");
+
+        Bus bus = bf.createBus(busFile.toString());
+        SpringBusFactory.setDefaultBus(bus);
+        SpringBusFactory.setThreadDefaultBus(bus);
+
+        URL wsdl = FaultTest.class.getResource("DoubleItFault.wsdl");
+        Service service = Service.create(wsdl, SERVICE_QNAME);
+        QName portQName = new QName(NAMESPACE, "DoubleItSoap11PolicyWithPartsPort");
+        DoubleItPortType utPort = 
+                service.getPort(portQName, DoubleItPortType.class);
+        updateAddressPort(utPort, PORT);
+        
+        // Make a successful invocation
+        ((BindingProvider)utPort).getRequestContext().put("security.username", "alice");
+        utPort.doubleIt(25);
+        
+        // Now make an invocation using another username
+        ((BindingProvider)utPort).getRequestContext().put("security.username", "bob");
+        ((BindingProvider)utPort).getRequestContext().put("security.password", "password");
+        try {
+            utPort.doubleIt(25);
+            fail("Expected failure on bob");
+        } catch (Exception ex) {
+            assertTrue(ex.getMessage().contains("This is a fault"));
+        }
+        
+        ((java.io.Closeable)utPort).close();
+        bus.shutdown(true);
+    }
     
+    // See DoubleItPortTypeImplJavaFirst
+    @org.junit.Test
+    public void testJavaFirst() throws Exception {
+
+        SpringBusFactory bf = new SpringBusFactory();
+        URL busFile = FaultTest.class.getResource("client.xml");
+
+        Bus bus = bf.createBus(busFile.toString());
+        SpringBusFactory.setDefaultBus(bus);
+        SpringBusFactory.setThreadDefaultBus(bus);
+
+        URL wsdl = FaultTest.class.getResource("DoubleItFault.wsdl");
+        Service service = Service.create(wsdl, SERVICE_QNAME);
+        QName portQName = new QName(NAMESPACE, "DoubleItJavaFirstPort");
+        DoubleItPortType utPort = 
+                service.getPort(portQName, DoubleItPortType.class);
+        updateAddressPort(utPort, PORT);
+        
+        // Make a successful invocation
+        ((BindingProvider)utPort).getRequestContext().put("security.username", "alice");
+        utPort.doubleIt(25);
+        
+        // Now make an invocation using another username
+        ((BindingProvider)utPort).getRequestContext().put("security.username", "bob");
+        ((BindingProvider)utPort).getRequestContext().put("security.password", "password");
+        try {
+            utPort.doubleIt(25);
+            fail("Expected failure on bob");
+        } catch (Exception ex) {
+            assertTrue(ex.getMessage().contains("This is a fault"));
+        }
+        
+        ((java.io.Closeable)utPort).close();
+        bus.shutdown(true);
+    }
 }

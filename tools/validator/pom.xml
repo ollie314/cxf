@@ -27,15 +27,15 @@
     <parent>
         <groupId>org.apache.cxf</groupId>
         <artifactId>cxf-parent</artifactId>
-        <version>3.1.0-SNAPSHOT</version>
+        <version>3.2.0-SNAPSHOT</version>
         <relativePath>../../parent/pom.xml</relativePath>
     </parent>
-	<properties>
+    <properties>
         <cxf.osgi.export>
-			=org.apache.cxf.tools.validator.internal,
+            =org.apache.cxf.tools.validator.internal,
             org.apache.cxf.tools.validator.*,
         </cxf.osgi.export>
-	</properties>
+    </properties>
     <dependencies>
         <dependency>
             <groupId>org.apache.cxf</groupId>
@@ -51,10 +51,6 @@
             <groupId>${cxf.asm.groupId}</groupId>
             <artifactId>${cxf.asm.artifactId}</artifactId>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.velocity</groupId>
-            <artifactId>velocity</artifactId>
         </dependency>
         <dependency>
             <groupId>wsdl4j</groupId>
@@ -87,9 +83,9 @@
             <version>${project.version}</version>
         </dependency>
     </dependencies>
-	<build>
-		<plugins>
-			<plugin>
+    <build>
+        <plugins>
+            <plugin>
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-bundle-plugin</artifactId>
                 <extensions>true</extensions>
@@ -98,7 +94,7 @@
                         <Export-Package>${cxf.osgi.export}</Export-Package>
                     </instructions>
                 </configuration>
-			</plugin>
-		</plugins>
-	</build>
+            </plugin>
+        </plugins>
+    </build>
 </project>

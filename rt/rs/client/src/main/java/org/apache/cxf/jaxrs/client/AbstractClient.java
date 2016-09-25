@@ -24,7 +24,9 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.text.SimpleDateFormat;
@@ -33,14 +35,17 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
 import javax.ws.rs.ProcessingException;
 import javax.ws.rs.WebApplicationException;
+import javax.ws.rs.client.InvocationCallback;
 import javax.ws.rs.core.Cookie;
 import javax.ws.rs.core.EntityTag;
 import javax.ws.rs.core.Form;
@@ -56,6 +61,7 @@ import javax.xml.stream.XMLStreamWriter;
 
 import org.apache.cxf.Bus;
 import org.apache.cxf.common.logging.LogUtils;
+import org.apache.cxf.common.util.PropertyUtils;
 import org.apache.cxf.endpoint.ClientLifeCycleManager;
 import org.apache.cxf.endpoint.ConduitSelector;
 import org.apache.cxf.endpoint.Endpoint;
@@ -82,7 +88,9 @@ import org.apache.cxf.message.Exchange;
 import org.apache.cxf.message.ExchangeImpl;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.message.MessageContentsList;
+import org.apache.cxf.message.MessageImpl;
 import org.apache.cxf.message.MessageUtils;
+import org.apache.cxf.phase.AbstractPhaseInterceptor;
 import org.apache.cxf.phase.Phase;
 import org.apache.cxf.phase.PhaseChainCache;
 import org.apache.cxf.phase.PhaseInterceptorChain;
@@ -102,10 +110,15 @@ public abstract class AbstractClient implements Client {
     protected static final String HTTP_SCHEME = "http";
     
     private static final String PROXY_PROPERTY = "jaxrs.proxy";
-    private static final String HEADER_SPLIT_PROPERTY =
-        "org.apache.cxf.http.header.split";
+    private static final String HEADER_SPLIT_PROPERTY = "org.apache.cxf.http.header.split";
+    private static final String SERVICE_NOT_AVAIL_PROPERTY = "org.apache.cxf.transport.service_not_available";
+    private static final String COMPLETE_IF_SERVICE_NOT_AVAIL_PROPERTY = 
+        "org.apache.cxf.transport.complete_if_service_not_available";
+    
     private static final Logger LOG = LogUtils.getL7dLogger(AbstractClient.class);
-        
+    private static final Set<String> KNOWN_METHODS = new HashSet<String>(
+        Arrays.asList("GET", "POST", "HEAD", "OPTIONS", "PUT", "DELETE", "TRACE"));
+    
     protected ClientConfiguration cfg = new ClientConfiguration();
     private ClientState state;
     private AtomicBoolean closed = new AtomicBoolean(); 
@@ -193,6 +206,15 @@ public abstract class AbstractClient implements Client {
         return this;
     }
 
+    /**
+     * {@inheritDoc}
+     */
+    public Client authorization(Object auth) {
+        String value = convertParamValue(auth, null);
+        state.getRequestHeaders().putSingle(HttpHeaders.AUTHORIZATION, value);
+        return this;
+    }
+    
     /**
      * {@inheritDoc}
      */
@@ -313,6 +335,9 @@ public abstract class AbstractClient implements Client {
                 cfg.getConduit().close();
             }
             state.reset();
+            if (cfg.isShutdownBusOnClose()) {
+                cfg.getBus().shutdown(false);
+            }
             state = null;
             cfg = null;
         }
@@ -504,7 +529,7 @@ public abstract class AbstractClient implements Client {
             && MessageUtils.isTrue(outMessage.getContextualProperty("response.stream.auto.close"));
     }
     
-    protected void completeExchange(Object response, Exchange exchange, boolean proxy) {
+    protected void completeExchange(Exchange exchange, boolean proxy) {
         // higher level conduits such as FailoverTargetSelector need to
         // clear the request state but a fair number of response objects 
         // depend on InputStream being still open thus lower-level conduits
@@ -533,13 +558,28 @@ public abstract class AbstractClient implements Client {
         Exchange exchange = message.getExchange(); 
       
         Exception ex = message.getContent(Exception.class);
-        if (ex != null) {
+        if (ex == null) {
+            ex = message.getExchange().get(Exception.class);
+        }
+        if (ex == null && !exchange.isOneWay()) {
+            synchronized (exchange) {
+                while (exchange.get("IN_CHAIN_COMPLETE") == null) {
+                    exchange.wait(cfg.getSynchronousTimeout());
+                }
+            }
+        }
+        ex = message.getContent(Exception.class);
+        if (ex != null
+            || PropertyUtils.isTrue(exchange.get(SERVICE_NOT_AVAIL_PROPERTY))
+                && PropertyUtils.isTrue(exchange.get(COMPLETE_IF_SERVICE_NOT_AVAIL_PROPERTY))) {
             getConfiguration().getConduitSelector().complete(exchange);
+        }
+        if (ex != null) {
             checkClientException(message, ex);
         }
-        checkClientException(message, message.getExchange().get(Exception.class));
+        checkClientException(message, exchange.get(Exception.class));
         
-        List<?> result = message.getExchange().get(List.class);
+        List<?> result = exchange.get(List.class);
         return result != null ? result.toArray() : null;
     }
     
@@ -578,10 +618,13 @@ public abstract class AbstractClient implements Client {
         }
     }
     
-    private static Integer getResponseCode(Exchange exchange) {
+    private Integer getResponseCode(Exchange exchange) {
         Integer responseCode = (Integer)exchange.get(Message.RESPONSE_CODE);
         if (responseCode == null && exchange.getInMessage() != null) {
             responseCode = (Integer)exchange.getInMessage().get(Message.RESPONSE_CODE);
+        }
+        if (responseCode == null && exchange.isOneWay() && !state.getBaseURI().toString().startsWith("http")) {
+            responseCode = 202;
         }
         return responseCode;
     }
@@ -721,23 +764,37 @@ public abstract class AbstractClient implements Client {
         if (pValue == null) {
             return null;
         }
-        ProviderFactory pf = ClientProviderFactory.getInstance(cfg.getBus());
+        ProviderFactory pf = ClientProviderFactory.getInstance(cfg.getEndpoint());
         if (pf != null) {
+            Message m = null;
+            if (pf.isParamConverterContextsAvailable()) {
+                m = new MessageImpl();
+                m.put(Message.REQUESTOR_ROLE, Boolean.TRUE);
+                m.setExchange(new ExchangeImpl());
+                m.getExchange().setOutMessage(m);
+                m.getExchange().put(Endpoint.class, cfg.getEndpoint());
+            }
             Class<?> pClass = pValue.getClass();
-            
             @SuppressWarnings("unchecked")
             ParamConverter<Object> prov = 
-                (ParamConverter<Object>)pf.createParameterHandler(pClass, pClass, anns);
+                (ParamConverter<Object>)pf.createParameterHandler(pClass, pClass, anns, m);
             if (prov != null) {
-                return prov.toString(pValue);
+                try {
+                    return prov.toString(pValue);
+                } finally {
+                    if (m != null) {
+                        pf.clearThreadLocalProxies();
+                    }
+                }
             }
         }
         return pValue.toString();
     }
     
-    protected static void reportMessageHandlerProblem(String name, Class<?> cls, MediaType ct, Throwable cause) {
+    protected static void reportMessageHandlerProblem(String name, Class<?> cls, MediaType ct, Throwable ex) {
         String errorMessage = JAXRSUtils.logMessageHandlerProblem("NO_MSG_WRITER", cls, ct);
-        throw new ProcessingException(errorMessage, cause);
+        Throwable actualEx = ex instanceof Fault ? ((Fault)ex).getCause() : ex;
+        throw new ProcessingException(errorMessage, actualEx);
     }
     
     protected static void setAllHeaders(MultivaluedMap<String, String> headers, HttpURLConnection conn) {
@@ -860,15 +917,12 @@ public abstract class AbstractClient implements Client {
     }
     
     protected static MessageObserver setupInFaultObserver(final ClientConfiguration cfg) { 
-        if (!cfg.getInFaultInterceptors().isEmpty()) {
-            return new InFaultChainInitiatorObserver(cfg.getBus()) {
-                protected void initializeInterceptors(Exchange ex, PhaseInterceptorChain chain) {
-                    chain.add(cfg.getInFaultInterceptors());
-                }
-            };
-        } else {
-            return null;
-        }
+        return new InFaultChainInitiatorObserver(cfg.getBus()) {
+            protected void initializeInterceptors(Exchange ex, PhaseInterceptorChain chain) {
+                chain.add(cfg.getInFaultInterceptors());
+                chain.add(new ConnectionFaultInterceptor());
+            }
+        };
     }
     
     protected void setSupportOnewayResponseProperty(Message outMessage) {
@@ -881,10 +935,7 @@ public abstract class AbstractClient implements Client {
             throw new IllegalStateException("Client is closed");
         }
     }
-    protected void finalize() throws Throwable {
-        super.finalize();
-        close();
-    }
+    
     protected Message createMessage(Object body,
                                     String httpMethod, 
                                     MultivaluedMap<String, String> headers,
@@ -897,7 +948,7 @@ public abstract class AbstractClient implements Client {
         m.put(Message.REQUESTOR_ROLE, Boolean.TRUE);
         m.put(Message.INBOUND_MESSAGE, Boolean.FALSE);
         
-        m.put(Message.HTTP_REQUEST_METHOD, httpMethod);
+        setRequestMethod(m, httpMethod);
         m.put(Message.PROTOCOL_HEADERS, headers);
         if (currentURI.isAbsolute() && currentURI.getScheme().startsWith(HTTP_SCHEME)) {
             m.put(Message.ENDPOINT_ADDRESS, currentURI.toString());
@@ -939,6 +990,19 @@ public abstract class AbstractClient implements Client {
         return m;
     }
     
+    private void setRequestMethod(Message m, String httpMethod) {
+        m.put(Message.HTTP_REQUEST_METHOD, httpMethod);
+        if (!KNOWN_METHODS.contains(httpMethod) && !m.containsKey("use.async.http.conduit")) {
+            // if the async conduit is loaded then let it handle this method without users 
+            // having to explicitly request it given that, without reflectively updating
+            // HTTPUrlConnection, it will not work without the async conduit anyway
+            m.put("use.async.http.conduit", true);
+        }
+        //TODO: consider setting "use.httpurlconnection.method.reflection" here too - 
+        // if the async conduit is not loaded then the only way for the custom HTTP verb 
+        // to be supported is to attempt to reflectively modify HTTPUrlConnection
+    }
+
     protected void setEmptyRequestPropertyIfNeeded(Message outMessage, Object body) {
         if (body == null) {
             outMessage.put("org.apache.cxf.empty.request", true);
@@ -964,7 +1028,7 @@ public abstract class AbstractClient implements Client {
             = CastUtils.cast((Map<?, ?>)outMessage.get(Message.INVOCATION_CONTEXT));
         return CastUtils.cast((Map<?, ?>)invContext.get(REQUEST_CONTEXT));
     }
-    
+        
     protected List<?> getContentsList(Object body) {
         return body == null ? new MessageContentsList() : new MessageContentsList(body);
     }
@@ -1017,6 +1081,50 @@ public abstract class AbstractClient implements Client {
         outMessage.getExchange().put("org.apache.cxf.resource.operation.name", name);
     }
     
+    protected static Type getCallbackType(InvocationCallback<?> callback) {
+        Class<?> cls = callback.getClass();
+        ParameterizedType pt = findCallbackType(cls);
+        Type actualType = null;
+        for (Type tp : pt.getActualTypeArguments()) {
+            actualType = tp;
+            break;
+        }
+        if (actualType instanceof TypeVariable) { 
+            actualType = InjectionUtils.getSuperType(cls, (TypeVariable<?>)actualType);
+        }
+        return actualType;
+    }
+    
+    protected static ParameterizedType findCallbackType(Class<?> cls) {
+        if (cls == null || cls == Object.class) {
+            return null;
+        }
+        for (Type c2 : cls.getGenericInterfaces()) {
+            if (c2 instanceof ParameterizedType) {
+                ParameterizedType pt = (ParameterizedType)c2;
+                if (InvocationCallback.class.equals(pt.getRawType())) {
+                    return pt;
+                }
+            }
+        }
+        return findCallbackType(cls.getSuperclass());
+    }
+    
+    protected static Class<?> getCallbackClass(Type outType) {
+        Class<?> respClass = null;
+        if (outType instanceof Class) {
+            respClass = (Class<?>)outType;
+        } else if (outType instanceof ParameterizedType) { 
+            ParameterizedType pt = (ParameterizedType)outType;
+            if (pt.getRawType() instanceof Class) {
+                respClass = (Class<?>)pt.getRawType();
+            }
+        } else if (outType == null) { 
+            respClass = Response.class;
+        }
+        return respClass;
+    }
+    
     protected abstract class AbstractBodyWriter extends AbstractOutDatabindingInterceptor {
 
         public AbstractBodyWriter() {
@@ -1058,5 +1166,88 @@ public abstract class AbstractClient implements Client {
             return AbstractClient.this.retryInvoke(oi, params, context, exchange);
         }
         
+    }
+    private static class ConnectionFaultInterceptor extends AbstractPhaseInterceptor<Message> {
+        ConnectionFaultInterceptor() {
+            super(Phase.PRE_STREAM);
+        } 
+
+        public void handleMessage(Message message) throws Fault {
+            if (!message.getExchange().isSynchronous()) {
+                Throwable ex = message.getContent(Exception.class);
+                if (ex == null) {
+                    ex = message.getExchange().get(Exception.class);
+                }
+                if (ex != null) {
+                    JaxrsClientCallback<?> cb = message.getExchange().get(JaxrsClientCallback.class);
+                    if (ex instanceof Fault) {
+                        ex = ex.getCause();
+                    }
+                    ex = ex instanceof ProcessingException ? ex : new ProcessingException(ex);
+                    cb.handleException(message, ex);
+                }
+            }
+            
+            
+        }
+    }
+    protected abstract class AbstractClientAsyncResponseInterceptor extends AbstractPhaseInterceptor<Message> {
+        AbstractClientAsyncResponseInterceptor() {
+            super(Phase.UNMARSHAL);
+        }
+
+        @Override
+        public void handleMessage(Message message) throws Fault {
+            synchronized (message.getExchange()) {
+                message.getExchange().put("IN_CHAIN_COMPLETE", Boolean.TRUE);
+                message.getExchange().notifyAll();
+            }
+            if (message.getExchange().isSynchronous()) {
+                return;
+            }
+            handleAsyncResponse(message);
+        }
+
+        @Override
+        public void handleFault(Message message) {
+            synchronized (message.getExchange()) {
+                message.getExchange().put("IN_CHAIN_COMPLETE", Boolean.TRUE);
+                message.getExchange().notifyAll();
+            }
+            if (message.getExchange().isSynchronous()) {
+                return;
+            }
+            handleAsyncFault(message);
+        }
+
+        private void handleAsyncResponse(Message message) {
+            JaxrsClientCallback<?> cb = message.getExchange().get(JaxrsClientCallback.class);
+            Response r = null;
+            try {
+                Object[] results = preProcessResult(message);
+                if (results != null && results.length == 1) {
+                    r = (Response)results[0];
+                }
+            } catch (Exception ex) {
+                Throwable t = ex instanceof WebApplicationException 
+                    ? (WebApplicationException)ex 
+                    : ex instanceof ProcessingException 
+                    ? (ProcessingException)ex : new ProcessingException(ex);
+                cb.handleException(message, t);
+                return;
+            }
+            doHandleAsyncResponse(message, r, cb);
+        }
+        
+        protected abstract void doHandleAsyncResponse(Message message, Response r, JaxrsClientCallback<?> cb);
+
+        protected void closeAsyncResponseIfPossible(Response r, Message outMessage, JaxrsClientCallback<?> cb) {
+            if (responseStreamCanBeClosed(outMessage, cb.getResponseClass())) {
+                r.close();
+            }
+        }
+        
+        protected void handleAsyncFault(Message message) {
+        }
     }
 }

@@ -23,6 +23,7 @@ package org.apache.cxf.jaxb.io;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -30,10 +31,12 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.xml.bind.JAXBException;
+import javax.xml.bind.MarshalException;
 import javax.xml.bind.Marshaller;
 import javax.xml.bind.PropertyException;
 import javax.xml.bind.ValidationEvent;
 import javax.xml.bind.ValidationEventHandler;
+import javax.xml.bind.annotation.adapters.XmlAdapter;
 import javax.xml.bind.attachment.AttachmentMarshaller;
 
 import org.apache.cxf.common.i18n.Message;
@@ -45,6 +48,7 @@ import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.jaxb.JAXBDataBase;
 import org.apache.cxf.jaxb.JAXBDataBinding;
 import org.apache.cxf.jaxb.JAXBEncoderDecoder;
+import org.apache.cxf.jaxb.MarshallerEventHandler;
 import org.apache.cxf.jaxb.attachment.JAXBAttachmentMarshaller;
 import org.apache.cxf.message.MessageUtils;
 import org.apache.cxf.service.model.MessagePartInfo;
@@ -70,7 +74,8 @@ public class DataWriterImpl<T> extends JAXBDataBase implements DataWriter<T> {
         if (prop.equals(org.apache.cxf.message.Message.class.getName())) {
             org.apache.cxf.message.Message m = (org.apache.cxf.message.Message)value;
             veventHandler = (ValidationEventHandler)m.getContextualProperty(
-                    "jaxb-writer-validation-event-handler");
+                    JAXBDataBinding.WRITER_VALIDATION_EVENT_HANDLER);
+            
             if (veventHandler == null) {
                 veventHandler = (ValidationEventHandler)m.getContextualProperty(
                     "jaxb-validation-event-handler");
@@ -78,25 +83,28 @@ public class DataWriterImpl<T> extends JAXBDataBase implements DataWriter<T> {
             if (veventHandler == null) {
                 veventHandler = databinding.getValidationEventHandler();
             }      
-            setEventHandler = MessageUtils.getContextualBoolean(m, "set-jaxb-validation-event-handler", true);
+            setEventHandler = MessageUtils.getContextualBoolean(m, 
+                    JAXBDataBinding.SET_VALIDATION_EVENT_HANDLER, true);
         }
     }
     
     private static class MtomValidationHandler implements ValidationEventHandler {
         ValidationEventHandler origHandler;
         JAXBAttachmentMarshaller marshaller;
-        public MtomValidationHandler(ValidationEventHandler v,
+        MtomValidationHandler(ValidationEventHandler v,
                                      JAXBAttachmentMarshaller m) {
             origHandler = v;
             marshaller = m;
         }
         
         public boolean handleEvent(ValidationEvent event) {
+            // CXF-1194 this hack is specific to MTOM, so pretty safe to leave in here before calling the origHandler.
             String msg = event.getMessage();
             if (msg.startsWith("cvc-type.3.1.2: ")
                 && msg.contains(marshaller.getLastMTOMElementName().getLocalPart())) {
                 return true;
             }
+            
             if (origHandler != null) {
                 return origHandler.handleEvent(event);
             }
@@ -104,6 +112,7 @@ public class DataWriterImpl<T> extends JAXBDataBase implements DataWriter<T> {
         }
         
     }
+    
     public Marshaller createMarshaller(Object elValue, MessagePartInfo part) {
         Class<?> cls = null;
         if (part != null) {
@@ -122,7 +131,7 @@ public class DataWriterImpl<T> extends JAXBDataBase implements DataWriter<T> {
         try {
             
             marshaller = context.createMarshaller();
-            marshaller.setProperty(Marshaller.JAXB_ENCODING, "UTF-8");
+            marshaller.setProperty(Marshaller.JAXB_ENCODING, StandardCharsets.UTF_8.name());
             marshaller.setProperty(Marshaller.JAXB_FRAGMENT, true);
             marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, Boolean.FALSE);
             marshaller.setListener(databinding.getMarshallerListener());
@@ -179,6 +188,9 @@ public class DataWriterImpl<T> extends JAXBDataBase implements DataWriter<T> {
                 throw new Fault(new Message("MARSHAL_ERROR", LOG, ex.getMessage()), ex);
             }
         }
+        for (XmlAdapter<?, ?> adapter : databinding.getConfiguredXmlAdapters()) {
+            marshaller.setAdapter(adapter);
+        }
         return marshaller;
     }
     
@@ -218,11 +230,13 @@ public class DataWriterImpl<T> extends JAXBDataBase implements DataWriter<T> {
                 JAXBEncoderDecoder.marshallException(createMarshaller(obj, part),
                                                      (Exception)obj,
                                                      part, 
-                                                     output);                
+                                                     output);
+                onCompleteMarshalling();
             } else {
                 Annotation[] anns = getJAXBAnnotation(part);
                 if (!honorJaxbAnnotation || anns.length == 0) {
                     JAXBEncoderDecoder.marshall(createMarshaller(obj, part), obj, part, output);
+                    onCompleteMarshalling();
                 } else if (honorJaxbAnnotation && anns.length > 0) {
                     //RpcLit will use the JAXB Bridge to marshall part message when it is 
                     //annotated with @XmlList,@XmlAttachmentRef,@XmlJavaTypeAdapter
@@ -240,6 +254,8 @@ public class DataWriterImpl<T> extends JAXBDataBase implements DataWriter<T> {
         } else if (needToRender(part)) {
             JAXBEncoderDecoder.marshallNullElement(createMarshaller(null, part),
                                                    output, part);
+            
+            onCompleteMarshalling();
         }
     }
 
@@ -288,4 +304,18 @@ public class DataWriterImpl<T> extends JAXBDataBase implements DataWriter<T> {
         return false;
     }
     
+    private void onCompleteMarshalling() {
+        if (setEventHandler && veventHandler instanceof MarshallerEventHandler) {
+            try {
+                ((MarshallerEventHandler) veventHandler).onMarshalComplete();
+            } catch (MarshalException e) {
+                if (e.getLinkedException() != null) {
+                    throw new Fault(new Message("MARSHAL_ERROR", LOG, 
+                            e.getLinkedException().getMessage()), e);
+                } else {
+                    throw new Fault(new Message("MARSHAL_ERROR", LOG, e.getMessage()), e);
+                }
+            }
+        }
+    }
 }

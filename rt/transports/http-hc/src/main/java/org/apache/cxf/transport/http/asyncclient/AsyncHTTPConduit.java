@@ -47,7 +47,6 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLSession;
-import javax.net.ssl.X509KeyManager;
 
 import org.apache.cxf.Bus;
 import org.apache.cxf.common.util.StringUtils;
@@ -61,10 +60,10 @@ import org.apache.cxf.io.CopyingOutputStream;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.message.MessageUtils;
 import org.apache.cxf.service.model.EndpointInfo;
+import org.apache.cxf.transport.http.Address;
 import org.apache.cxf.transport.http.Headers;
 import org.apache.cxf.transport.http.URLConnectionHTTPConduit;
 import org.apache.cxf.transport.http.asyncclient.AsyncHTTPConduitFactory.UseAsyncPolicy;
-import org.apache.cxf.transport.https.AliasedX509ExtendedKeyManager;
 import org.apache.cxf.transport.https.HttpsURLConnectionInfo;
 import org.apache.cxf.transports.http.configuration.HTTPClientPolicy;
 import org.apache.cxf.version.Version;
@@ -72,6 +71,7 @@ import org.apache.cxf.ws.addressing.EndpointReferenceType;
 import org.apache.http.Header;
 import org.apache.http.HttpHost;
 import org.apache.http.HttpResponse;
+import org.apache.http.auth.AuthSchemeProvider;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.Credentials;
 import org.apache.http.auth.UsernamePasswordCredentials;
@@ -79,6 +79,7 @@ import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.concurrent.BasicFuture;
 import org.apache.http.concurrent.FutureCallback;
+import org.apache.http.config.Registry;
 import org.apache.http.config.RegistryBuilder;
 import org.apache.http.entity.BasicHttpEntity;
 import org.apache.http.impl.client.BasicCredentialsProvider;
@@ -125,17 +126,22 @@ public class AsyncHTTPConduit extends URLConnectionHTTPConduit {
         return factory;
     }
     
-    protected void setupConnection(Message message, URI uri, HTTPClientPolicy csPolicy) throws IOException {
+    @Override
+    protected void setupConnection(Message message, Address address, HTTPClientPolicy csPolicy) throws IOException {
         if (factory.isShutdown()) {
             message.put(USE_ASYNC, Boolean.FALSE);
-            super.setupConnection(message, uri, csPolicy);
+            super.setupConnection(message, address, csPolicy);
             return;
         }
+        boolean addressChanged = false;
         // need to do some clean up work on the URI address
+        URI uri = address.getURI();
         String uriString = uri.toString();
         if (uriString.startsWith("hc://")) {
             try {
-                uri = new URI(uriString.substring(5));
+                uriString = uriString.substring(5);
+                uri = new URI(uriString);
+                addressChanged = true;
             } catch (URISyntaxException ex) {
                 throw new MalformedURLException("unsupport uri: "  + uriString);
             }
@@ -177,12 +183,13 @@ public class AsyncHTTPConduit extends URLConnectionHTTPConduit {
         }
         if (!MessageUtils.isTrue(o)) {
             message.put(USE_ASYNC, Boolean.FALSE);
-            super.setupConnection(message, uri, csPolicy);
+            super.setupConnection(message, addressChanged ? new Address(uriString, uri) : address, csPolicy);
             return;
         }
         if (StringUtils.isEmpty(uri.getPath())) {
             //hc needs to have the path be "/" 
             uri = uri.resolve("/");
+            addressChanged = true;
         }
 
         message.put(USE_ASYNC, Boolean.TRUE);
@@ -209,9 +216,8 @@ public class AsyncHTTPConduit extends URLConnectionHTTPConduit {
         e.setEntity(entity);
 
         RequestConfig.Builder b = RequestConfig.custom()
-            .setSocketTimeout((int) csPolicy.getReceiveTimeout())
             .setConnectTimeout((int) csPolicy.getConnectionTimeout());
-        Proxy p = proxyFactory.createProxy(csPolicy , uri);
+        Proxy p = proxyFactory.createProxy(csPolicy, uri);
         if (p != null && p.type() != Proxy.Type.DIRECT) {
             InetSocketAddress isa = (InetSocketAddress)p.address();
             HttpHost proxy = new HttpHost(isa.getHostName(), isa.getPort());
@@ -511,6 +517,8 @@ public class AsyncHTTPConduit extends URLConnectionHTTPConduit {
                         tlsClientParameters = new TLSClientParameters();
                     }
                     final SSLContext sslcontext = getSSLContext(tlsClientParameters);
+                    final HostnameVerifier verifier = org.apache.cxf.transport.https.SSLUtils
+                        .getHostnameVerifier(tlsClientParameters);
                     regBuilder
                         .register("https",
                                   new SSLIOSessionStrategy(sslcontext) {
@@ -522,6 +530,10 @@ public class AsyncHTTPConduit extends URLConnectionHTTPConduit {
                                 protected void verifySession(final HttpHost host,
                                                              final IOSession iosession,
                                                              final SSLSession sslsession) throws SSLException {
+                                    if (!verifier.verify(host.getHostName(), sslsession)) {
+                                        throw new SSLException("Could not verify host " + host.getHostName());
+                                    }
+                                    
                                     iosession.setAttribute("cxf.handshake.done", Boolean.TRUE);
                                     setSSLSession(sslsession);
                                 }
@@ -549,6 +561,12 @@ public class AsyncHTTPConduit extends URLConnectionHTTPConduit {
             if (creds != null) {
                 credsProvider.setCredentials(AuthScope.ANY, creds);
                 ctx.setUserToken(creds.getUserPrincipal());
+            }
+            @SuppressWarnings("unchecked")
+            Registry<AuthSchemeProvider> asp = (Registry<AuthSchemeProvider>)outMessage
+                .getContextualProperty(AuthSchemeProvider.class.getName());
+            if (asp != null) {              
+                ctx.setAuthSchemeRegistry(asp);
             }
 
             c.execute(new CXFHttpAsyncRequestProducer(entity, outbuf),
@@ -750,7 +768,6 @@ public class AsyncHTTPConduit extends URLConnectionHTTPConduit {
                 } else if (isChunked || isEofTerminated) {
                     // ensure chunked or EOF-terminated response is non-empty
                     try {
-                        @SuppressWarnings("resource")
                         PushbackInputStream pin = 
                             new PushbackInputStream(getInputStream());
                         int c = pin.read();
@@ -814,8 +831,13 @@ public class AsyncHTTPConduit extends URLConnectionHTTPConduit {
             inbuf = new SharedInputBuffer(bufSize, allocator);
             outbuf = new SharedOutputBuffer(bufSize, allocator);
             try {
-                this.url = new URI(newURL);
-                setupConnection(outMessage, this.url, csPolicy);
+                if (defaultAddress.getString().equals(newURL)) {
+                    setupConnection(outMessage, defaultAddress, csPolicy);
+                } else {
+                    Address address = new Address(newURL);
+                    this.url = address.getURI();
+                    setupConnection(outMessage, address, csPolicy);
+                }
                 entity = outMessage.get(CXFHttpRequest.class);
                 basicEntity = (BasicHttpEntity)entity.getEntity();
                 entity.setOutputStream(this);
@@ -853,13 +875,14 @@ public class AsyncHTTPConduit extends URLConnectionHTTPConduit {
         SSLContext ctx = provider == null ? SSLContext.getInstance(protocol) : SSLContext
             .getInstance(protocol, provider);
         ctx.getClientSessionContext().setSessionTimeout(tlsClientParameters.getSslCacheTimeout());
+        
         KeyManager[] keyManagers = tlsClientParameters.getKeyManagers();
-        if (tlsClientParameters.getCertAlias() != null) {
-            keyManagers = getKeyManagersWithCertAlias(tlsClientParameters, keyManagers);
-        }
+        org.apache.cxf.transport.https.SSLUtils.configureKeyManagersWithCertAlias(
+            tlsClientParameters, keyManagers);
+
         ctx.init(keyManagers, tlsClientParameters.getTrustManagers(),
                  tlsClientParameters.getSecureRandom());
-
+        
         sslContext = ctx;
         lastTlsHash = hash;
         sslState = null;
@@ -873,32 +896,37 @@ public class AsyncHTTPConduit extends URLConnectionHTTPConduit {
         if (tlsClientParameters == null) {
             tlsClientParameters = new TLSClientParameters();
         }
-        String[] cipherSuites = SSLUtils.getCiphersuites(tlsClientParameters.getCipherSuites(),
-                                                         SSLUtils.getSupportedCipherSuites(sslcontext), 
-                                                         tlsClientParameters.getCipherSuitesFilter(), LOG, false);
+        
+        String[] cipherSuites = 
+            SSLUtils.getCiphersuitesToInclude(tlsClientParameters.getCipherSuites(), 
+                                              tlsClientParameters.getCipherSuitesFilter(), 
+                                              sslcontext.getSocketFactory().getDefaultCipherSuites(),
+                                              SSLUtils.getSupportedCipherSuites(sslcontext), 
+                                              LOG);
         sslengine.setEnabledCipherSuites(cipherSuites);
-    }
-
-    protected static KeyManager[] getKeyManagersWithCertAlias(TLSClientParameters tlsClientParameters,
-                                                      KeyManager[] keyManagers) throws GeneralSecurityException {
-        if (tlsClientParameters.getCertAlias() != null) {
-            KeyManager ret[] = new KeyManager[keyManagers.length];  
-            for (int idx = 0; idx < keyManagers.length; idx++) {
-                if (keyManagers[idx] instanceof X509KeyManager) {
-                    try {
-                        ret[idx] = new AliasedX509ExtendedKeyManager(tlsClientParameters.getCertAlias(),
-                                                                             (X509KeyManager)keyManagers[idx]);
-                    } catch (Exception e) {
-                        throw new GeneralSecurityException(e);
-                    }
-                } else {
-                    ret[idx] = keyManagers[idx]; 
-                }
-            }
-            return ret;
+        
+        String protocol = tlsClientParameters.getSecureSocketProtocol() != null ? tlsClientParameters
+            .getSecureSocketProtocol() : "TLS";
+            
+        String p[] = findProtocols(protocol, sslengine.getSupportedProtocols());
+        if (p != null) {
+            sslengine.setEnabledProtocols(p);
         }
-        return keyManagers;
     }
-
+    
+    private String[] findProtocols(String p, String[] options) {
+        List<String> list = new ArrayList<String>();
+        for (String s : options) {
+            if (s.equals(p)) {
+                return new String[] {p};
+            } else if (s.startsWith(p)) {
+                list.add(s);
+            }
+        }
+        if (list.isEmpty()) {
+            return null;
+        }
+        return list.toArray(new String[list.size()]);
+    }
 
 }

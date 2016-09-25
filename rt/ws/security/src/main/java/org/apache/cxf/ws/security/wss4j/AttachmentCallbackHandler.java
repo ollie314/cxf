@@ -33,6 +33,7 @@ import javax.security.auth.callback.UnsupportedCallbackException;
 
 import org.apache.cxf.attachment.AttachmentDataSource;
 import org.apache.cxf.binding.soap.SoapMessage;
+import org.apache.cxf.message.Attachment;
 import org.apache.wss4j.common.ext.AttachmentRequestCallback;
 import org.apache.wss4j.common.ext.AttachmentResultCallback;
 
@@ -49,13 +50,11 @@ public class AttachmentCallbackHandler implements CallbackHandler {
 
     @Override
     public void handle(Callback[] callbacks) throws IOException, UnsupportedCallbackException {
-        for (int i = 0; i < callbacks.length; i++) {
-            Callback callback = callbacks[i];
+        for (Callback callback : callbacks) {
             if (callback instanceof AttachmentRequestCallback) {
                 AttachmentRequestCallback attachmentRequestCallback = (AttachmentRequestCallback) callback;
 
-                List<org.apache.wss4j.common.ext.Attachment> attachmentList =
-                    new ArrayList<org.apache.wss4j.common.ext.Attachment>();
+                List<org.apache.wss4j.common.ext.Attachment> attachmentList = new ArrayList<>();
                 attachmentRequestCallback.setAttachments(attachmentList);
                 
                 String attachmentId = attachmentRequestCallback.getAttachmentId();
@@ -66,6 +65,10 @@ public class AttachmentCallbackHandler implements CallbackHandler {
                 loadAttachments(attachmentList, attachmentId);
             } else if (callback instanceof AttachmentResultCallback) {
                 AttachmentResultCallback attachmentResultCallback = (AttachmentResultCallback) callback;
+                
+                if (soapMessage.getAttachments() == null) {
+                    soapMessage.setAttachments(new ArrayList<Attachment>());
+                }
 
                 final Collection<org.apache.cxf.message.Attachment> attachments = soapMessage.getAttachments();
 
@@ -78,11 +81,10 @@ public class AttachmentCallbackHandler implements CallbackHandler {
                                 attachmentResultCallback.getAttachment().getSourceStream())
                         )
                     );
+                
                 Map<String, String> headers = attachmentResultCallback.getAttachment().getHeaders();
-                Iterator<Map.Entry<String, String>> iterator = headers.entrySet().iterator();
-                while (iterator.hasNext()) {
-                    Map.Entry<String, String> next = iterator.next();
-                    securedAttachment.setHeader(next.getKey(), next.getValue());
+                for (Map.Entry<String, String> entry : headers.entrySet()) {
+                    securedAttachment.setHeader(entry.getKey(), entry.getValue());
                 }
                 attachments.add(securedAttachment);
 

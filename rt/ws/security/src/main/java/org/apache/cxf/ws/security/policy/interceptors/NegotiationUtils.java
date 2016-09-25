@@ -20,16 +20,10 @@
 package org.apache.cxf.ws.security.policy.interceptors;
 
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-
-import javax.security.auth.callback.CallbackHandler;
-import javax.xml.namespace.QName;
 
 import org.apache.cxf.Bus;
 import org.apache.cxf.binding.soap.SoapMessage;
-import org.apache.cxf.common.classloader.ClassLoaderUtils;
 import org.apache.cxf.endpoint.Endpoint;
 import org.apache.cxf.helpers.CastUtils;
 import org.apache.cxf.interceptor.Fault;
@@ -49,21 +43,20 @@ import org.apache.cxf.ws.policy.EndpointPolicy;
 import org.apache.cxf.ws.policy.PolicyEngine;
 import org.apache.cxf.ws.policy.builder.primitive.PrimitiveAssertion;
 import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
 import org.apache.cxf.ws.security.tokenstore.TokenStore;
+import org.apache.cxf.ws.security.tokenstore.TokenStoreUtils;
 import org.apache.cxf.ws.security.trust.STSUtils;
-import org.apache.cxf.ws.security.wss4j.WSS4JUtils;
 import org.apache.neethi.Assertion;
 import org.apache.neethi.Policy;
 import org.apache.wss4j.common.derivedKey.ConversationConstants;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
 import org.apache.wss4j.dom.handler.WSHandlerConstants;
 import org.apache.wss4j.dom.handler.WSHandlerResult;
 import org.apache.wss4j.dom.message.token.SecurityContextToken;
-import org.apache.wss4j.policy.SP11Constants;
-import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.SPConstants;
 import org.apache.wss4j.policy.model.AbstractBinding;
 import org.apache.wss4j.policy.model.AlgorithmSuite;
@@ -83,7 +76,7 @@ final class NegotiationUtils {
     }
 
     static Trust10 getTrust10(AssertionInfoMap aim) {
-        AssertionInfo ai = getFirstAssertionByLocalname(aim, SPConstants.TRUST_10);
+        AssertionInfo ai = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.TRUST_10);
         if (ai == null) {
             return null;
         }
@@ -91,15 +84,11 @@ final class NegotiationUtils {
     }
     
     static Trust13 getTrust13(AssertionInfoMap aim) {
-        AssertionInfo ai = getFirstAssertionByLocalname(aim, SPConstants.TRUST_13);
+        AssertionInfo ai = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.TRUST_13);
         if (ai == null) {
             return null;
         }
         return (Trust13)ai.getAssertion();
-    }
-    
-    static TokenStore getTokenStore(Message message) {
-        return WSS4JUtils.getTokenStore(message);
     }
     
     static Assertion getAddressingPolicy(AssertionInfoMap aim, boolean optional) {
@@ -131,30 +120,9 @@ final class NegotiationUtils {
     }
 
     static AlgorithmSuite getAlgorithmSuite(AssertionInfoMap aim) {
-        AbstractBinding transport = null;
-        Collection<AssertionInfo> ais = 
-            getAllAssertionsByLocalname(aim, SPConstants.TRANSPORT_BINDING);
-        if (!ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                transport = (AbstractBinding)ai.getAssertion();
-            }                    
-        } else {
-            ais = getAllAssertionsByLocalname(aim, SPConstants.ASYMMETRIC_BINDING);
-            if (!ais.isEmpty()) {
-                for (AssertionInfo ai : ais) {
-                    transport = (AbstractBinding)ai.getAssertion();
-                }                    
-            } else {
-                ais = getAllAssertionsByLocalname(aim, SPConstants.SYMMETRIC_BINDING);
-                if (!ais.isEmpty()) {
-                    for (AssertionInfo ai : ais) {
-                        transport = (AbstractBinding)ai.getAssertion();
-                    }                    
-                }
-            }
-        }
-        if (transport != null) {
-            return transport.getAlgorithmSuite();
+        AbstractBinding binding = PolicyUtils.getSecurityBinding(aim);
+        if (binding != null) {
+            return binding.getAlgorithmSuite();
         }
         return null;
     }
@@ -191,7 +159,7 @@ final class NegotiationUtils {
         try {
             Endpoint endpoint = message.getExchange().getEndpoint();
 
-            TokenStore store = getTokenStore(message);
+            TokenStore store = TokenStoreUtils.getTokenStore(message);
             if (secConv) {
                 endpoint = STSUtils.createSCEndpoint(bus, 
                                                      namespace,
@@ -213,9 +181,7 @@ final class NegotiationUtils {
 
             EndpointPolicy ep = pe.getServerEndpointPolicy(endpoint.getEndpointInfo(), destination, message);
             List<Interceptor<? extends Message>> interceptors = ep.getInterceptors(message);
-            for (Interceptor<? extends Message> i : interceptors) {
-                message.getInterceptorChain().add(i);
-            }
+            message.getInterceptorChain().add(interceptors);
 
             Collection<Assertion> assertions = ep.getVocabulary(message);
             if (null != assertions) {
@@ -245,7 +211,7 @@ final class NegotiationUtils {
                 (List<SecurityEvent>) message.getExchange().get(SecurityEvent.class.getName() + ".in");
             if (incomingEventList != null) {
                 for (SecurityEvent incomingEvent : incomingEventList) {
-                    if (WSSecurityEventConstants.SecurityContextToken 
+                    if (WSSecurityEventConstants.SECURITY_CONTEXT_TOKEN 
                         == incomingEvent.getSecurityEventType()) {
                         return true;
                     }
@@ -255,16 +221,16 @@ final class NegotiationUtils {
         }
         
         for (WSHandlerResult rResult : results) {
-            List<WSSecurityEngineResult> wsSecEngineResults = rResult.getResults();
-
-            for (WSSecurityEngineResult wser : wsSecEngineResults) {
-                Integer actInt = (Integer)wser.get(WSSecurityEngineResult.TAG_ACTION);
-                if (actInt.intValue() == WSConstants.SCT) {
+            
+            List<WSSecurityEngineResult> sctResults = 
+                rResult.getActionResults().get(WSConstants.SCT);
+            if (sctResults != null) {
+                for (WSSecurityEngineResult wser : sctResults) {
                     SecurityContextToken tok = 
                         (SecurityContextToken)wser.get(WSSecurityEngineResult.TAG_SECURITY_CONTEXT_TOKEN);
                     message.getExchange().put(SecurityConstants.TOKEN_ID, tok.getIdentifier());
-                    
-                    SecurityToken token = getTokenStore(message).getToken(tok.getIdentifier());
+
+                    SecurityToken token = TokenStoreUtils.getTokenStore(message).getToken(tok.getIdentifier());
                     if (token == null || token.isExpired()) {
                         byte[] secret = (byte[])wser.get(WSSecurityEngineResult.TAG_SECRET);
                         if (secret != null) {
@@ -272,7 +238,7 @@ final class NegotiationUtils {
                             token.setToken(tok.getElement());
                             token.setSecret(secret);
                             token.setTokenType(tok.getTokenType());
-                            getTokenStore(message).add(token);
+                            TokenStoreUtils.getTokenStore(message).add(token);
                         }
                     }
                     if (token != null) {
@@ -288,93 +254,4 @@ final class NegotiationUtils {
         return false;
     }
     
-    static CallbackHandler getCallbackHandler(Object o, Class<?> clazz) {
-        CallbackHandler handler = null;
-        if (o instanceof CallbackHandler) {
-            handler = (CallbackHandler)o;
-        } else if (o instanceof String) {
-            try {
-                handler = 
-                    (CallbackHandler)ClassLoaderUtils.loadClass((String)o, clazz).newInstance();
-            } catch (Exception e) {
-                handler = null;
-            }
-        }
-        return handler;
-    }
-    
-    static boolean assertPolicy(AssertionInfoMap aim, QName name) {
-        Collection<AssertionInfo> ais = aim.getAssertionInfo(name);
-        if (ais != null && !ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                ai.setAsserted(true);
-            }    
-            return true;
-        }
-        return false;
-    }
-    
-    static boolean assertPolicy(AssertionInfoMap aim, String localname) {
-        Collection<AssertionInfo> ais = 
-            NegotiationUtils.getAllAssertionsByLocalname(aim, localname);
-        if (!ais.isEmpty()) {
-            for (AssertionInfo ai : ais) {
-                ai.setAsserted(true);
-            }    
-            return true;
-        }
-        return false;
-    }
-    
-    static Collection<AssertionInfo> getAllAssertionsByLocalname(
-        AssertionInfoMap aim,
-        String localname
-    ) {
-        Collection<AssertionInfo> sp11Ais = aim.get(new QName(SP11Constants.SP_NS, localname));
-        Collection<AssertionInfo> sp12Ais = aim.get(new QName(SP12Constants.SP_NS, localname));
-        
-        if ((sp11Ais != null && !sp11Ais.isEmpty()) || (sp12Ais != null && !sp12Ais.isEmpty())) {
-            Collection<AssertionInfo> ais = new HashSet<AssertionInfo>();
-            if (sp11Ais != null) {
-                ais.addAll(sp11Ais);
-            }
-            if (sp12Ais != null) {
-                ais.addAll(sp12Ais);
-            }
-            return ais;
-        }
-            
-        return Collections.emptySet();
-    }
-    
-    static AssertionInfo getFirstAssertionByLocalname(
-        AssertionInfoMap aim, String localname
-    ) {
-        Collection<AssertionInfo> sp11Ais = aim.get(new QName(SP11Constants.SP_NS, localname));
-        if (sp11Ais != null && !sp11Ais.isEmpty()) {
-            return sp11Ais.iterator().next();
-        }
-
-        Collection<AssertionInfo> sp12Ais = aim.get(new QName(SP12Constants.SP_NS, localname));
-        if (sp12Ais != null && !sp12Ais.isEmpty()) {
-            return sp12Ais.iterator().next();
-        }
-
-        return null;
-    }
-    
-    static boolean isThereAnAssertionByLocalname(
-        AssertionInfoMap aim,
-        String localname
-    ) {
-        Collection<AssertionInfo> sp11Ais = aim.get(new QName(SP11Constants.SP_NS, localname));
-        Collection<AssertionInfo> sp12Ais = aim.get(new QName(SP12Constants.SP_NS, localname));
-
-        if ((sp11Ais != null && !sp11Ais.isEmpty()) || (sp12Ais != null && !sp12Ais.isEmpty())) {
-            return true;
-        }
-
-        return false;
-    }
-
 }

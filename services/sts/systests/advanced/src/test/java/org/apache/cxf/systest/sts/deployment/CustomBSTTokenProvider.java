@@ -26,8 +26,8 @@ import org.apache.cxf.sts.token.provider.TokenProvider;
 import org.apache.cxf.sts.token.provider.TokenProviderParameters;
 import org.apache.cxf.sts.token.provider.TokenProviderResponse;
 import org.apache.cxf.ws.security.sts.provider.STSException;
+import org.apache.wss4j.common.token.BinarySecurity;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.message.token.BinarySecurity;
 
 /**
  * A TokenProvider implementation that creates a (custom) BinarySecurityToken.
@@ -40,10 +40,7 @@ public class CustomBSTTokenProvider implements TokenProvider {
         WSConstants.SOAPMESSAGE_NS + "#Base64Binary";
     
     public boolean canHandleToken(String tokenType) {
-        if (TOKEN_TYPE.equals(tokenType)) {
-            return true;
-        }
-        return false;
+        return TOKEN_TYPE.equals(tokenType);
     }
     
     public boolean canHandleToken(String tokenType, String realm) {

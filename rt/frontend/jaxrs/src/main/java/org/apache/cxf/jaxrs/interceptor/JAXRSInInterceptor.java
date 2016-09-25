@@ -103,7 +103,7 @@ public class JAXRSInInterceptor extends AbstractPhaseInterceptor<Message> {
         }
         
         // Global pre-match request filters
-        if (JAXRSUtils.runContainerRequestFilters(providerFactory, message, true, null, false)) {
+        if (JAXRSUtils.runContainerRequestFilters(providerFactory, message, true, null)) {
             return;
         }
         // HTTP method
@@ -118,7 +118,7 @@ public class JAXRSInInterceptor extends AbstractPhaseInterceptor<Message> {
         // Content-Type
         String requestContentType = null;
         List<String> ctHeaderValues = protocolHeaders.get(Message.CONTENT_TYPE);
-        if (ctHeaderValues != null) {
+        if (ctHeaderValues != null && !ctHeaderValues.isEmpty()) {
             requestContentType = ctHeaderValues.get(0);
             message.put(Message.CONTENT_TYPE, requestContentType);
         }
@@ -198,11 +198,11 @@ public class JAXRSInInterceptor extends AbstractPhaseInterceptor<Message> {
         }
         
         // Global and name-bound post-match request filters
-        if (JAXRSUtils.runContainerRequestFilters(providerFactory,
-                                                  message,
-                                                  false, 
-                                                  ori.getNameBindings(),
-                                                  false)) {
+        if (!ori.isSubResourceLocator()
+            && JAXRSUtils.runContainerRequestFilters(providerFactory,
+                                                      message,
+                                                      false, 
+                                                      ori.getNameBindings())) {
             return;
         }
         
@@ -264,7 +264,7 @@ public class JAXRSInInterceptor extends AbstractPhaseInterceptor<Message> {
     }
     
     private Message createOutMessage(Message inMessage, Response r) {
-        Endpoint e = inMessage.getExchange().get(Endpoint.class);
+        Endpoint e = inMessage.getExchange().getEndpoint();
         Message mout = e.getBinding().createMessage();
         mout.setContent(List.class, new MessageContentsList(r));
         mout.setExchange(inMessage.getExchange());

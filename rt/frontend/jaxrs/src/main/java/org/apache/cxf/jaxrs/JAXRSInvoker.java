@@ -134,7 +134,7 @@ public class JAXRSInvoker extends AbstractInvoker {
         try {
             return handleFault(new Fault(t), exchange.getInMessage(), null, null);
         } catch (Fault ex) {
-            ar.setUnmappedThrowable(ex.getCause());
+            ar.setUnmappedThrowable(ex.getCause() == null ? ex : ex.getCause());
             if (isSuspended(exchange)) {
                 ar.reset();
                 exchange.getInMessage().getInterceptorChain().unpause();
@@ -166,18 +166,7 @@ public class JAXRSInvoker extends AbstractInvoker {
         }
         
         
-        Method resourceMethod = cri.getMethodDispatcher().getMethod(ori);
-        
-        Method methodToInvoke = null;
-        if (Proxy.class.isInstance(resourceObject)) {
-            methodToInvoke = cri.getMethodDispatcher().getProxyMethod(resourceMethod);
-            if (methodToInvoke == null) {
-                methodToInvoke = InjectionUtils.checkProxy(resourceMethod, resourceObject);
-                cri.getMethodDispatcher().addProxyMethod(resourceMethod, methodToInvoke);
-            }
-        } else {
-            methodToInvoke = resourceMethod;
-        }
+        Method methodToInvoke = getMethodToInvoke(cri, ori, resourceObject);
         
         List<Object> params = null;
         if (request instanceof List) {
@@ -207,8 +196,9 @@ public class JAXRSInvoker extends AbstractInvoker {
             }
         } catch (Fault ex) {
             Object faultResponse;
-            if (asyncResponse != null && !asyncResponse.suspendContinuationIfNeeded()) {
-                faultResponse = handleAsyncFault(exchange, asyncResponse, ex.getCause());    
+            if (asyncResponse != null) {
+                faultResponse = handleAsyncFault(exchange, asyncResponse, 
+                                                 ex.getCause() == null ? ex : ex.getCause());    
             } else {
                 faultResponse = handleFault(ex, inMessage, cri, methodToInvoke);
             }
@@ -235,7 +225,7 @@ public class JAXRSInvoker extends AbstractInvoker {
                 result = checkResultObject(result, subResourcePath);
 
                 subCri = cri.getSubResource(methodToInvoke.getReturnType(),
-                    ClassHelper.getRealClass(result), result);
+                    ClassHelper.getRealClass(exchange.getBus(), result), result);
                 if (subCri == null) {
                     org.apache.cxf.common.i18n.Message errorM =
                         new org.apache.cxf.common.i18n.Message("NO_SUBRESOURCE_FOUND",
@@ -255,11 +245,11 @@ public class JAXRSInvoker extends AbstractInvoker {
                 exchange.put(OperationResourceInfo.class, subOri);
                 inMessage.put(URITemplate.TEMPLATE_PARAMETERS, values);
             
-                if (JAXRSUtils.runContainerRequestFilters(providerFactory,
-                                                      inMessage,
-                                                      false, 
-                                                      subOri.getNameBindings(),
-                                                      true)) {
+                if (!subOri.isSubResourceLocator()
+                    && JAXRSUtils.runContainerRequestFilters(providerFactory,
+                                                             inMessage,
+                                                             false, 
+                                                             subOri.getNameBindings())) {
                     return new MessageContentsList(exchange.get(Response.class));
                 }
                 
@@ -289,6 +279,22 @@ public class JAXRSInvoker extends AbstractInvoker {
         }
         setResponseContentTypeIfNeeded(inMessage, result);
         return result;
+    }
+
+    protected Method getMethodToInvoke(ClassResourceInfo cri, OperationResourceInfo ori, Object resourceObject) {
+        Method resourceMethod = cri.getMethodDispatcher().getMethod(ori);
+        
+        Method methodToInvoke = null;
+        if (Proxy.class.isInstance(resourceObject)) {
+            methodToInvoke = cri.getMethodDispatcher().getProxyMethod(resourceMethod);
+            if (methodToInvoke == null) {
+                methodToInvoke = InjectionUtils.checkProxy(resourceMethod, resourceObject);
+                cri.getMethodDispatcher().addProxyMethod(resourceMethod, methodToInvoke);
+            }
+        } else {
+            methodToInvoke = resourceMethod;
+        }
+        return methodToInvoke;
     }
     
     private MessageContentsList checkExchangeForResponse(Exchange exchange) {
@@ -321,7 +327,8 @@ public class JAXRSInvoker extends AbstractInvoker {
                                                        cri.getServiceClass().getName());
             LOG.severe(errorM.toString());
         }
-        Response excResponse = JAXRSUtils.convertFaultToResponse(ex.getCause(), inMessage);
+        Response excResponse = 
+            JAXRSUtils.convertFaultToResponse(ex.getCause() == null ? ex : ex.getCause(), inMessage);
         if (excResponse == null) {
             inMessage.getExchange().put(Message.PROPOGATE_EXCEPTION, 
                                         ExceptionUtils.propogateException(inMessage));

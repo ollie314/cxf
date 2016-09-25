@@ -131,6 +131,7 @@ public class ASMHelper {
         public static int ACC_STATIC = 0;
         public static int V1_5 = 0;
         public static int V1_6 = 0;
+        public static int V1_7 = 0;
         public static int ACC_ABSTRACT = 0;
         public static int ACC_INTERFACE = 0;
         public static int ACC_SYNTHETIC = 0;
@@ -310,7 +311,7 @@ public class ASMHelper {
     }
     
     
-    public Class<?> loadClass(String className, Class<?> clz , byte[] bytes) {
+    public Class<?> loadClass(String className, Class<?> clz, byte[] bytes) {
         TypeHelperClassLoader loader = getTypeHelperClassLoader(clz);
         synchronized (loader) {
             Class<?> cls = loader.lookupDefinedClass(className);
@@ -320,7 +321,7 @@ public class ASMHelper {
             return cls;
         }
     }
-    public Class<?> loadClass(String className, ClassLoader l , byte[] bytes) {
+    public Class<?> loadClass(String className, ClassLoader l, byte[] bytes) {
         TypeHelperClassLoader loader = getTypeHelperClassLoader(l);
         synchronized (loader) {
             Class<?> cls = loader.lookupDefinedClass(className);

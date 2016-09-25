@@ -85,7 +85,7 @@ public abstract class AbstractRMInterceptor<T extends Message> extends AbstractP
             
             // log the fault as it may not be reported back to the client
             
-            Endpoint e = msg.getExchange().get(Endpoint.class);
+            Endpoint e = msg.getExchange().getEndpoint();
             Binding b = null;
             if (null != e) {
                 b = e.getBinding();
@@ -124,10 +124,7 @@ public abstract class AbstractRMInterceptor<T extends Message> extends AbstractP
         if (assertionMap == null) {
             return false;
         }
-        if (!RMPolicyUtilities.collectRMAssertions(assertionMap).isEmpty()) {
-            return true;
-        }
-        return false;
+        return !RMPolicyUtilities.collectRMAssertions(assertionMap).isEmpty();
     }
 
 }

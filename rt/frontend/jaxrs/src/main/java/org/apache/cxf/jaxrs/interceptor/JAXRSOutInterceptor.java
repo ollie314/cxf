@@ -24,6 +24,7 @@ import java.io.OutputStream;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
@@ -54,6 +55,8 @@ import org.apache.cxf.jaxrs.impl.WriterInterceptorMBW;
 import org.apache.cxf.jaxrs.model.OperationResourceInfo;
 import org.apache.cxf.jaxrs.provider.AbstractConfigurableProvider;
 import org.apache.cxf.jaxrs.provider.ServerProviderFactory;
+import org.apache.cxf.jaxrs.utils.AnnotationUtils;
+import org.apache.cxf.jaxrs.utils.ExceptionUtils;
 import org.apache.cxf.jaxrs.utils.HttpUtils;
 import org.apache.cxf.jaxrs.utils.InjectionUtils;
 import org.apache.cxf.jaxrs.utils.JAXRSUtils;
@@ -107,7 +110,7 @@ public class JAXRSOutInterceptor extends AbstractOutDatabindingInterceptor {
             }
         } else {
             int status = getStatus(message, responseObj != null ? 200 : 204);
-            response = Response.status(status).entity(responseObj).build();
+            response = JAXRSUtils.toResponseBuilder(status).entity(responseObj).build();
         }
         
         Exchange exchange = message.getExchange();
@@ -124,7 +127,6 @@ public class JAXRSOutInterceptor extends AbstractOutDatabindingInterceptor {
         return customStatus == null ? defaultValue : (Integer)customStatus;
     }
     
-    @SuppressWarnings("unchecked")
     private void serializeMessage(ServerProviderFactory providerFactory,
                                   Message message, 
                                   Response theResponse, 
@@ -162,24 +164,8 @@ public class JAXRSOutInterceptor extends AbstractOutDatabindingInterceptor {
         response.setEntity(entity, annotations);
         
         // Prepare the headers
-        MultivaluedMap<String, Object> responseHeaders = response.getMetadata();
-        Map<String, List<Object>> userHeaders = 
-            (Map<String, List<Object>>)message.get(Message.PROTOCOL_HEADERS);
-        if (firstTry && userHeaders != null) {
-            responseHeaders.putAll(userHeaders);
-        }
-        if (entity != null) {
-            String initialResponseContentType = (String)message.get(Message.CONTENT_TYPE);
-            if (initialResponseContentType != null && !responseHeaders.containsKey(HttpHeaders.CONTENT_TYPE)) {
-                responseHeaders.putSingle(HttpHeaders.CONTENT_TYPE, initialResponseContentType);
-            }
-        } else {
-            message.remove(Message.CONTENT_TYPE);
-        }
-        
-        message.put(Message.PROTOCOL_HEADERS, responseHeaders);
-        
-        setResponseDate(responseHeaders, firstTry);
+        MultivaluedMap<String, Object> responseHeaders = 
+            prepareResponseHeaders(message, response, entity, firstTry);
                
         // Run the filters
         try {
@@ -195,8 +181,10 @@ public class JAXRSOutInterceptor extends AbstractOutDatabindingInterceptor {
         if (entity == null) {
             if (!headResponse) {
                 responseHeaders.putSingle(HttpHeaders.CONTENT_LENGTH, "0");
-                responseHeaders.remove(HttpHeaders.CONTENT_TYPE);
-                message.remove(Message.CONTENT_TYPE);
+                if (MessageUtils.getContextualBoolean(message, "remove.content.type.for.empty.response", false)) {
+                    responseHeaders.remove(HttpHeaders.CONTENT_TYPE);
+                    message.remove(Message.CONTENT_TYPE);
+                }
             }
             HttpUtils.convertHeaderValuesToString(responseHeaders, true);
             return;
@@ -229,7 +217,19 @@ public class JAXRSOutInterceptor extends AbstractOutDatabindingInterceptor {
             writeResponseErrorMessage(message, outOriginal, "NO_MSG_WRITER", targetType, responseMediaType);
             return;
         }
-        responseMediaType = checkFinalContentType(responseMediaType, writers);
+        try {
+            boolean checkWriters = false;
+            if (responseMediaType.isWildcardSubtype()) {
+                Produces pM = AnnotationUtils.getMethodAnnotation(ori == null ? null : ori.getAnnotatedMethod(), 
+                                                                              Produces.class);
+                Produces pC = AnnotationUtils.getClassAnnotation(serviceCls, Produces.class);
+                checkWriters = pM == null && pC == null;
+            }
+            responseMediaType = checkFinalContentType(responseMediaType, writers, checkWriters);
+        } catch (Throwable ex) {
+            handleWriteException(providerFactory, message, ex, firstTry);
+            return;
+        }
         String finalResponseContentType = JAXRSUtils.mediaTypeToString(responseMediaType);
         if (LOG.isLoggable(Level.FINE)) {
             LOG.fine("Response content type is: " + finalResponseContentType);
@@ -267,6 +267,32 @@ public class JAXRSOutInterceptor extends AbstractOutDatabindingInterceptor {
         }
     }
     
+    private MultivaluedMap<String, Object> prepareResponseHeaders(Message message, 
+                                                                  ResponseImpl response,
+                                                                  Object entity,
+                                                                  boolean firstTry) {
+        MultivaluedMap<String, Object> responseHeaders = response.getMetadata();
+        @SuppressWarnings("unchecked")
+        Map<String, List<Object>> userHeaders = (Map<String, List<Object>>)message.get(Message.PROTOCOL_HEADERS);
+        if (firstTry && userHeaders != null) {
+            responseHeaders.putAll(userHeaders);
+        }
+        if (entity != null) {
+            Object customContentType = responseHeaders.getFirst(HttpHeaders.CONTENT_TYPE);
+            if (customContentType == null) {
+                String initialResponseContentType = (String)message.get(Message.CONTENT_TYPE);
+                if (initialResponseContentType != null) {
+                    responseHeaders.putSingle(HttpHeaders.CONTENT_TYPE, initialResponseContentType);
+                }
+            } else {
+                message.put(Message.CONTENT_TYPE, customContentType.toString());
+            }
+        }
+        message.put(Message.PROTOCOL_HEADERS, responseHeaders);
+        setResponseDate(responseHeaders, firstTry);
+        return responseHeaders;
+    }
+
     private MediaType getResponseMediaType(Object mediaTypeHeader) {
         MediaType responseMediaType;
         if (mediaTypeHeader instanceof MediaType) {
@@ -357,6 +383,8 @@ public class JAXRSOutInterceptor extends AbstractOutDatabindingInterceptor {
         Response excResponse = null;
         if (firstTry) {
             excResponse = JAXRSUtils.convertFaultToResponse(ex, message);
+        } else {
+            message.getExchange().put(JAXRSUtils.SECOND_JAXRS_EXCEPTION, Boolean.TRUE);
         }
         if (excResponse == null) {
             setResponseStatus(message, 500);
@@ -375,7 +403,7 @@ public class JAXRSOutInterceptor extends AbstractOutDatabindingInterceptor {
         try {
             String errorMessage = JAXRSUtils.logMessageHandlerProblem(name, cls, ct);
             if (out != null) {
-                out.write(errorMessage.getBytes("UTF-8"));
+                out.write(errorMessage.getBytes(StandardCharsets.UTF_8));
             }
         } catch (IOException another) {
             // ignore
@@ -383,8 +411,8 @@ public class JAXRSOutInterceptor extends AbstractOutDatabindingInterceptor {
     }
     
     
-    private MediaType checkFinalContentType(MediaType mt, List<WriterInterceptor> writers) {
-        if (mt.isWildcardType() || mt.isWildcardSubtype()) {
+    private MediaType checkFinalContentType(MediaType mt, List<WriterInterceptor> writers, boolean checkWriters) {
+        if (checkWriters) {
             int mbwIndex = writers.size() == 1 ? 0 : writers.size() - 1;
             MessageBodyWriter<Object> writer = ((WriterInterceptorMBW)writers.get(mbwIndex)).getMBW();
             Produces pm = writer.getClass().getAnnotation(Produces.class);
@@ -392,11 +420,13 @@ public class JAXRSOutInterceptor extends AbstractOutDatabindingInterceptor {
                 List<MediaType> sorted = 
                     JAXRSUtils.sortMediaTypes(JAXRSUtils.getMediaTypes(pm.value()), JAXRSUtils.MEDIA_TYPE_QS_PARAM);
                 mt = JAXRSUtils.intersectMimeTypes(sorted, mt).get(0);
-                if (mt.isWildcardType() || mt.isWildcardSubtype()) {
-                    return MediaType.APPLICATION_OCTET_STREAM_TYPE;    
-                }
+            }
+        }
+        if (mt.isWildcardType() || mt.isWildcardSubtype()) {
+            if ("application".equals(mt.getType()) || mt.isWildcardType()) {
+                mt = MediaType.APPLICATION_OCTET_STREAM_TYPE;
             } else {
-                return MediaType.APPLICATION_OCTET_STREAM_TYPE;
+                throw ExceptionUtils.toNotAcceptableException(null,  null);
             }
         }
         return mt;
@@ -418,13 +448,13 @@ public class JAXRSOutInterceptor extends AbstractOutDatabindingInterceptor {
         return Boolean.TRUE.equals(m.getExchange().get(AbstractHTTPDestination.RESPONSE_COMMITED));
     }
 
-    private boolean isResponseRedirected(Message outMessage) {
-        return Boolean.TRUE.equals(outMessage.get(AbstractHTTPDestination.REQUEST_REDIRECTED));
+    private boolean isResponseRedirected(Message m) {
+        return Boolean.TRUE.equals(m.getExchange().get(AbstractHTTPDestination.REQUEST_REDIRECTED));
     }
     
     private void writeResponseToStream(OutputStream os, Object responseObj) {
         try {
-            byte[] bytes = responseObj.toString().getBytes("UTF-8");
+            byte[] bytes = responseObj.toString().getBytes(StandardCharsets.UTF_8);
             os.write(bytes, 0, bytes.length);
         } catch (Exception ex) {
             LOG.severe("Problem with writing the data to the output stream");

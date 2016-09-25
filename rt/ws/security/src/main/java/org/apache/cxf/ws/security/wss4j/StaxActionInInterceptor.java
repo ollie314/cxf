@@ -21,9 +21,7 @@ package org.apache.cxf.ws.security.wss4j;
 import java.util.List;
 import java.util.logging.Logger;
 
-import org.apache.cxf.binding.soap.SoapFault;
 import org.apache.cxf.binding.soap.SoapMessage;
-import org.apache.cxf.binding.soap.SoapVersion;
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.message.MessageUtils;
@@ -69,16 +67,16 @@ public class StaxActionInInterceptor extends AbstractPhaseInterceptor<SoapMessag
         if (incomingSecurityEventList == null) {
             LOG.warning("Security processing failed (actions mismatch)");
             WSSecurityException ex = 
-                new WSSecurityException(WSSecurityException.ErrorCode.INVALID_SECURITY);
-            throw createSoapFault(soapMessage.getVersion(), ex);
+                new WSSecurityException(WSSecurityException.ErrorCode.SECURITY_ERROR);
+            throw WSS4JUtils.createSoapFault(soapMessage, soapMessage.getVersion(), ex);
         }
         
         // First check for a SOAP Fault with no security header if we are the client
         if (MessageUtils.isRequestor(soapMessage)
-            && isEventInResults(WSSecurityEventConstants.NoSecurity, incomingSecurityEventList)) {
+            && isEventInResults(WSSecurityEventConstants.NO_SECURITY, incomingSecurityEventList)) {
             OperationSecurityEvent securityEvent = 
                 (OperationSecurityEvent)findEvent(
-                    WSSecurityEventConstants.Operation, incomingSecurityEventList
+                    WSSecurityEventConstants.OPERATION, incomingSecurityEventList
                 );
             if (securityEvent != null 
                 && soapMessage.getVersion().getFault().equals(securityEvent.getOperation())) {
@@ -90,27 +88,27 @@ public class StaxActionInInterceptor extends AbstractPhaseInterceptor<SoapMessag
         for (XMLSecurityConstants.Action action : inActions) {
             Event requiredEvent = null;
             if (WSSConstants.TIMESTAMP.equals(action)) {
-                requiredEvent = WSSecurityEventConstants.Timestamp;
+                requiredEvent = WSSecurityEventConstants.TIMESTAMP;
             } else if (WSSConstants.USERNAMETOKEN.equals(action)) {
-                requiredEvent = WSSecurityEventConstants.UsernameToken;
+                requiredEvent = WSSecurityEventConstants.USERNAME_TOKEN;
             } else if (WSSConstants.SIGNATURE.equals(action)) {
                 requiredEvent = WSSecurityEventConstants.SignatureValue;
             } else if (WSSConstants.SAML_TOKEN_SIGNED.equals(action)
                 || WSSConstants.SAML_TOKEN_UNSIGNED.equals(action)) {
-                requiredEvent = WSSecurityEventConstants.SamlToken;
+                requiredEvent = WSSecurityEventConstants.SAML_TOKEN;
             }
             
             if (requiredEvent != null 
                 && !isEventInResults(requiredEvent, incomingSecurityEventList)) {
                 LOG.warning("Security processing failed (actions mismatch)");
                 WSSecurityException ex = 
-                    new WSSecurityException(WSSecurityException.ErrorCode.INVALID_SECURITY);
-                throw createSoapFault(soapMessage.getVersion(), ex);
+                    new WSSecurityException(WSSecurityException.ErrorCode.SECURITY_ERROR);
+                throw WSS4JUtils.createSoapFault(soapMessage, soapMessage.getVersion(), ex);
             }
             
             if (WSSConstants.ENCRYPT.equals(action)) {
                 boolean foundEncryptionPart = 
-                    isEventInResults(WSSecurityEventConstants.EncryptedPart, incomingSecurityEventList);
+                    isEventInResults(WSSecurityEventConstants.ENCRYPTED_PART, incomingSecurityEventList);
                 if (!foundEncryptionPart) {
                     foundEncryptionPart =
                         isEventInResults(WSSecurityEventConstants.EncryptedElement, incomingSecurityEventList);
@@ -118,8 +116,8 @@ public class StaxActionInInterceptor extends AbstractPhaseInterceptor<SoapMessag
                 if (!foundEncryptionPart) {
                     LOG.warning("Security processing failed (actions mismatch)");
                     WSSecurityException ex = 
-                        new WSSecurityException(WSSecurityException.ErrorCode.INVALID_SECURITY);
-                    throw createSoapFault(soapMessage.getVersion(), ex);
+                        new WSSecurityException(WSSecurityException.ErrorCode.SECURITY_ERROR);
+                    throw WSS4JUtils.createSoapFault(soapMessage, soapMessage.getVersion(), ex);
                 }
             } 
         }
@@ -143,28 +141,4 @@ public class StaxActionInInterceptor extends AbstractPhaseInterceptor<SoapMessag
         return null;
     }
     
-    /**
-     * Create a SoapFault from a WSSecurityException, following the SOAP Message Security
-     * 1.1 specification, chapter 12 "Error Handling".
-     * 
-     * When the Soap version is 1.1 then set the Fault/Code/Value from the fault code
-     * specified in the WSSecurityException (if it exists).
-     * 
-     * Otherwise set the Fault/Code/Value to env:Sender and the Fault/Code/Subcode/Value
-     * as the fault code from the WSSecurityException.
-     */
-    private SoapFault 
-    createSoapFault(SoapVersion version, WSSecurityException e) {
-        SoapFault fault;
-        javax.xml.namespace.QName faultCode = e.getFaultCode();
-        if (version.getVersion() == 1.1 && faultCode != null) {
-            fault = new SoapFault(e.getMessage(), e, faultCode);
-        } else {
-            fault = new SoapFault(e.getMessage(), e, version.getSender());
-            if (version.getVersion() != 1.1 && faultCode != null) {
-                fault.setSubCode(faultCode);
-            }
-        }
-        return fault;
-    }
 }

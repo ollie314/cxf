@@ -79,21 +79,21 @@ public class JettyServerEngineFactoryParser extends AbstractBPBeanDefinitionPars
             ef.setInitMethod("init");
             ef.setActivation(ComponentMetadata.ACTIVATION_EAGER);
             ef.setDestroyMethod("destroy");
+            
             // setup the EngineConnector
-            ef.addProperty("connectorMap", parseEngineConnector(element, ef, context));
-            ef.addProperty("handlersMap", parseEngineHandlers(element, ef, context));
+            List<Element> engines = DOMUtils
+                .getChildrenWithName(element, HTTPJettyTransportNamespaceHandler.JETTY_TRANSPORT, "engine");
+            ef.addProperty("connectorMap", parseEngineConnector(engines, ef, context));
+            ef.addProperty("handlersMap", parseEngineHandlers(engines, ef, context));
             return ef;
         } catch (Exception e) {
             throw new RuntimeException("Could not process configuration.", e);
         }
     }
     
-    protected Metadata parseEngineConnector(Element element, ComponentMetadata enclosingComponent,
+    protected Metadata parseEngineConnector(List<Element> engines, ComponentMetadata enclosingComponent,
                                             ParserContext context) {
         List<MapEntry> entries = new ArrayList<MapEntry>();
-        // create an empty map first
-        List<Element> engines = DOMUtils
-            .getChildrenWithName(element, HTTPJettyTransportNamespaceHandler.JETTY_TRANSPORT, "engine");
         for (Element engine : engines) {
             String port = engine.getAttribute("port");
             ValueMetadata keyValue = createValue(context, port);
@@ -110,11 +110,9 @@ public class JettyServerEngineFactoryParser extends AbstractBPBeanDefinitionPars
         return new MapMetadataImpl("java.lang.String", "org.eclipse.jetty.server.Connector", entries);
     }
     
-    protected Metadata parseEngineHandlers(Element element, ComponentMetadata enclosingComponent, 
+    protected Metadata parseEngineHandlers(List<Element> engines, ComponentMetadata enclosingComponent, 
                                            ParserContext context) {
         List<MapEntry> entries = new ArrayList<MapEntry>();
-        List<Element> engines = DOMUtils
-            .getChildrenWithName(element, HTTPJettyTransportNamespaceHandler.JETTY_TRANSPORT, "engine");
         for (Element engine : engines) {
             String port = engine.getAttribute("port");
             ValueMetadata keyValue = createValue(context, port);
@@ -128,4 +126,6 @@ public class JettyServerEngineFactoryParser extends AbstractBPBeanDefinitionPars
         }
         return new MapMetadataImpl("java.lang.String", "java.util.List", entries);
     }
+    
+    
 }

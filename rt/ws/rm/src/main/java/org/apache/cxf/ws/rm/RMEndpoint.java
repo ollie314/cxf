@@ -454,7 +454,13 @@ public class RMEndpoint {
         ei.setProperty(SecurityConstants.TOKEN_STORE_CACHE_INSTANCE, tokenStore);
         
         Endpoint endpoint = new WrappedEndpoint(applicationEndpoint, ei, service);
-        
+        if (applicationEndpoint.getEndpointInfo() != null
+            && applicationEndpoint.getEndpointInfo().getProperties() != null) {
+            for (String key : applicationEndpoint.getEndpointInfo().getProperties().keySet()) {
+                endpoint.getEndpointInfo()
+                    .setProperty(key, applicationEndpoint.getEndpointInfo().getProperty(key));
+            }
+        }
         service.setEndpoint(endpoint);
         endpoints.put(protocol, endpoint);
     }
@@ -810,7 +816,6 @@ public class RMEndpoint {
                         // REVISIT: this may be non-standard
                         // getProxy().ackRequested(seq);
                     } else {
-
                         getProxy().lastMessage(seq);
                     }
                 } catch (RMException ex) {
@@ -824,6 +829,9 @@ public class RMEndpoint {
 
         for (SourceSequence ss : getSource().getAllSequences()) {
             manager.getRetransmissionQueue().stop(ss);
+        }
+        for (DestinationSequence ds : getDestination().getAllSequences()) {
+            manager.getRedeliveryQueue().stop(ds);
         }
 
         // unregistering of this managed bean from the server is done by the bus itself

@@ -33,8 +33,10 @@ import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
 import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
-import org.apache.cxf.ws.security.wss4j.WSS4JUtils;
+import org.apache.cxf.ws.security.tokenstore.TokenStoreUtils;
+import org.apache.cxf.ws.security.wss4j.TokenStoreCallbackHandler;
 import org.apache.wss4j.policy.SP11Constants;
 import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.SPConstants;
@@ -57,7 +59,6 @@ import org.apache.wss4j.policy.model.TransportToken;
 import org.apache.wss4j.policy.model.UsernameToken;
 import org.apache.wss4j.policy.model.X509Token;
 import org.apache.wss4j.policy.model.XPath;
-import org.apache.wss4j.policy.stax.PolicyUtils;
 import org.apache.wss4j.stax.ext.WSSConstants;
 import org.apache.wss4j.stax.ext.WSSSecurityProperties;
 import org.apache.xml.security.stax.ext.OutboundSecurityContext;
@@ -94,12 +95,17 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
                 if (asymSignatureAlgorithm != null && tbinding.getAlgorithmSuite() != null) {
                     tbinding.getAlgorithmSuite().setAsymmetricSignature(asymSignatureAlgorithm);
                 }
+                String symSignatureAlgorithm = 
+                    (String)getMessage().getContextualProperty(SecurityConstants.SYMMETRIC_SIGNATURE_ALGORITHM);
+                if (symSignatureAlgorithm != null && tbinding.getAlgorithmSuite() != null) {
+                    tbinding.getAlgorithmSuite().setSymmetricSignature(symSignatureAlgorithm);
+                }
                 
                 TransportToken token = tbinding.getTransportToken();
                 if (token.getToken() instanceof IssuedToken) {
                     SecurityToken secToken = getSecurityToken();
                     if (secToken == null) {
-                        policyNotAsserted(token.getToken(), "No transport token id");
+                        unassertPolicy(token.getToken(), "No transport token id");
                         return;
                     }
                     addIssuedToken((IssuedToken)token.getToken(), secToken, false, false);
@@ -159,7 +165,7 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
     private void handleNonEndorsingSupportingTokens(AssertionInfoMap aim) throws Exception {
         Collection<AssertionInfo> ais;
         
-        ais = getAllAssertionsByLocalname(aim, SPConstants.SIGNED_SUPPORTING_TOKENS);
+        ais = PolicyUtils.getAllAssertionsByLocalname(aim, SPConstants.SIGNED_SUPPORTING_TOKENS);
         if (!ais.isEmpty()) {
             for (AssertionInfo ai : ais) {
                 SupportingTokens sgndSuppTokens = (SupportingTokens)ai.getAssertion();
@@ -170,7 +176,7 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
             }
         }
         
-        ais = getAllAssertionsByLocalname(aim, SPConstants.SIGNED_ENCRYPTED_SUPPORTING_TOKENS);
+        ais = PolicyUtils.getAllAssertionsByLocalname(aim, SPConstants.SIGNED_ENCRYPTED_SUPPORTING_TOKENS);
         if (!ais.isEmpty()) {
             for (AssertionInfo ai : ais) {
                 SupportingTokens sgndSuppTokens = (SupportingTokens)ai.getAssertion();
@@ -181,7 +187,7 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
             }
         }
         
-        ais = getAllAssertionsByLocalname(aim, SPConstants.ENCRYPTED_SUPPORTING_TOKENS);
+        ais = PolicyUtils.getAllAssertionsByLocalname(aim, SPConstants.ENCRYPTED_SUPPORTING_TOKENS);
         if (!ais.isEmpty()) {
             for (AssertionInfo ai : ais) {
                 SupportingTokens encrSuppTokens = (SupportingTokens)ai.getAssertion();
@@ -192,7 +198,7 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
             }
         }
         
-        ais = getAllAssertionsByLocalname(aim, SPConstants.SUPPORTING_TOKENS);
+        ais = PolicyUtils.getAllAssertionsByLocalname(aim, SPConstants.SUPPORTING_TOKENS);
         if (!ais.isEmpty()) {
             for (AssertionInfo ai : ais) {
                 SupportingTokens suppTokens = (SupportingTokens)ai.getAssertion();
@@ -221,8 +227,10 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
                 addKerberosToken((KerberosToken)token, false, false, false);
             } else if (token instanceof SamlToken) {
                 addSamlToken((SamlToken)token, false, false);
-            } else {
+            } else if (token != null) {
                 throw new Exception(token.getName() + " is not supported in the streaming code");
+            } else {
+                throw new Exception("A null token was supplied to the streaming code");
             }
         }
     }
@@ -233,7 +241,7 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
     private void handleEndorsingSupportingTokens(AssertionInfoMap aim) throws Exception {
         Collection<AssertionInfo> ais;
         
-        ais = getAllAssertionsByLocalname(aim, SPConstants.SIGNED_ENDORSING_SUPPORTING_TOKENS);
+        ais = PolicyUtils.getAllAssertionsByLocalname(aim, SPConstants.SIGNED_ENDORSING_SUPPORTING_TOKENS);
         if (!ais.isEmpty()) {
             SupportingTokens sgndSuppTokens = null;
             for (AssertionInfo ai : ais) {
@@ -247,7 +255,7 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
             }
         }
         
-        ais = getAllAssertionsByLocalname(aim, SPConstants.ENDORSING_SUPPORTING_TOKENS);
+        ais = PolicyUtils.getAllAssertionsByLocalname(aim, SPConstants.ENDORSING_SUPPORTING_TOKENS);
         if (!ais.isEmpty()) {
             SupportingTokens endSuppTokens = null;
             for (AssertionInfo ai : ais) {
@@ -261,7 +269,7 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
                 }
             }
         }
-        ais = getAllAssertionsByLocalname(aim, SPConstants.ENDORSING_ENCRYPTED_SUPPORTING_TOKENS);
+        ais = PolicyUtils.getAllAssertionsByLocalname(aim, SPConstants.ENDORSING_ENCRYPTED_SUPPORTING_TOKENS);
         if (!ais.isEmpty()) {
             SupportingTokens endSuppTokens = null;
             for (AssertionInfo ai : ais) {
@@ -275,7 +283,7 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
                 }
             }
         }
-        ais = getAllAssertionsByLocalname(aim, SPConstants.SIGNED_ENDORSING_ENCRYPTED_SUPPORTING_TOKENS);
+        ais = PolicyUtils.getAllAssertionsByLocalname(aim, SPConstants.SIGNED_ENDORSING_ENCRYPTED_SUPPORTING_TOKENS);
         if (!ais.isEmpty()) {
             SupportingTokens endSuppTokens = null;
             for (AssertionInfo ai : ais) {
@@ -315,7 +323,7 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
                 // Set up CallbackHandler which wraps the configured Handler
                 TokenStoreCallbackHandler callbackHandler = 
                     new TokenStoreCallbackHandler(
-                        properties.getCallbackHandler(), WSS4JUtils.getTokenStore(message)
+                        properties.getCallbackHandler(), TokenStoreUtils.getTokenStore(message)
                     );
                 
                 properties.setCallbackHandler(callbackHandler);
@@ -326,6 +334,8 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
             properties.setIncludeSignatureToken(true);
             properties.setSignatureAlgorithm(
                 tbinding.getAlgorithmSuite().getSymmetricSignature());
+            properties.setSignatureCanonicalizationAlgorithm(
+                tbinding.getAlgorithmSuite().getC14n().getValue());
             AlgorithmSuiteType algType = tbinding.getAlgorithmSuite().getAlgorithmSuiteType();
             properties.setSignatureDigestAlgorithm(algType.getDigest());
         } else if (token instanceof X509Token || token instanceof KeyValueToken) {
@@ -337,6 +347,8 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
             WSSSecurityProperties properties = getProperties();
             properties.setSignatureAlgorithm(
                        tbinding.getAlgorithmSuite().getAsymmetricSignature());
+            properties.setSignatureCanonicalizationAlgorithm(
+                       tbinding.getAlgorithmSuite().getC14n().getValue());
             AlgorithmSuiteType algType = tbinding.getAlgorithmSuite().getAlgorithmSuiteType();
             properties.setSignatureDigestAlgorithm(algType.getDigest());
         } else if (token instanceof UsernameToken) {
@@ -344,13 +356,15 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
         } else if (token instanceof KerberosToken) {
             WSSSecurityProperties properties = getProperties();
             properties.addAction(WSSConstants.SIGNATURE);
-            configureSignature(wrapper, token, false);
+            configureSignature(token, false);
             
             addKerberosToken((KerberosToken)token, false, true, false);
             signPartsAndElements(wrapper.getSignedParts(), wrapper.getSignedElements());
             
             properties.setSignatureAlgorithm(
                        tbinding.getAlgorithmSuite().getSymmetricSignature());
+            properties.setSignatureCanonicalizationAlgorithm(
+                       tbinding.getAlgorithmSuite().getC14n().getValue());
             AlgorithmSuiteType algType = tbinding.getAlgorithmSuite().getAlgorithmSuiteType();
             properties.setSignatureDigestAlgorithm(algType.getDigest());
         }
@@ -369,7 +383,7 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
         }
         properties.addAction(actionToPerform);
         
-        configureSignature(wrapper, token, false);
+        configureSignature(token, false);
         if (token.getDerivedKeys() == DerivedKeys.RequireDerivedKeys) {
             properties.setSignatureAlgorithm(
                    tbinding.getAlgorithmSuite().getSymmetricSignature());
@@ -412,7 +426,8 @@ public class StaxTransportBindingHandler extends AbstractStaxBindingHandler {
         // Handle SignedElements
         if (signedElements != null && signedElements.getXPaths() != null) {
             for (XPath xPath : signedElements.getXPaths()) {
-                List<QName> qnames = PolicyUtils.getElementPath(xPath);
+                List<QName> qnames = 
+                    org.apache.wss4j.policy.stax.PolicyUtils.getElementPath(xPath);
                 if (!qnames.isEmpty()) {
                     SecurePart part = 
                         new SecurePart(qnames.get(qnames.size() - 1), Modifier.Element);

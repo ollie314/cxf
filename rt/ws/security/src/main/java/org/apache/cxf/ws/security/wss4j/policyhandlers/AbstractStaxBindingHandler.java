@@ -24,6 +24,7 @@ import java.security.Key;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -38,26 +39,27 @@ import javax.xml.namespace.QName;
 import javax.xml.soap.SOAPException;
 
 import org.w3c.dom.Element;
+
 import org.apache.cxf.binding.soap.SoapMessage;
-import org.apache.cxf.common.classloader.ClassLoaderUtils;
 import org.apache.cxf.message.MessageUtils;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
 import org.apache.cxf.ws.security.SecurityConstants;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
-import org.apache.cxf.ws.security.tokenstore.TokenStore;
 import org.apache.wss4j.common.ext.WSPasswordCallback;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.common.saml.SAMLCallback;
 import org.apache.wss4j.common.saml.bean.KeyInfoBean;
 import org.apache.wss4j.common.saml.bean.SubjectBean;
+import org.apache.wss4j.common.saml.bean.Version;
 import org.apache.wss4j.common.util.KeyUtils;
 import org.apache.wss4j.dom.WSConstants;
 import org.apache.wss4j.policy.SPConstants;
 import org.apache.wss4j.policy.SPConstants.IncludeTokenType;
 import org.apache.wss4j.policy.model.AbstractBinding;
 import org.apache.wss4j.policy.model.AbstractToken;
-import org.apache.wss4j.policy.model.AbstractTokenWrapper;
 import org.apache.wss4j.policy.model.AlgorithmSuite.AlgorithmSuiteType;
 import org.apache.wss4j.policy.model.Attachments;
 import org.apache.wss4j.policy.model.ContentEncryptedElements;
@@ -82,7 +84,6 @@ import org.apache.wss4j.policy.model.Wss11;
 import org.apache.wss4j.policy.model.X509Token;
 import org.apache.wss4j.policy.model.X509Token.TokenType;
 import org.apache.wss4j.policy.model.XPath;
-import org.apache.wss4j.policy.stax.PolicyUtils;
 import org.apache.wss4j.stax.ext.WSSConstants;
 import org.apache.wss4j.stax.ext.WSSConstants.UsernameTokenPasswordType;
 import org.apache.wss4j.stax.ext.WSSSecurityProperties;
@@ -100,7 +101,6 @@ import org.apache.xml.security.stax.securityEvent.TokenSecurityEvent;
 import org.apache.xml.security.stax.securityToken.OutboundSecurityToken;
 import org.apache.xml.security.stax.securityToken.SecurityTokenConstants;
 import org.apache.xml.security.stax.securityToken.SecurityTokenProvider;
-import org.opensaml.common.SAMLVersion;
 
 /**
  * 
@@ -108,7 +108,7 @@ import org.opensaml.common.SAMLVersion;
 public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHandler {
     protected boolean timestampAdded;
     protected boolean signatureConfirmationAdded;
-    protected Set<SecurePart> encryptedTokensList = new HashSet<SecurePart>();
+    protected Set<SecurePart> encryptedTokensList = new HashSet<>();
     
     protected Map<AbstractToken, SecurePart> endEncSuppTokMap;
     protected Map<AbstractToken, SecurePart> endSuppTokMap;
@@ -161,16 +161,17 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         
         // Check if a CallbackHandler was specified
         if (properties.getCallbackHandler() == null) {
-            String password = (String)message.getContextualProperty(SecurityConstants.PASSWORD);
+            String password = 
+                (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.PASSWORD, message);
             if (password != null) {
                 String username = 
-                    (String)message.getContextualProperty(SecurityConstants.USERNAME);
+                    (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.USERNAME, message);
                 UTCallbackHandler callbackHandler = new UTCallbackHandler(username, password);
                 properties.setCallbackHandler(callbackHandler);
             }
         }
         
-        return new SecurePart(WSSConstants.TAG_wsse_UsernameToken, Modifier.Element);
+        return new SecurePart(WSSConstants.TAG_WSSE_USERNAME_TOKEN, Modifier.Element);
     }
     
     private static class UTCallbackHandler implements CallbackHandler {
@@ -178,7 +179,7 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         private final String username;
         private final String password;
         
-        public UTCallbackHandler(String username, String password) {
+        UTCallbackHandler(String username, String password) {
             this.username = username;
             this.password = password;
         }
@@ -208,7 +209,7 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
 
         final SecurityToken secToken = getSecurityToken();
         if (secToken == null) {
-            policyNotAsserted(token, "Could not find KerberosToken");
+            unassertPolicy(token, "Could not find KerberosToken");
         }
         
         // Convert to WSS4J token
@@ -264,7 +265,7 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         }
         */
         
-        SecurePart securePart = new SecurePart(WSSConstants.TAG_wsse_BinarySecurityToken, Modifier.Element);
+        SecurePart securePart = new SecurePart(WSSConstants.TAG_WSSE_BINARY_SECURITY_TOKEN, Modifier.Element);
         securePart.setIdToSign(wss4jToken.getId());
         
         return securePart;
@@ -284,24 +285,17 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         //
         // Get the SAML CallbackHandler
         //
-        Object o = message.getContextualProperty(SecurityConstants.SAML_CALLBACK_HANDLER);
-    
-        CallbackHandler handler = null;
-        if (o instanceof CallbackHandler) {
-            handler = (CallbackHandler)o;
-        } else if (o instanceof String) {
-            try {
-                handler = (CallbackHandler)ClassLoaderUtils
-                    .loadClass((String)o, this.getClass()).newInstance();
-            } catch (Exception e) {
-                handler = null;
+        Object o = SecurityUtils.getSecurityPropertyValue(SecurityConstants.SAML_CALLBACK_HANDLER, message);
+        try {
+            CallbackHandler handler = SecurityUtils.getCallbackHandler(o);
+            if (handler == null) {
+                unassertPolicy(token, "No SAML CallbackHandler available");
+                return null;
             }
+            properties.setSamlCallbackHandler(handler);
+        } catch (Exception ex) {
+            throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, ex);
         }
-        if (handler == null) {
-            policyNotAsserted(token, "No SAML CallbackHandler available");
-            return null;
-        }
-        properties.setSamlCallbackHandler(handler);
         
         // Action
         WSSConstants.Action actionToPerform = WSSConstants.SAML_TOKEN_UNSIGNED;
@@ -310,10 +304,10 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         }
         properties.addAction(actionToPerform);
         
-        QName qname = WSSConstants.TAG_saml2_Assertion;
+        QName qname = WSSConstants.TAG_SAML2_ASSERTION;
         SamlTokenType tokenType = token.getSamlTokenType();
         if (tokenType == SamlTokenType.WssSamlV11Token10 || tokenType == SamlTokenType.WssSamlV11Token11) {
-            qname = WSSConstants.TAG_saml_Assertion;
+            qname = WSSConstants.TAG_SAML_ASSERTION;
         }
         
         return new SecurePart(qname, Modifier.Element);
@@ -357,9 +351,9 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
                                 samlCallback.setSubject(subjectBean);
                                 
                                 if (WSConstants.SAML_NS.equals(el.getNamespaceURI())) {
-                                    samlCallback.setSamlVersion(SAMLVersion.VERSION_11);
+                                    samlCallback.setSamlVersion(Version.SAML_11);
                                 } else {
-                                    samlCallback.setSamlVersion(SAMLVersion.VERSION_20);
+                                    samlCallback.setSamlVersion(Version.SAML_20);
                                 }
                             }
                         }
@@ -368,9 +362,9 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
                 };
                 properties.setSamlCallbackHandler(callbackHandler);
                 
-                QName qname = WSSConstants.TAG_saml2_Assertion;
+                QName qname = WSSConstants.TAG_SAML2_ASSERTION;
                 if (WSConstants.SAML_NS.equals(el.getNamespaceURI())) {
-                    qname = WSSConstants.TAG_saml_Assertion;
+                    qname = WSSConstants.TAG_SAML_ASSERTION;
                 }
                 
                 return new SecurePart(qname, Modifier.Element);
@@ -387,13 +381,13 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         SecurityTokenConstants.TokenType tokenType = WSSecurityTokenConstants.EncryptedKeyToken;
         if (tok.getTokenType() != null) {
             if (tok.getTokenType().startsWith(WSSConstants.NS_KERBEROS11_TOKEN_PROFILE)) {
-                tokenType = WSSecurityTokenConstants.KerberosToken;
+                tokenType = WSSecurityTokenConstants.KERBEROS_TOKEN;
             } else if (tok.getTokenType().startsWith(WSSConstants.NS_SAML10_TOKEN_PROFILE)
                 || tok.getTokenType().startsWith(WSSConstants.NS_SAML11_TOKEN_PROFILE)) {
-                tokenType = WSSecurityTokenConstants.Saml11Token;
+                tokenType = WSSecurityTokenConstants.SAML_11_TOKEN;
             } else if (tok.getTokenType().startsWith(WSSConstants.NS_WSC_05_02)
                 || tok.getTokenType().startsWith(WSSConstants.NS_WSC_05_12)) {
-                tokenType = WSSecurityTokenConstants.SecureConversationToken;
+                tokenType = WSSecurityTokenConstants.SECURE_CONVERSATION_TOKEN;
             }
         }
         
@@ -472,18 +466,13 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
     }
     
     protected void configureLayout(AssertionInfoMap aim) {
-        Collection<AssertionInfo> ais = getAllAssertionsByLocalname(aim, SPConstants.LAYOUT);
+        AssertionInfo ai = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.LAYOUT);
         Layout layout = null;
-        for (AssertionInfo ai : ais) {
+        if (ai != null) {
             layout = (Layout)ai.getAssertion();
-            Collection<AssertionInfo> layoutTypeAis = aim.get(layout.getName());
-            if (layoutTypeAis != null) {
-                for (AssertionInfo layoutAi : layoutTypeAis) {
-                    layoutAi.setAsserted(true);
-                }
-            }
             ai.setAsserted(true);
         }
+        
         if (layout != null && layout.getLayoutType() != null) {
             assertPolicy(new QName(layout.getName().getNamespaceURI(), layout.getLayoutType().name()));
         }
@@ -509,7 +498,7 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
     }
 
     protected void configureSignature(
-        AbstractTokenWrapper wrapper, AbstractToken token, boolean attached
+        AbstractToken token, boolean attached
     ) throws WSSecurityException {
         
         if (token instanceof X509Token) {
@@ -521,15 +510,15 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
             }
         }
         
-        properties.setSignatureKeyIdentifier(getKeyIdentifierType(wrapper, token));
+        properties.setSignatureKeyIdentifier(getKeyIdentifierType(token));
 
         // Find out do we also need to include the token as per the Inclusion requirement
         WSSecurityTokenConstants.KeyIdentifier keyIdentifier = properties.getSignatureKeyIdentifier();
         if (token instanceof X509Token 
             && isTokenRequired(token.getIncludeTokenType())
             && (WSSecurityTokenConstants.KeyIdentifier_IssuerSerial.equals(keyIdentifier)
-                || WSSecurityTokenConstants.KeyIdentifier_ThumbprintIdentifier.equals(keyIdentifier)
-                || WSSecurityTokenConstants.KeyIdentifier_SecurityTokenDirectReference.equals(
+                || WSSecurityTokenConstants.KEYIDENTIFIER_THUMBPRINT_IDENTIFIER.equals(keyIdentifier)
+                || WSSecurityTokenConstants.KEYIDENTIFIER_SECURITY_TOKEN_DIRECT_REFERENCE.equals(
                     keyIdentifier))) {
             properties.setIncludeSignatureToken(true);
         } else {
@@ -545,9 +534,11 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
             properties.setSignatureAlgorithm(
                        binding.getAlgorithmSuite().getAsymmetricSignature());
         }
-        String sigUser = (String)message.getContextualProperty(userNameKey);
+        properties.setSignatureCanonicalizationAlgorithm(
+                       binding.getAlgorithmSuite().getC14n().getValue());
+        String sigUser = (String)SecurityUtils.getSecurityPropertyValue(userNameKey, message);
         if (sigUser == null) {
-            sigUser = (String)message.getContextualProperty(SecurityConstants.USERNAME);
+            sigUser = (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.USERNAME, message);
         }
         if (sigUser != null && properties.getSignatureUser() == null) {
             properties.setSignatureUser(sigUser);
@@ -557,10 +548,15 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         properties.setSignatureDigestAlgorithm(algType.getDigest());
         // sig.setSigCanonicalization(binding.getAlgorithmSuite().getC14n().getValue());
 
+        boolean includePrefixes = 
+            MessageUtils.getContextualBoolean(
+                message, SecurityConstants.ADD_INCLUSIVE_PREFIXES, true
+            );
+        properties.setAddExcC14NInclusivePrefixes(includePrefixes);
     }
     
     protected WSSecurityTokenConstants.KeyIdentifier getKeyIdentifierType(
-        AbstractTokenWrapper wrapper, AbstractToken token
+        AbstractToken token
     ) {
         WSSecurityTokenConstants.KeyIdentifier identifier = null;
         if (token instanceof X509Token) {
@@ -570,7 +566,7 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
             } else if (x509Token.isRequireKeyIdentifierReference()) {
                 identifier = WSSecurityTokenConstants.KeyIdentifier_SkiKeyIdentifier;
             } else if (x509Token.isRequireThumbprintReference()) {
-                identifier = WSSecurityTokenConstants.KeyIdentifier_ThumbprintIdentifier;
+                identifier = WSSecurityTokenConstants.KEYIDENTIFIER_THUMBPRINT_IDENTIFIER;
             }
         } else if (token instanceof KeyValueToken) {
             identifier = WSSecurityTokenConstants.KeyIdentifier_KeyValue;
@@ -588,7 +584,7 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
                 identifier = WSSecurityTokenConstants.KeyIdentifier_IssuerSerial;
             } else if (wss instanceof Wss11
                 && ((Wss11) wss).isMustSupportRefThumbprint()) {
-                identifier = WSSecurityTokenConstants.KeyIdentifier_ThumbprintIdentifier;
+                identifier = WSSecurityTokenConstants.KEYIDENTIFIER_THUMBPRINT_IDENTIFIER;
             }
         } else if (token.getIncludeTokenType() == IncludeTokenType.INCLUDE_TOKEN_ALWAYS_TO_RECIPIENT
             && !isRequestor() && token instanceof X509Token) {
@@ -602,7 +598,7 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
             return identifier;
         }
         
-        return WSSecurityTokenConstants.KeyIdentifier_SecurityTokenDirectReference;
+        return WSSecurityTokenConstants.KEYIDENTIFIER_SECURITY_TOKEN_DIRECT_REFERENCE;
     }
     
     protected Map<AbstractToken, SecurePart> handleSupportingTokens(
@@ -610,9 +606,8 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         boolean signed,
         boolean endorse
     ) throws Exception {
-        Map<AbstractToken, SecurePart> ret = null;
-        if (tokenAssertions != null) {
-            ret = new HashMap<AbstractToken, SecurePart>();
+        if (tokenAssertions != null && !tokenAssertions.isEmpty()) {
+            Map<AbstractToken, SecurePart> ret = new HashMap<AbstractToken, SecurePart>();
             for (AssertionInfo assertionInfo : tokenAssertions) {
                 if (assertionInfo.getAssertion() instanceof SupportingTokens) {
                     assertionInfo.setAsserted(true);
@@ -620,8 +615,9 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
                             signed, endorse, ret);
                 }
             }
+            return ret;
         }
-        return ret;
+        return Collections.emptyMap();
     }
                                                             
     protected Map<AbstractToken, SecurePart> handleSupportingTokens(
@@ -677,10 +673,10 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
                 }
             } else if (token instanceof X509Token || token instanceof KeyValueToken) {
                 assertToken(token);
-                configureSignature(suppTokens, token, false);
+                configureSignature(token, false);
                 if (suppTokens.isEncryptedToken()) {
                     SecurePart part = 
-                        new SecurePart(WSSConstants.TAG_wsse_BinarySecurityToken, Modifier.Element);
+                        new SecurePart(WSSConstants.TAG_WSSE_BINARY_SECURITY_TOKEN, Modifier.Element);
                     encryptedTokensList.add(part);
                 }
                 ret.put(token, new SecurePart(WSSConstants.TAG_dsig_Signature, Modifier.Element));
@@ -779,15 +775,15 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
     
     protected void addSignatureParts(Map<AbstractToken, SecurePart> tokenMap) {
         if (tokenMap != null) {
-            for (AbstractToken token : tokenMap.keySet()) {
-                SecurePart part = tokenMap.get(token);
+            for (Map.Entry<AbstractToken, SecurePart> entry : tokenMap.entrySet()) {
+                SecurePart part = entry.getValue();
     
                 QName name = part.getName();
                 List<WSSConstants.Action> actionList = properties.getActions();
     
                 // Don't add a signed SAML Token as a part, as it will be automatically signed by WSS4J
-                if (!((WSSConstants.TAG_saml_Assertion.equals(name) 
-                    || WSSConstants.TAG_saml2_Assertion.equals(name))
+                if (!((WSSConstants.TAG_SAML_ASSERTION.equals(name) 
+                    || WSSConstants.TAG_SAML2_ASSERTION.equals(name))
                     && actionList != null && actionList.contains(WSSConstants.SAML_TOKEN_SIGNED))) {
                     properties.addSignaturePart(part);
                 }
@@ -814,7 +810,7 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         
         if (sigParts != null) {
             SecurePart securePart = 
-                new SecurePart(WSSConstants.TAG_wsse11_SignatureConfirmation, Modifier.Element);
+                new SecurePart(WSSConstants.TAG_WSSE11_SIG_CONF, Modifier.Element);
             sigParts.add(securePart);
         }
         signatureConfirmationAdded = true;
@@ -828,19 +824,19 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         SignedElements elements = null;
         
         AssertionInfoMap aim = message.get(AssertionInfoMap.class);
-        AssertionInfo assertionInfo = getFirstAssertionByLocalname(aim, SPConstants.SIGNED_PARTS);
+        AssertionInfo assertionInfo = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.SIGNED_PARTS);
         if (assertionInfo != null) {
             parts = (SignedParts)assertionInfo.getAssertion();
             assertionInfo.setAsserted(true);
         }
         
-        assertionInfo = getFirstAssertionByLocalname(aim, SPConstants.SIGNED_ELEMENTS);
+        assertionInfo = PolicyUtils.getFirstAssertionByLocalname(aim, SPConstants.SIGNED_ELEMENTS);
         if (assertionInfo != null) {
             elements = (SignedElements)assertionInfo.getAssertion();
             assertionInfo.setAsserted(true);
         }
         
-        List<SecurePart> signedParts = new ArrayList<SecurePart>();
+        List<SecurePart> signedParts = new ArrayList<>();
         if (parts != null) {
             if (parts.isBody()) {
                 QName soapBody = new QName(WSSConstants.NS_SOAP12, "Body");
@@ -871,7 +867,8 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         
         if (elements != null && elements.getXPaths() != null) {
             for (XPath xPath : elements.getXPaths()) {
-                List<QName> qnames = PolicyUtils.getElementPath(xPath);
+                List<QName> qnames = 
+                    org.apache.wss4j.policy.stax.PolicyUtils.getElementPath(xPath);
                 if (!qnames.isEmpty()) {
                     SecurePart securePart = 
                         new SecurePart(qnames.get(qnames.size() - 1), Modifier.Element);
@@ -892,7 +889,7 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         ContentEncryptedElements celements = null;
         
         AssertionInfoMap aim = message.get(AssertionInfoMap.class);
-        Collection<AssertionInfo> ais = getAllAssertionsByLocalname(aim, SPConstants.ENCRYPTED_PARTS);
+        Collection<AssertionInfo> ais = PolicyUtils.getAllAssertionsByLocalname(aim, SPConstants.ENCRYPTED_PARTS);
         if (!ais.isEmpty()) {
             for (AssertionInfo ai : ais) {
                 parts = (EncryptedParts)ai.getAssertion();
@@ -900,7 +897,7 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
             }            
         }
         
-        ais = getAllAssertionsByLocalname(aim, SPConstants.ENCRYPTED_ELEMENTS);
+        ais = PolicyUtils.getAllAssertionsByLocalname(aim, SPConstants.ENCRYPTED_ELEMENTS);
         if (!ais.isEmpty()) {
             for (AssertionInfo ai : ais) {
                 elements = (EncryptedElements)ai.getAssertion();
@@ -908,7 +905,7 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
             }            
         }
         
-        ais = getAllAssertionsByLocalname(aim, SPConstants.CONTENT_ENCRYPTED_ELEMENTS);
+        ais = PolicyUtils.getAllAssertionsByLocalname(aim, SPConstants.CONTENT_ENCRYPTED_ELEMENTS);
         if (!ais.isEmpty()) {
             for (AssertionInfo ai : ais) {
                 celements = (ContentEncryptedElements)ai.getAssertion();
@@ -916,7 +913,7 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
             }            
         }
         
-        List<SecurePart> encryptedParts = new ArrayList<SecurePart>();
+        List<SecurePart> encryptedParts = new ArrayList<>();
         if (parts != null) {
             if (parts.isBody()) {
                 QName soapBody = new QName(WSSConstants.NS_SOAP12, "Body");
@@ -937,6 +934,10 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
             Attachments attachments = parts.getAttachments();
             if (attachments != null) {
                 SecurePart securePart = new SecurePart("cid:Attachments", Modifier.Element);
+                if (MessageUtils.getContextualBoolean(
+                    message, SecurityConstants.USE_ATTACHMENT_ENCRYPTION_CONTENT_ONLY_TRANSFORM, false)) {
+                    securePart.setModifier(Modifier.Content);
+                }
                 securePart.setRequired(false);
                 encryptedParts.add(securePart);
             }
@@ -944,7 +945,8 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         
         if (elements != null && elements.getXPaths() != null) {
             for (XPath xPath : elements.getXPaths()) {
-                List<QName> qnames = PolicyUtils.getElementPath(xPath);
+                List<QName> qnames = 
+                    org.apache.wss4j.policy.stax.PolicyUtils.getElementPath(xPath);
                 if (!qnames.isEmpty()) {
                     SecurePart securePart = 
                         new SecurePart(qnames.get(qnames.size() - 1), Modifier.Element);
@@ -955,7 +957,8 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         
         if (celements != null && celements.getXPaths() != null) {
             for (XPath xPath : celements.getXPaths()) {
-                List<QName> qnames = PolicyUtils.getElementPath(xPath);
+                List<QName> qnames = 
+                    org.apache.wss4j.policy.stax.PolicyUtils.getElementPath(xPath);
                 if (!qnames.isEmpty()) {
                     SecurePart securePart = 
                         new SecurePart(qnames.get(qnames.size() - 1), Modifier.Content);
@@ -967,40 +970,9 @@ public abstract class AbstractStaxBindingHandler extends AbstractCommonBindingHa
         return encryptedParts;
     }
     
-    protected static class TokenStoreCallbackHandler implements CallbackHandler {
-        private CallbackHandler internal;
-        private TokenStore store;
-        public TokenStoreCallbackHandler(CallbackHandler in, TokenStore st) {
-            internal = in;
-            store = st;
-        }
-        
-        public void handle(Callback[] callbacks) throws IOException, UnsupportedCallbackException {
-            for (int i = 0; i < callbacks.length; i++) {
-                WSPasswordCallback pc = (WSPasswordCallback)callbacks[i];
-                
-                String id = pc.getIdentifier();
-                SecurityToken token = store.getToken(id);
-                if (token != null) {
-                    if (token.getSHA1() == null && pc.getKey() != null) {
-                        token.setSHA1(getSHA1(pc.getKey()));
-                        // Create another cache entry with the SHA1 Identifier as the key 
-                        // for easy retrieval
-                        store.add(token.getSHA1(), token);
-                    }
-                    pc.setKey(token.getSecret());
-                    pc.setCustomToken(token.getToken());
-                    return;
-                }
-            }
-            if (internal != null) {
-                internal.handle(callbacks);
-            }
-        }
-    }
-    
     protected org.apache.xml.security.stax.securityToken.SecurityToken 
     findInboundSecurityToken(SecurityEventConstants.Event event) throws XMLSecurityException {
+        
         @SuppressWarnings("unchecked")
         final List<SecurityEvent> incomingEventList = 
             (List<SecurityEvent>) message.getExchange().get(SecurityEvent.class.getName() + ".in");

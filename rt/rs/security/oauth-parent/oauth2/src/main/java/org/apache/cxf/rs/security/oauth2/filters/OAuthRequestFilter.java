@@ -24,9 +24,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.logging.Logger;
 
+import javax.annotation.Priority;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.HttpMethod;
-import javax.ws.rs.WebApplicationException;
+import javax.ws.rs.Priorities;
 import javax.ws.rs.container.ContainerRequestContext;
 import javax.ws.rs.container.ContainerRequestFilter;
 import javax.ws.rs.container.PreMatching;
@@ -37,13 +38,16 @@ import javax.ws.rs.ext.Provider;
 
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.common.security.SimplePrincipal;
+import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.jaxrs.provider.FormEncodingProvider;
+import org.apache.cxf.jaxrs.utils.ExceptionUtils;
 import org.apache.cxf.jaxrs.utils.FormUtils;
 import org.apache.cxf.jaxrs.utils.JAXRSUtils;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.message.MessageUtils;
 import org.apache.cxf.phase.PhaseInterceptorChain;
 import org.apache.cxf.rs.security.oauth2.common.AccessTokenValidation;
+import org.apache.cxf.rs.security.oauth2.common.AuthenticationMethod;
 import org.apache.cxf.rs.security.oauth2.common.OAuthContext;
 import org.apache.cxf.rs.security.oauth2.common.OAuthPermission;
 import org.apache.cxf.rs.security.oauth2.common.UserSubject;
@@ -58,16 +62,22 @@ import org.apache.cxf.security.SecurityContext;
  */
 @Provider
 @PreMatching
+// Priorities.AUTHORIZATION also works
+@Priority(Priorities.AUTHENTICATION)
 public class OAuthRequestFilter extends AbstractAccessTokenValidator 
     implements ContainerRequestFilter {
     private static final Logger LOG = LogUtils.getL7dLogger(OAuthRequestFilter.class);
     
     private boolean useUserSubject;
-    private boolean audienceIsEndpointAddress;
+    private String audience;
+    private String issuer;
+    private boolean completeAudienceMatch;
+    private boolean audienceIsEndpointAddress = true;
     private boolean checkFormData;
     private List<String> requiredScopes = Collections.emptyList();
     private boolean allPermissionsMatch;
-    
+    private boolean blockPublicClients;
+    private AuthenticationMethod am;
     public void filter(ContainerRequestContext context) {
         validateRequest(JAXRSUtils.getCurrentMessage());
     }    
@@ -81,12 +91,24 @@ public class OAuthRequestFilter extends AbstractAccessTokenValidator
         // WWW-Authenticate with the list of supported schemes will be sent back 
         // if the scheme is not accepted
         String[] authParts = getAuthorizationParts(m);
+        if (authParts.length < 2) {
+            throw ExceptionUtils.toForbiddenException(null, null);
+        }
         String authScheme = authParts[0];
         String authSchemeData = authParts[1];
         
         // Get the access token
-        AccessTokenValidation accessTokenV = getAccessTokenValidation(authScheme, authSchemeData); 
+        AccessTokenValidation accessTokenV = getAccessTokenValidation(authScheme, authSchemeData, null); 
+        if (!accessTokenV.isInitialValidationSuccessful()) {
+            AuthorizationUtils.throwAuthorizationFailure(supportedSchemes, realm);
+        }
+        // Check audiences
+        String validAudience = validateAudiences(accessTokenV.getAudiences());
         
+        // Check if token was issued by the supported issuer
+        if (issuer != null && !issuer.equals(accessTokenV.getTokenIssuer())) {
+            AuthorizationUtils.throwAuthorizationFailure(supportedSchemes, realm);
+        }
         // Find the scopes which match the current request
         
         List<OAuthPermission> permissions = accessTokenV.getTokenScopes();
@@ -102,14 +124,35 @@ public class OAuthRequestFilter extends AbstractAccessTokenValidator
             }
         }
         
-        if (permissions.size() > 0 && matchingPermissions.isEmpty() 
+        if (!permissions.isEmpty() && matchingPermissions.isEmpty() 
             || allPermissionsMatch && (matchingPermissions.size() != permissions.size())
             || !requiredScopes.isEmpty() && requiredScopes.size() != matchingPermissions.size()) {
             String message = "Client has no valid permissions";
             LOG.warning(message);
-            throw new WebApplicationException(403);
+            throw ExceptionUtils.toForbiddenException(null, null);
         }
       
+        if (accessTokenV.getClientIpAddress() != null) {
+            String remoteAddress = getMessageContext().getHttpServletRequest().getRemoteAddr();
+            if (remoteAddress == null || accessTokenV.getClientIpAddress().equals(remoteAddress)) {
+                String message = "Client IP Address is invalid";
+                LOG.warning(message);
+                throw ExceptionUtils.toForbiddenException(null, null);
+            }
+        }
+        if (blockPublicClients && !accessTokenV.isClientConfidential()) {
+            String message = "Only Confidential Clients are supported";
+            LOG.warning(message);
+            throw ExceptionUtils.toForbiddenException(null, null);
+        }
+        if (am != null && !am.equals(accessTokenV.getTokenSubject().getAuthenticationMethod())) {
+            String message = "The token has been authorized by the resource owner "
+                + "using an unsupported authentication method";
+            LOG.warning(message);
+            throw ExceptionUtils.toForbiddenException(null, null);
+            
+        }
+        
         // Create the security context and make it available on the message
         SecurityContext sc = createSecurityContext(req, accessTokenV);
         m.put(SecurityContext.class, sc);
@@ -121,9 +164,12 @@ public class OAuthRequestFilter extends AbstractAccessTokenValidator
                                                      accessTokenV.getTokenGrantType());
         
         oauthContext.setClientId(accessTokenV.getClientId());
+        oauthContext.setClientConfidential(accessTokenV.isClientConfidential());
         oauthContext.setTokenKey(accessTokenV.getTokenKey());
-        oauthContext.setTokenAudience(accessTokenV.getAudience());
+        oauthContext.setTokenAudience(validAudience);
+        oauthContext.setTokenIssuer(accessTokenV.getTokenIssuer());
         oauthContext.setTokenRequestParts(authParts);
+        oauthContext.setTokenExtraProperties(accessTokenV.getExtraProps());
         m.setContent(OAuthContext.class, oauthContext);
     }
 
@@ -201,21 +247,28 @@ public class OAuthRequestFilter extends AbstractAccessTokenValidator
         return MessageUtils.isTrue(m.get("local_preflight"));
     }
 
-    protected boolean validateAudience(String audience) {
-        if (audience == null) {
-            return true;
+    protected String validateAudiences(List<String> audiences) {
+        if (StringUtils.isEmpty(audiences) && audience == null) {
+            return null;
         }
-        
-        boolean isValid = super.validateAudience(audience);
-        if (isValid && audienceIsEndpointAddress) {
-            String requestPath = (String)PhaseInterceptorChain.getCurrentMessage().get(Message.REQUEST_URL);
-            isValid = requestPath.startsWith(audience);
+        if (audience != null) {
+            if (audiences.contains(audience)) {
+                return audience;
+            }
+            AuthorizationUtils.throwAuthorizationFailure(supportedSchemes, realm);
+        } 
+        if (!audienceIsEndpointAddress) {
+            return null;
         }
-        return isValid;
-    }
-    
-    public void setAudienceIsEndpointAddress(boolean audienceIsEndpointAddress) {
-        this.audienceIsEndpointAddress = audienceIsEndpointAddress;
+        String requestPath = (String)PhaseInterceptorChain.getCurrentMessage().get(Message.REQUEST_URL);
+        for (String s : audiences) {
+            boolean matched = completeAudienceMatch ? requestPath.equals(s) : requestPath.startsWith(s);
+            if (matched) {
+                return s;
+            }
+        }
+        AuthorizationUtils.throwAuthorizationFailure(supportedSchemes, realm);
+        return null;
     }
     
     public void setCheckFormData(boolean checkFormData) {
@@ -258,6 +311,37 @@ public class OAuthRequestFilter extends AbstractAccessTokenValidator
 
     public void setAllPermissionsMatch(boolean allPermissionsMatch) {
         this.allPermissionsMatch = allPermissionsMatch;
+    }
+
+    public void setBlockPublicClients(boolean blockPublicClients) {
+        this.blockPublicClients = blockPublicClients;
+    }
+    public void setTokenSubjectAuthenticationMethod(AuthenticationMethod method) {
+        this.am = method;
+    }
+
+    public String getAudience() {
+        return audience;
+    }
+
+    public void setAudience(String audience) {
+        this.audience = audience;
+    }
+
+    public boolean isCompleteAudienceMatch() {
+        return completeAudienceMatch;
+    }
+
+    public void setCompleteAudienceMatch(boolean completeAudienceMatch) {
+        this.completeAudienceMatch = completeAudienceMatch;
+    }
+
+    public void setAudienceIsEndpointAddress(boolean audienceIsEndpointAddress) {
+        this.audienceIsEndpointAddress = audienceIsEndpointAddress;
+    }
+
+    public void setIssuer(String issuer) {
+        this.issuer = issuer;
     }
     
 }

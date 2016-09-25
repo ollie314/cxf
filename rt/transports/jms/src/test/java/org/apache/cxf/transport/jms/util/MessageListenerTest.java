@@ -119,7 +119,7 @@ public class MessageListenerTest {
         assertNumMessagesInQueue("Should succeed on second try", connection, dest, 0, 2000);
 
         sendMessage(connection, dest, FAIL);
-        assertNumMessagesInQueue("Should be rolled back", connection, dlq, 1, 1000);
+        assertNumMessagesInQueue("Should be rolled back", connection, dlq, 1, 2500);
     }
 
     private Connection createConnection(String name) throws JMSException {
@@ -173,7 +173,7 @@ public class MessageListenerTest {
             //                   + ", expecting: " + expectedNum);
             Thread.sleep(100);
         } while ((System.currentTimeMillis() - startTime < timeout) && expectedNum != actualNum);
-        Assert.assertEquals(message + " -> number of messages", expectedNum, actualNum);
+        Assert.assertEquals(message + " -> number of messages on queue", expectedNum, actualNum);
     }
 
     private void sendMessage(Connection connection, Destination dest, String content) throws JMSException,

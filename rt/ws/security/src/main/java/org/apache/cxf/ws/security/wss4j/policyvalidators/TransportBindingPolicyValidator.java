@@ -20,16 +20,13 @@
 package org.apache.cxf.ws.security.wss4j.policyvalidators;
 
 import java.util.Collection;
-import java.util.List;
 
-import org.w3c.dom.Element;
+import javax.xml.namespace.QName;
 
-import org.apache.cxf.message.Message;
 import org.apache.cxf.message.MessageUtils;
 import org.apache.cxf.security.transport.TLSSessionInfo;
 import org.apache.cxf.ws.policy.AssertionInfo;
-import org.apache.cxf.ws.policy.AssertionInfoMap;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.wss4j.policy.SP11Constants;
 import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.SPConstants;
@@ -40,42 +37,27 @@ import org.apache.wss4j.policy.model.TransportBinding;
  */
 public class TransportBindingPolicyValidator extends AbstractBindingPolicyValidator {
     
-    public boolean validatePolicy(
-        AssertionInfoMap aim,
-        Message message,
-        Element soapBody,
-        List<WSSecurityEngineResult> results,
-        List<WSSecurityEngineResult> signedResults,
-        List<WSSecurityEngineResult> encryptedResults
-    ) {
-        Collection<AssertionInfo> ais = getAllAssertionsByLocalname(aim, SPConstants.TRANSPORT_BINDING);
-        if (!ais.isEmpty()) {
-            parsePolicies(aim, ais, message, results, signedResults);
-            
-            // We don't need to check these policies for the Transport binding
-            assertPolicy(aim, SP12Constants.ENCRYPTED_PARTS);
-            assertPolicy(aim, SP11Constants.ENCRYPTED_PARTS);
-            assertPolicy(aim, SP12Constants.SIGNED_PARTS);
-            assertPolicy(aim, SP11Constants.SIGNED_PARTS);
-        }
-        
-        return true;
+    /**
+     * Return true if this SecurityPolicyValidator implementation is capable of validating a 
+     * policy defined by the AssertionInfo parameter
+     */
+    public boolean canValidatePolicy(AssertionInfo assertionInfo) {
+        return assertionInfo.getAssertion() != null 
+            && (SP12Constants.TRANSPORT_BINDING.equals(assertionInfo.getAssertion().getName())
+                || SP11Constants.TRANSPORT_BINDING.equals(assertionInfo.getAssertion().getName()));
     }
     
-    private void parsePolicies(
-        AssertionInfoMap aim,
-        Collection<AssertionInfo> ais, 
-        Message message,
-        List<WSSecurityEngineResult> results,
-        List<WSSecurityEngineResult> signedResults
-    ) {
+    /**
+     * Validate policies.
+     */
+    public void validatePolicies(PolicyValidatorParameters parameters, Collection<AssertionInfo> ais) {
         for (AssertionInfo ai : ais) {
             TransportBinding binding = (TransportBinding)ai.getAssertion();
             ai.setAsserted(true);
             
             // Check that TLS is in use if we are not the requestor
-            boolean initiator = MessageUtils.isRequestor(message);
-            TLSSessionInfo tlsInfo = message.get(TLSSessionInfo.class);
+            boolean initiator = MessageUtils.isRequestor(parameters.getMessage());
+            TLSSessionInfo tlsInfo = parameters.getMessage().get(TLSSessionInfo.class);
             if (!initiator && tlsInfo == null) {
                 ai.setNotAsserted("TLS is not enabled");
                 continue;
@@ -83,18 +65,27 @@ public class TransportBindingPolicyValidator extends AbstractBindingPolicyValida
             
             // HttpsToken is validated by the HttpsTokenInterceptorProvider
             if (binding.getTransportToken() != null) {
-                assertPolicy(aim, binding.getTransportToken());
+                PolicyUtils.assertPolicy(parameters.getAssertionInfoMap(), binding.getTransportToken().getName());
             }
             
             // Check the IncludeTimestamp
-            if (!validateTimestamp(binding.isIncludeTimestamp(), true, results, signedResults, message)) {
+            if (!validateTimestamp(binding.isIncludeTimestamp(), true, parameters.getResults(), 
+                                   parameters.getSignedResults(), parameters.getMessage())) {
                 String error = "Received Timestamp does not match the requirements";
                 ai.setNotAsserted(error);
                 continue;
             }
-            assertPolicy(aim, SPConstants.INCLUDE_TIMESTAMP);
+            PolicyUtils.assertPolicy(parameters.getAssertionInfoMap(),
+                                     new QName(binding.getName().getNamespaceURI(), SPConstants.INCLUDE_TIMESTAMP));
         }
 
+        // We don't need to check these policies for the Transport binding
+        if (!ais.isEmpty()) {
+            PolicyUtils.assertPolicy(parameters.getAssertionInfoMap(), SP12Constants.ENCRYPTED_PARTS);
+            PolicyUtils.assertPolicy(parameters.getAssertionInfoMap(), SP11Constants.ENCRYPTED_PARTS);
+            PolicyUtils.assertPolicy(parameters.getAssertionInfoMap(), SP12Constants.SIGNED_PARTS);
+            PolicyUtils.assertPolicy(parameters.getAssertionInfoMap(), SP11Constants.SIGNED_PARTS);
+        }
     }
     
 }

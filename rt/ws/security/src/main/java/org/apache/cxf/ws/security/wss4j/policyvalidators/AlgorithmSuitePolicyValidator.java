@@ -29,83 +29,81 @@ import java.util.List;
 
 import javax.xml.namespace.QName;
 
-import org.w3c.dom.Element;
-
 import org.apache.cxf.helpers.CastUtils;
-import org.apache.cxf.message.Message;
 import org.apache.cxf.ws.policy.AssertionInfo;
-import org.apache.cxf.ws.policy.AssertionInfoMap;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.wss4j.common.principal.WSDerivedKeyTokenPrincipal;
 import org.apache.wss4j.dom.WSConstants;
 import org.apache.wss4j.dom.WSDataRef;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
 import org.apache.wss4j.dom.transform.STRTransform;
-import org.apache.wss4j.policy.SPConstants;
+import org.apache.wss4j.policy.SP11Constants;
+import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.model.AlgorithmSuite;
 import org.apache.wss4j.policy.model.AlgorithmSuite.AlgorithmSuiteType;
+import org.apache.xml.security.transforms.Transforms;
 
 /**
  * Validate results corresponding to the processing of a Signature, EncryptedKey or
  * EncryptedData structure against an AlgorithmSuite policy.
  */
-public class AlgorithmSuitePolicyValidator extends AbstractTokenPolicyValidator {
+public class AlgorithmSuitePolicyValidator extends AbstractSecurityPolicyValidator {
     
-    public boolean validatePolicy(
-        AssertionInfoMap aim,
-        Message message,
-        Element soapBody,
-        List<WSSecurityEngineResult> results,
-        List<WSSecurityEngineResult> signedResults
-    ) {
-        Collection<AssertionInfo> ais = getAllAssertionsByLocalname(aim, SPConstants.ALGORITHM_SUITE);
-        if (!ais.isEmpty()) {
-            parsePolicies(aim, ais, message, results);
-        }
-
-        return true;
+    /**
+     * Return true if this SecurityPolicyValidator implementation is capable of validating a 
+     * policy defined by the AssertionInfo parameter
+     */
+    public boolean canValidatePolicy(AssertionInfo assertionInfo) {
+        return assertionInfo.getAssertion() != null 
+            && (SP12Constants.ALGORITHM_SUITE.equals(assertionInfo.getAssertion().getName())
+                || SP11Constants.ALGORITHM_SUITE.equals(assertionInfo.getAssertion().getName()));
     }
     
-    private void parsePolicies(
-        AssertionInfoMap aim,
-        Collection<AssertionInfo> ais, 
-        Message message,  
-        List<WSSecurityEngineResult> results
-    ) {
+    /**
+     * Validate policies.
+     */
+    public void validatePolicies(PolicyValidatorParameters parameters, Collection<AssertionInfo> ais) {
         for (AssertionInfo ai : ais) {
             AlgorithmSuite algorithmSuite = (AlgorithmSuite)ai.getAssertion();
             ai.setAsserted(true);
             
-            boolean valid = validatePolicy(ai, algorithmSuite, results);
+            boolean valid = validatePolicy(ai, algorithmSuite, parameters.getResults().getResults());
             if (valid) {
                 String namespace = algorithmSuite.getAlgorithmSuiteType().getNamespace();
                 String name = algorithmSuite.getAlgorithmSuiteType().getName();
-                Collection<AssertionInfo> algSuiteAis = aim.get(new QName(namespace, name));
+                Collection<AssertionInfo> algSuiteAis = 
+                    parameters.getAssertionInfoMap().get(new QName(namespace, name));
                 if (algSuiteAis != null) {
                     for (AssertionInfo algSuiteAi : algSuiteAis) {
                         algSuiteAi.setAsserted(true);
                     }
                 }
+                
+                PolicyUtils.assertPolicy(parameters.getAssertionInfoMap(), 
+                                         new QName(algorithmSuite.getName().getNamespaceURI(), 
+                                                   algorithmSuite.getC14n().name()));
             } else if (!valid && ai.isAsserted()) {
                 ai.setNotAsserted("Error in validating AlgorithmSuite policy");
             }
         }
     }
     
-    public boolean validatePolicy(
+    private boolean validatePolicy(
         AssertionInfo ai, AlgorithmSuite algorithmPolicy, List<WSSecurityEngineResult> results
     ) {
-        boolean success = true;
+        
         for (WSSecurityEngineResult result : results) {
-            Integer actInt = (Integer)result.get(WSSecurityEngineResult.TAG_ACTION);
-            if (WSConstants.SIGN == actInt 
+            Integer action = (Integer)result.get(WSSecurityEngineResult.TAG_ACTION);
+            if (WSConstants.SIGN == action 
                 && !checkSignatureAlgorithms(result, algorithmPolicy, ai)) {
-                success = false;
-            } else if (WSConstants.ENCR == actInt
+                return false;
+            } else if (WSConstants.ENCR == action
                 && !checkEncryptionAlgorithms(result, algorithmPolicy, ai)) {
-                success = false;
+                return false;
             }
         }
-        return success;
+        
+        return true;
     }
     
     /**
@@ -140,11 +138,7 @@ public class AlgorithmSuitePolicyValidator extends AbstractTokenPolicyValidator 
             return false;
         }
         
-        if (!checkKeyLengths(result, algorithmPolicy, ai, true)) {
-            return false;
-        }
-        
-        return true;
+        return checkKeyLengths(result, algorithmPolicy, ai, true);
     }
     
     /**
@@ -173,7 +167,9 @@ public class AlgorithmSuitePolicyValidator extends AbstractTokenPolicyValidator 
             }
             for (String transformAlgorithm : transformAlgorithms) {
                 if (!(algorithmPolicy.getC14n().getValue().equals(transformAlgorithm)
+                    || WSConstants.C14N_EXCL_OMIT_COMMENTS.equals(transformAlgorithm)
                     || STRTransform.TRANSFORM_URI.equals(transformAlgorithm)
+                    || Transforms.TRANSFORM_ENVELOPED_SIGNATURE.equals(transformAlgorithm)
                     || WSConstants.SWA_ATTACHMENT_CONTENT_SIG_TRANS.equals(transformAlgorithm)
                     || WSConstants.SWA_ATTACHMENT_COMPLETE_SIG_TRANS.equals(transformAlgorithm))) {
                     ai.setNotAsserted("The transform algorithms do not match the requirement");
@@ -218,11 +214,7 @@ public class AlgorithmSuitePolicyValidator extends AbstractTokenPolicyValidator 
             }
         }
         
-        if (!checkKeyLengths(result, algorithmPolicy, ai, false)) {
-            return false;
-        }
-        
-        return true;
+        return checkKeyLengths(result, algorithmPolicy, ai, false);
     }
     
     /**

@@ -19,9 +19,7 @@
 package org.apache.cxf.ws.security.wss4j;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -40,21 +38,15 @@ import javax.security.auth.callback.CallbackHandler;
 import javax.security.auth.callback.UnsupportedCallbackException;
 import javax.xml.namespace.QName;
 
-import org.apache.cxf.Bus;
 import org.apache.cxf.binding.soap.SoapMessage;
 import org.apache.cxf.binding.soap.interceptor.SoapInterceptor;
-import org.apache.cxf.common.classloader.ClassLoaderUtils;
-import org.apache.cxf.common.classloader.ClassLoaderUtils.ClassLoaderHolder;
 import org.apache.cxf.common.logging.LogUtils;
-import org.apache.cxf.endpoint.Endpoint;
 import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.message.MessageUtils;
 import org.apache.cxf.phase.PhaseInterceptor;
-import org.apache.cxf.resource.ResourceManager;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.service.model.EndpointInfo;
-import org.apache.cxf.ws.policy.AssertionInfo;
-import org.apache.cxf.ws.policy.AssertionInfoMap;
 import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.wss4j.common.ConfigurationConstants;
 import org.apache.wss4j.common.crypto.Crypto;
@@ -64,29 +56,27 @@ import org.apache.wss4j.common.crypto.PasswordEncryptor;
 import org.apache.wss4j.common.ext.WSPasswordCallback;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.common.util.Loader;
-import org.apache.wss4j.policy.SP11Constants;
-import org.apache.wss4j.policy.SP12Constants;
-import org.apache.wss4j.stax.ConfigurationConverter;
 import org.apache.wss4j.stax.ext.WSSConstants;
 import org.apache.wss4j.stax.ext.WSSSecurityProperties;
+import org.apache.wss4j.stax.setup.ConfigurationConverter;
 
 public abstract class AbstractWSS4JStaxInterceptor implements SoapInterceptor, 
     PhaseInterceptor<SoapMessage> {
 
-    private static final Set<QName> HEADERS = new HashSet<QName>();
+    private static final Logger LOG = LogUtils.getL7dLogger(AbstractWSS4JStaxInterceptor.class);
+    private static final Set<QName> HEADERS = new HashSet<>();
+    
     static {
         HEADERS.add(new QName(WSSConstants.NS_WSSE10, "Security"));
-        HEADERS.add(new QName(WSSConstants.NS_WSSE11, "Security"));
         HEADERS.add(new QName(WSSConstants.NS_XMLENC, "EncryptedData"));
+        HEADERS.add(new QName(WSSConstants.NS_WSSE11, "EncryptedHeader"));
     }
     
-    private static final Logger LOG = LogUtils.getL7dLogger(AbstractWSS4JStaxInterceptor.class);
-
     private final Map<String, Object> properties;
     private final WSSSecurityProperties userSecurityProperties;
-    private Map<String, Crypto> cryptos = new ConcurrentHashMap<String, Crypto>();
-    private final Set<String> before = new HashSet<String>();
-    private final Set<String> after = new HashSet<String>();
+    private Map<String, Crypto> cryptos = new ConcurrentHashMap<>();
+    private final Set<String> before = new HashSet<>();
+    private final Set<String> after = new HashSet<>();
     private String phase;
     private String id;
     
@@ -156,14 +146,15 @@ public abstract class AbstractWSS4JStaxInterceptor implements SoapInterceptor,
         }
         
         String certConstraints = 
-            (String)msg.getContextualProperty(SecurityConstants.SUBJECT_CERT_CONSTRAINTS);
+            (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.SUBJECT_CERT_CONSTRAINTS, msg);
         if (certConstraints != null && !"".equals(certConstraints)) {
             securityProperties.setSubjectCertConstraints(convertCertConstraints(certConstraints));
         }
         
         // Now set SAML SenderVouches + Holder Of Key requirements
         String validateSAMLSubjectConf = 
-            (String)msg.getContextualProperty(SecurityConstants.VALIDATE_SAML_SUBJECT_CONFIRMATION);
+            (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.VALIDATE_SAML_SUBJECT_CONFIRMATION,
+                                                           msg);
         if (validateSAMLSubjectConf != null) {
             securityProperties.setValidateSamlSubjectConfirmation(Boolean.valueOf(validateSAMLSubjectConf));
         }
@@ -184,9 +175,8 @@ public abstract class AbstractWSS4JStaxInterceptor implements SoapInterceptor,
     
     private  Collection<Pattern> convertCertConstraints(String certConstraints) {
         String[] certConstraintsList = certConstraints.split(",");
-        if (certConstraintsList != null) {
-            Collection<Pattern> subjectCertConstraints = 
-                new ArrayList<Pattern>(certConstraintsList.length);
+        if (certConstraintsList.length > 0) {
+            Collection<Pattern> subjectCertConstraints = new ArrayList<>(certConstraintsList.length);
             for (String certConstraint : certConstraintsList) {
                 try {
                     subjectCertConstraints.add(Pattern.compile(certConstraint.trim()));
@@ -203,29 +193,29 @@ public abstract class AbstractWSS4JStaxInterceptor implements SoapInterceptor,
     protected void configureCallbackHandler(
         SoapMessage soapMessage, WSSSecurityProperties securityProperties
     ) throws WSSecurityException {
-        Object o = soapMessage.getContextualProperty(SecurityConstants.CALLBACK_HANDLER);
-        if (o instanceof String) {
-            try {
-                o = ClassLoaderUtils.loadClass((String)o, this.getClass()).newInstance();
-            } catch (Exception e) {
-                throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, e);
-            }
+        Object o = SecurityUtils.getSecurityPropertyValue(SecurityConstants.CALLBACK_HANDLER, soapMessage);
+        CallbackHandler callbackHandler = null;
+        try {
+            callbackHandler = SecurityUtils.getCallbackHandler(o);
+        } catch (Exception ex) {
+            throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, ex);
+        }
             
-            if (o instanceof CallbackHandler) {
-                EndpointInfo info = soapMessage.getExchange().get(Endpoint.class).getEndpointInfo();
-                synchronized (info) {
-                    info.setProperty(SecurityConstants.CALLBACK_HANDLER, o);
-                }
-                soapMessage.getExchange().get(Endpoint.class).put(SecurityConstants.CALLBACK_HANDLER, o);
-                soapMessage.getExchange().put(SecurityConstants.CALLBACK_HANDLER, o);
+        if (callbackHandler != null) {
+            EndpointInfo info = soapMessage.getExchange().getEndpoint().getEndpointInfo();
+            synchronized (info) {
+                info.setProperty(SecurityConstants.CALLBACK_HANDLER, callbackHandler);
             }
-        }            
-        
+            soapMessage.getExchange().getEndpoint().put(SecurityConstants.CALLBACK_HANDLER, 
+                                                              callbackHandler);
+            soapMessage.getExchange().put(SecurityConstants.CALLBACK_HANDLER, callbackHandler);
+        }
+
         
         // If we have a "password" but no CallbackHandler then construct one
-        if (o == null && getPassword(soapMessage) != null) {
+        if (callbackHandler == null && getPassword(soapMessage) != null) {
             final String password = getPassword(soapMessage);
-            o = new CallbackHandler() {
+            callbackHandler = new CallbackHandler() {
 
                 @Override
                 public void handle(Callback[] callbacks) throws IOException, UnsupportedCallbackException {
@@ -239,8 +229,8 @@ public abstract class AbstractWSS4JStaxInterceptor implements SoapInterceptor,
             };
         }
         
-        if (o instanceof CallbackHandler) {
-            securityProperties.setCallbackHandler((CallbackHandler)o);
+        if (callbackHandler != null) {
+            securityProperties.setCallbackHandler(callbackHandler);
         }
     }
     
@@ -277,7 +267,7 @@ public abstract class AbstractWSS4JStaxInterceptor implements SoapInterceptor,
     }
 
     public Object getProperty(Object msgContext, String key) {
-        Object obj = ((Message)msgContext).getContextualProperty(key);
+        Object obj = SecurityUtils.getSecurityPropertyValue(key, (Message)msgContext);
         if (obj == null) {
             obj = getOption(key);
         }
@@ -354,7 +344,7 @@ public abstract class AbstractWSS4JStaxInterceptor implements SoapInterceptor,
                     cryptos.put(refId, crypto);
                 }
             }
-            if (crypto == null) {
+            if (crypto == null && LOG.isLoggable(Level.INFO)) {
                 LOG.info("The Crypto reference " + refId + " specified by "
                     + cryptoPropertyRefId + " could not be loaded"
                 );
@@ -372,7 +362,7 @@ public abstract class AbstractWSS4JStaxInterceptor implements SoapInterceptor,
                     crypto = loadCryptoFromPropertiesFile(soapMessage, propFile, securityProperties);
                     cryptos.put(propFile, crypto);
                 }
-                if (crypto == null) {
+                if (crypto == null && LOG.isLoggable(Level.INFO)) {
                     LOG.info(
                          "The Crypto properties file " + propFile + " specified by "
                          + cryptoPropertyFile + " could not be loaded or found"
@@ -387,36 +377,11 @@ public abstract class AbstractWSS4JStaxInterceptor implements SoapInterceptor,
     protected Crypto loadCryptoFromPropertiesFile(
         SoapMessage soapMessage, String propFilename, WSSSecurityProperties securityProperties
     ) throws WSSecurityException {
-        ClassLoaderHolder orig = null;
-        try {
-            try {
-                URL url = ClassLoaderUtils.getResource(propFilename, this.getClass());
-                if (url == null) {
-                    ResourceManager manager = soapMessage.getExchange()
-                            .getBus().getExtension(ResourceManager.class);
-                    ClassLoader loader = manager.resolveResource("", ClassLoader.class);
-                    if (loader != null) {
-                        orig = ClassLoaderUtils.setThreadContextClassloader(loader);
-                    }
-                    url = manager.resolveResource(propFilename, URL.class);
-                }
-                if (url != null) {
-                    Properties props = new Properties();
-                    InputStream in = url.openStream(); 
-                    props.load(in);
-                    in.close();
-                    return CryptoFactory.getInstance(props, getClassLoader(), 
-                                                     getPasswordEncryptor(soapMessage, securityProperties));
-                }
-            } catch (Exception e) {
-                //ignore
-            } 
-            return CryptoFactory.getInstance(propFilename, getClassLoader());
-        } finally {
-            if (orig != null) {
-                orig.reset();
-            }
-        }
+        PasswordEncryptor passwordEncryptor = getPasswordEncryptor(soapMessage, securityProperties);
+        return 
+            WSS4JUtils.loadCryptoFromPropertiesFile(
+                soapMessage, propFilename, getClassLoader(), passwordEncryptor
+            );
     }
     
     protected PasswordEncryptor getPasswordEncryptor(
@@ -442,116 +407,18 @@ public abstract class AbstractWSS4JStaxInterceptor implements SoapInterceptor,
         return null;
     }
     
-    protected AssertionInfo getFirstAssertionByLocalname(
-        AssertionInfoMap aim, String localname
-    ) {
-        Collection<AssertionInfo> sp11Ais = aim.get(new QName(SP11Constants.SP_NS, localname));
-        if (sp11Ais != null && !sp11Ais.isEmpty()) {
-            return sp11Ais.iterator().next();
-        }
-        
-        Collection<AssertionInfo> sp12Ais = aim.get(new QName(SP12Constants.SP_NS, localname));
-        if (sp12Ais != null && !sp12Ais.isEmpty()) {
-            return sp12Ais.iterator().next();
-        }
-
-        return null;
-    }
-    
-    private static Properties getProps(Object o, URL propsURL, SoapMessage message) {
-        Properties properties = null;
-        if (o instanceof Properties) {
-            properties = (Properties)o;
-        } else if (propsURL != null) {
-            try {
-                properties = new Properties();
-                InputStream ins = propsURL.openStream();
-                properties.load(ins);
-                ins.close();
-            } catch (IOException e) {
-                properties = null;
-            }
-        }
-        
-        return properties;
-    }
-    
-    private URL getPropertiesFileURL(Object o, SoapMessage message) {
-        if (o instanceof String) {
-            URL url = null;
-            ResourceManager rm = message.getExchange().get(Bus.class).getExtension(ResourceManager.class);
-            url = rm.resolveResource((String)o, URL.class);
-            try {
-                if (url == null) {
-                    url = ClassLoaderUtils.getResource((String)o, AbstractWSS4JInterceptor.class);
-                }
-                if (url == null) {
-                    url = new URL((String)o);
-                }
-                return url;
-            } catch (IOException e) {
-                // Do nothing
-            }
-        } else if (o instanceof URL) {
-            return (URL)o;        
-        }
-        return null;
-    }
-    
     protected Crypto getEncryptionCrypto(
             Object e, SoapMessage message, WSSSecurityProperties securityProperties
     ) throws WSSecurityException {
-        if (e == null) {
-            return null;
-        } else if (e instanceof Crypto) {
-            return (Crypto)e;
-        } else {
-            URL propsURL = getPropertiesFileURL(e, message);
-            Properties props = getProps(e, propsURL, message);
-            if (props == null) {
-                LOG.fine("Cannot find Crypto Encryption properties: " + e);
-                Exception ex = new Exception("Cannot find Crypto Encryption properties: " + e);
-                throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, ex);
-            }
-
-            Crypto encrCrypto = CryptoFactory.getInstance(props,
-                    Loader.getClassLoader(CryptoFactory.class),
-                    getPasswordEncryptor(message, securityProperties));
-
-            EndpointInfo info = message.getExchange().get(Endpoint.class).getEndpointInfo();
-            synchronized (info) {
-                info.setProperty(SecurityConstants.ENCRYPT_CRYPTO, encrCrypto);
-            }
-            return encrCrypto;
-        }
+        PasswordEncryptor passwordEncryptor = getPasswordEncryptor(message, securityProperties);
+        return WSS4JUtils.getEncryptionCrypto(e, message, passwordEncryptor);
     }
         
     protected Crypto getSignatureCrypto(
         Object s, SoapMessage message, WSSSecurityProperties securityProperties
     ) throws WSSecurityException {
-        if (s == null) {
-            return null;
-        } else if (s instanceof Crypto) {
-            return (Crypto)s;
-        } else {
-            URL propsURL = getPropertiesFileURL(s, message);
-            Properties props = getProps(s, propsURL, message);
-            if (props == null) {
-                LOG.fine("Cannot find Crypto Signature properties: " + s);
-                Exception ex = new Exception("Cannot find Crypto Signature properties: " + s);
-                throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, ex);
-            }
-
-            Crypto signCrypto = CryptoFactory.getInstance(props,
-                    Loader.getClassLoader(CryptoFactory.class),
-                    getPasswordEncryptor(message, securityProperties));
-
-            EndpointInfo info = message.getExchange().get(Endpoint.class).getEndpointInfo();
-            synchronized (info) {
-                info.setProperty(SecurityConstants.SIGNATURE_CRYPTO, signCrypto);
-            }
-            return signCrypto;
-        }
+        PasswordEncryptor passwordEncryptor = getPasswordEncryptor(message, securityProperties);
+        return WSS4JUtils.getSignatureCrypto(s, message, passwordEncryptor);
     }
 
     private ClassLoader getClassLoader() {

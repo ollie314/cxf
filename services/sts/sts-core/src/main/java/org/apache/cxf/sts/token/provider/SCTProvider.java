@@ -20,11 +20,14 @@
 package org.apache.cxf.sts.token.provider;
 
 import java.util.Date;
-import java.util.Properties;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.sts.STSConstants;
@@ -35,6 +38,7 @@ import org.apache.cxf.ws.security.tokenstore.SecurityToken;
 import org.apache.cxf.ws.security.trust.STSUtils;
 import org.apache.wss4j.common.derivedKey.ConversationConstants;
 import org.apache.wss4j.common.ext.WSSecurityException;
+import org.apache.wss4j.dom.engine.WSSConfig;
 import org.apache.wss4j.dom.message.token.SecurityContextToken;
 
 /**
@@ -76,11 +80,8 @@ public class SCTProvider implements TokenProvider {
      * token provider.
      */
     public boolean canHandleToken(String tokenType, String realm) {
-        if (STSUtils.TOKEN_TYPE_SCT_05_02.equals(tokenType) 
-            || STSUtils.TOKEN_TYPE_SCT_05_12.equals(tokenType)) {
-            return true;
-        }
-        return false;
+        return STSUtils.TOKEN_TYPE_SCT_05_02.equals(tokenType) 
+            || STSUtils.TOKEN_TYPE_SCT_05_12.equals(tokenType);
     }
         
     /**
@@ -104,7 +105,9 @@ public class SCTProvider implements TokenProvider {
      */
     public TokenProviderResponse createToken(TokenProviderParameters tokenParameters) {
         TokenRequirements tokenRequirements = tokenParameters.getTokenRequirements();
-        LOG.fine("Handling token of type: " + tokenRequirements.getTokenType());
+        if (LOG.isLoggable(Level.FINE)) {
+            LOG.fine("Handling token of type: " + tokenRequirements.getTokenType());
+        }
         
         if (tokenParameters.getTokenStore() == null) {
             LOG.log(Level.FINE, "A cache must be configured to use the SCTProvider");
@@ -118,9 +121,10 @@ public class SCTProvider implements TokenProvider {
             Document doc = DOMUtils.createDocument();
             SecurityContextToken sct =
                 new SecurityContextToken(getWSCVersion(tokenRequirements.getTokenType()), doc);
+            WSSConfig wssConfig = WSSConfig.getNewInstance();
+            sct.setID(wssConfig.getIdAllocator().createId("sctId-", sct));
     
             TokenProviderResponse response = new TokenProviderResponse();
-            response.setToken(sct.getElement());
             response.setTokenId(sct.getIdentifier());
             if (returnEntropy) {
                 response.setEntropy(keyHandler.getEntropyBytes());
@@ -144,13 +148,13 @@ public class SCTProvider implements TokenProvider {
             token.setSecret(keyHandler.getSecret());
             token.setPrincipal(tokenParameters.getPrincipal());
             
-            Properties props = token.getProperties();
+            Map<String, Object> props = token.getProperties();
             if (props == null) {
-                props = new Properties();
+                props = new HashMap<>();
             }
             token.setProperties(props);
             if (tokenParameters.getRealm() != null) {
-                props.setProperty(STSConstants.TOKEN_REALM, tokenParameters.getRealm());
+                props.put(STSConstants.TOKEN_REALM, tokenParameters.getRealm());
             }
 
             // Handle Renewing logic
@@ -165,11 +169,22 @@ public class SCTProvider implements TokenProvider {
                     String.valueOf(renewing.isAllowRenewingAfterExpiry())
                 );
             } else {
-                props.setProperty(STSConstants.TOKEN_RENEWING_ALLOW, "true");
-                props.setProperty(STSConstants.TOKEN_RENEWING_ALLOW_AFTER_EXPIRY, "false");
+                props.put(STSConstants.TOKEN_RENEWING_ALLOW, "true");
+                props.put(STSConstants.TOKEN_RENEWING_ALLOW_AFTER_EXPIRY, "false");
             }
             
             tokenParameters.getTokenStore().add(token);
+            
+            if (tokenParameters.isEncryptToken()) {
+                Element el = TokenProviderUtils.encryptToken(sct.getElement(), response.getTokenId(), 
+                                                        tokenParameters.getStsProperties(), 
+                                                        tokenParameters.getEncryptionProperties(), 
+                                                        tokenParameters.getKeyRequirements(),
+                                                        tokenParameters.getMessageContext());
+                response.setToken(el);
+            } else {
+                response.setToken(sct.getElement());
+            }
 
             // Create the references
             TokenReference attachedReference = new TokenReference();
@@ -184,6 +199,7 @@ public class SCTProvider implements TokenProvider {
             unAttachedReference.setWsseValueType(tokenRequirements.getTokenType());
             response.setUnattachedReference(unAttachedReference);
             
+            LOG.fine("SecurityContextToken successfully created");
             return response;
         } catch (Exception e) {
             LOG.log(Level.WARNING, "", e);

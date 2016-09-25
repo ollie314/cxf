@@ -101,6 +101,7 @@ public interface Message extends StringMap {
     
     String PROTOCOL_HEADERS = Message.class.getName() + ".PROTOCOL_HEADERS";
     String RESPONSE_CODE = Message.class.getName() + ".RESPONSE_CODE";
+    String ERROR_MESSAGE = Message.class.getName() + ".ERROR_MESSAGE";
     String ENDPOINT_ADDRESS = Message.class.getName() + ".ENDPOINT_ADDRESS";
     String PATH_INFO = Message.class.getName() + ".PATH_INFO";
     String QUERY_STRING = Message.class.getName() + ".QUERY_STRING";
@@ -112,8 +113,17 @@ public interface Message extends StringMap {
      */
     String MTOM_ENABLED = "mtom-enabled";
     String MTOM_THRESHOLD = "mtom-threshold";
+        
+    /**
+     * Runtime schema validation property
+     */
     String SCHEMA_VALIDATION_ENABLED = "schema-validation-enabled";
-
+    
+    /**
+     * The default values for schema validation will be set in the service model using this property
+     */
+    String SCHEMA_VALIDATION_TYPE = "schema-validation-type";
+     
     /**
      * Boolean property specifying if the Java stack trace is returned as a  
      * SOAP fault message.
@@ -136,7 +146,7 @@ public interface Message extends StringMap {
     String ACCEPT_CONTENT_TYPE = "Accept";
     String BASE_PATH = Message.class.getName() + ".BASE_PATH";
     String ENCODING = Message.class.getName() + ".ENCODING";
-    String FIXED_PARAMETER_ORDER = Message.class.getName() + "FIXED_PARAMETER_ORDER";
+    String FIXED_PARAMETER_ORDER = Message.class.getName() + ".FIXED_PARAMETER_ORDER";
     String MAINTAIN_SESSION = Message.class.getName() + ".MAINTAIN_SESSION";
     String ATTACHMENTS = Message.class.getName() + ".ATTACHMENTS";
 
@@ -160,6 +170,12 @@ public interface Message extends StringMap {
      * As above, but Collection<InterceptorProvider> 
      */
     String INTERCEPTOR_PROVIDERS = Message.class.getName() + ".INTERCEPTOR_PROVIDER";
+    
+    /**
+     * Content-Transfer-Encoding used for MTOM attachment
+     * binary, base64, etc
+     */
+    String CONTENT_TRANSFER_ENCODING = Message.class.getName() + ".CONTENT_TRANSFER_ENCODING";
     
     /*
      * The properties to allow configure the client timeout
@@ -239,8 +255,11 @@ public interface Message extends StringMap {
      */
     Object getContextualProperty(String key);   
     
+    /**
+     * Resets the cache of contextual properties that messages may contain.  Subsequent
+     * calls to getContextualProperty will likely recalculate the cache.
+     */
     void resetContextCache();
-    void setContextualProperty(String key, Object v);
     
     /**
      * @return set of defined contextual property keys

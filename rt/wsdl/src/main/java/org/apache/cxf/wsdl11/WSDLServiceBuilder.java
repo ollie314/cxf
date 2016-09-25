@@ -321,9 +321,9 @@ public class WSDLServiceBuilder {
             PortType bindingPt = binding.getPortType();
             if (bindingPt == null) {
                 org.apache.cxf.common.i18n.Message msg = new
-                org.apache.cxf.common.i18n.Message("BINDING_MISSING_TYPE",
-                                                   LOG,
-                                                   binding.getQName());
+                    org.apache.cxf.common.i18n.Message("BINDING_MISSING_TYPE",
+                                                       LOG,
+                                                       binding.getQName());
                 throw new WSDLRuntimeException(msg);
             }
 
@@ -784,10 +784,7 @@ public class WSDLServiceBuilder {
     private static boolean hasAttributes(XmlSchemaComplexType complexType) {
         // Now lets see if we have any attributes...
         // This should probably look at the restricted and substitute types too.
-        if (complexType.getAnyAttribute() != null || !complexType.getAttributes().isEmpty()) {
-            return true;
-        }
-        return false;
+        return complexType.getAnyAttribute() != null || !complexType.getAttributes().isEmpty();
     }
 
     private static boolean isWrappableSequence(XmlSchemaComplexType type, String namespaceURI,

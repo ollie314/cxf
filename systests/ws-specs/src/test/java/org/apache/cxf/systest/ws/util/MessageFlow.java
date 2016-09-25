@@ -516,14 +516,11 @@ public class MessageFlow extends Assert {
                 break;
             }
         }
-        if (null != bodyElement && bodyElement.hasChildNodes()) {
-            return false;
-        }
-        return true;
+        return !(null != bodyElement && bodyElement.hasChildNodes());
     }
     
     private String dump(List<byte[]> streams) {
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         try {
             buf.append(System.getProperty("line.separator"));
             for (int i = 0; i < streams.size(); i++) {

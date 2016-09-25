@@ -32,10 +32,8 @@ import java.util.logging.Logger;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.X509KeyManager;
 
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.common.util.ReflectionInvokationHandler;
@@ -48,7 +46,6 @@ import org.apache.cxf.configuration.jsse.TLSClientParameters;
  * This HttpsURLConnectionFactory implements the HttpURLConnectionFactory
  * for using the given SSL Policy to configure TLS connections for "https:"
  * URLs.
- * 
  */
 public class HttpsURLConnectionFactory {
     
@@ -80,13 +77,10 @@ public class HttpsURLConnectionFactory {
      * 
      * 
      * @param proxy This parameter is non-null if connection should be proxied.
-     * @param url   The target URL. This parameter must be an https url.
+     * @param url   The target URL.
      * 
-     * @return The HttpsURLConnection for the given URL.
-     * @throws IOException This exception is thrown if 
-     *         the "url" is not "https" or other IOException
-     *         is thrown. 
-     *                     
+     * @return The HttpURLConnection for the given URL.
+     * @throws IOException
      */
     public HttpURLConnection createConnection(TLSClientParameters tlsClientParameters, 
             Proxy proxy, URL url) throws IOException {
@@ -101,21 +95,14 @@ public class HttpsURLConnectionFactory {
                 tlsClientParameters = new TLSClientParameters();
             }
 
-            Exception ex = null;
             try {
                 decorateWithTLS(tlsClientParameters, connection);
-            } catch (Exception e) {
-                ex = e;
-            } finally {
-                if (ex != null) {
-                    if (ex instanceof IOException) {
-                        throw (IOException) ex;
-                    }
-                    // use exception.initCause(ex) to be java 5 compatible
-                    IOException ioException = new IOException("Error while initializing secure socket");
-                    ioException.initCause(ex);
-                    throw ioException;
+            } catch (Throwable ex) {
+                if (ex instanceof IOException) {
+                    throw (IOException) ex;
                 }
+                IOException ioException = new IOException("Error while initializing secure socket", ex);
+                throw ioException;
             }
         }
 
@@ -152,32 +139,22 @@ public class HttpsURLConnectionFactory {
             // ssl socket factory not yet instantiated, create a new one with tlsClientParameters's Trust
             // Managers, Key Managers, etc
 
-            String provider = tlsClientParameters.getJsseProvider();
+            SSLContext ctx = 
+                org.apache.cxf.transport.https.SSLUtils.getSSLContext(tlsClientParameters);
 
-            String protocol = tlsClientParameters.getSecureSocketProtocol() != null ? tlsClientParameters
-                .getSecureSocketProtocol() : "TLS";
-
-            SSLContext ctx = provider == null ? SSLContext.getInstance(protocol) : SSLContext
-                .getInstance(protocol, provider);
-            ctx.getClientSessionContext().setSessionTimeout(tlsClientParameters.getSslCacheTimeout());
-            KeyManager[] keyManagers = tlsClientParameters.getKeyManagers();
-            if (tlsClientParameters.getCertAlias() != null) {
-                getKeyManagersWithCertAlias(tlsClientParameters, keyManagers);
-            }            
-            if (keyManagers == null) {
-                keyManagers = SSLUtils.getDefaultKeyStoreManagers(LOG);
-            }            
-            ctx.init(keyManagers, tlsClientParameters.getTrustManagers(),
-                     tlsClientParameters.getSecureRandom());
-
-            // The "false" argument means opposite of exclude.
-            String[] cipherSuites = SSLUtils.getCiphersuites(tlsClientParameters.getCipherSuites(), SSLUtils
-                .getSupportedCipherSuites(ctx), tlsClientParameters.getCipherSuitesFilter(), LOG, false);
+            String[] cipherSuites = 
+                SSLUtils.getCiphersuitesToInclude(tlsClientParameters.getCipherSuites(), 
+                                                  tlsClientParameters.getCipherSuitesFilter(), 
+                                                  ctx.getSocketFactory().getDefaultCipherSuites(),
+                                                  SSLUtils.getSupportedCipherSuites(ctx), 
+                                                  LOG);
             // The SSLSocketFactoryWrapper enables certain cipher suites
             // from the policy.
+            String protocol = tlsClientParameters.getSecureSocketProtocol() != null ? tlsClientParameters
+                .getSecureSocketProtocol() : "TLS";
             socketFactory = new SSLSocketFactoryWrapper(ctx.getSocketFactory(), cipherSuites,
                                                         protocol);
-            //recalc the hashcode since somet of the above MAY have changed the tlsClientParameters 
+            //recalc the hashcode since some of the above MAY have changed the tlsClientParameters 
             lastTlsHash = tlsClientParameters.hashCode();
         } else {
            // ssl socket factory already initialized, reuse it to benefit of keep alive
@@ -242,7 +219,7 @@ public class HttpsURLConnectionFactory {
                     }
                     return;
                 } 
-                //if we cannot set the SSLSocketFactor, we're in serious trouble.
+                //if we cannot set the SSLSocketFactory, we're in serious trouble.
                 throw new IllegalArgumentException("Error decorating connection class " 
                         + connection.getClass().getName(), ex);
             }
@@ -256,23 +233,6 @@ public class HttpsURLConnectionFactory {
         LOG.addHandler(handler);
     }
     
-    protected void getKeyManagersWithCertAlias(TLSClientParameters tlsClientParameters,
-                                               KeyManager[] keyManagers) throws GeneralSecurityException {
-        if (tlsClientParameters.getCertAlias() != null) {
-            for (int idx = 0; idx < keyManagers.length; idx++) {
-                if (keyManagers[idx] instanceof X509KeyManager
-                    && !(keyManagers[idx] instanceof AliasedX509ExtendedKeyManager)) {
-                    try {
-                        keyManagers[idx] = new AliasedX509ExtendedKeyManager(
-                            tlsClientParameters.getCertAlias(), (X509KeyManager)keyManagers[idx]);
-                    } catch (Exception e) {
-                        throw new GeneralSecurityException(e);
-                    }
-                }
-            }
-        }
-    }
-
 }
 
 

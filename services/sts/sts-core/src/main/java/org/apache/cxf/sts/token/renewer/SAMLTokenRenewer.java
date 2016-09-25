@@ -23,15 +23,14 @@ import java.security.Principal;
 import java.security.cert.Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.security.auth.callback.CallbackHandler;
-import javax.xml.ws.handler.MessageContext;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -41,20 +40,18 @@ import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.security.transport.TLSSessionInfo;
 import org.apache.cxf.sts.STSConstants;
 import org.apache.cxf.sts.STSPropertiesMBean;
-import org.apache.cxf.sts.SignatureProperties;
 import org.apache.cxf.sts.cache.CacheUtils;
 import org.apache.cxf.sts.request.ReceivedToken;
 import org.apache.cxf.sts.request.ReceivedToken.STATE;
+import org.apache.cxf.sts.token.provider.AbstractSAMLTokenProvider;
 import org.apache.cxf.sts.token.provider.ConditionsProvider;
 import org.apache.cxf.sts.token.provider.DefaultConditionsProvider;
 import org.apache.cxf.sts.token.provider.TokenProviderParameters;
-import org.apache.cxf.sts.token.realm.SAMLRealm;
+import org.apache.cxf.sts.token.realm.RealmProperties;
 import org.apache.cxf.ws.security.sts.provider.STSException;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
 import org.apache.cxf.ws.security.tokenstore.TokenStore;
-import org.apache.cxf.ws.security.wss4j.policyvalidators.AbstractSamlPolicyValidator;
 import org.apache.wss4j.common.crypto.Crypto;
-import org.apache.wss4j.common.ext.WSPasswordCallback;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.common.saml.SAMLKeyInfo;
 import org.apache.wss4j.common.saml.SamlAssertionWrapper;
@@ -63,24 +60,24 @@ import org.apache.wss4j.common.saml.builder.SAML1ComponentBuilder;
 import org.apache.wss4j.common.saml.builder.SAML2ComponentBuilder;
 import org.apache.wss4j.dom.WSConstants;
 import org.apache.wss4j.dom.WSDocInfo;
-import org.apache.wss4j.dom.WSSConfig;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
+import org.apache.wss4j.dom.engine.WSSConfig;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
 import org.apache.wss4j.dom.handler.RequestData;
 import org.apache.wss4j.dom.handler.WSHandlerConstants;
 import org.apache.wss4j.dom.handler.WSHandlerResult;
+import org.apache.wss4j.dom.saml.DOMSAMLUtil;
 import org.apache.wss4j.dom.saml.WSSSAMLKeyInfoProcessor;
-import org.apache.wss4j.dom.util.WSSecurityUtil;
 import org.apache.xml.security.stax.impl.util.IDGenerator;
 import org.joda.time.DateTime;
-import org.opensaml.common.SAMLVersion;
-import org.opensaml.saml1.core.Audience;
-import org.opensaml.saml1.core.AudienceRestrictionCondition;
-import org.opensaml.saml2.core.AudienceRestriction;
+import org.opensaml.saml.common.SAMLVersion;
+import org.opensaml.saml.saml1.core.Audience;
+import org.opensaml.saml.saml1.core.AudienceRestrictionCondition;
+import org.opensaml.saml.saml2.core.AudienceRestriction;
 
 /**
  * A TokenRenewer implementation that renews a (valid or expired) SAML Token.
  */
-public class SAMLTokenRenewer implements TokenRenewer {
+public class SAMLTokenRenewer extends AbstractSAMLTokenProvider implements TokenRenewer {
     
     // The default maximum expired time a token is allowed to be is 30 minutes
     public static final long DEFAULT_MAX_EXPIRY = 60L * 30L;
@@ -88,7 +85,7 @@ public class SAMLTokenRenewer implements TokenRenewer {
     private static final Logger LOG = LogUtils.getL7dLogger(SAMLTokenRenewer.class);
     private boolean signToken = true;
     private ConditionsProvider conditionsProvider = new DefaultConditionsProvider();
-    private Map<String, SAMLRealm> realmMap = new HashMap<String, SAMLRealm>();
+    private Map<String, RealmProperties> realmMap = new HashMap<>();
     private long maxExpiry = DEFAULT_MAX_EXPIRY;
     // boolean to enable/disable the check of proof of possession
     private boolean verifyProofOfPossession = true;
@@ -192,7 +189,7 @@ public class SAMLTokenRenewer implements TokenRenewer {
             // Validate the Assertion
             validateAssertion(assertion, tokenToRenew, cachedToken, tokenParameters);
             
-            SamlAssertionWrapper renewedAssertion = new SamlAssertionWrapper(assertion.getXmlObject());
+            SamlAssertionWrapper renewedAssertion = new SamlAssertionWrapper(assertion.getSamlObject());
             String oldId = createNewId(renewedAssertion);
             // Remove the previous token (now expired) from the cache
             tokenStore.remove(oldId);
@@ -231,8 +228,8 @@ public class SAMLTokenRenewer implements TokenRenewer {
             response.setCreated(validFrom.toDate());
             response.setExpires(validTill.toDate());
 
+            LOG.fine("SAML Token successfully renewed");
             return response;
-            
         } catch (Exception ex) {
             LOG.log(Level.WARNING, "", ex);
             throw new STSException("Can't renew SAML assertion", ex, STSException.REQUEST_FAILED);
@@ -268,19 +265,20 @@ public class SAMLTokenRenewer implements TokenRenewer {
     }
     
     /**
-     * Set the map of realm->SAMLRealm for this token provider
-     * @param realms the map of realm->SAMLRealm for this token provider
+     * Set the map of realm->RealmProperties for this token provider
+     * @param realms the map of realm->RealmProperties for this token provider
      */
-    public void setRealmMap(Map<String, SAMLRealm> realms) {
-        this.realmMap = realms;
+    public void setRealmMap(Map<String, ? extends RealmProperties> realms) {
+        this.realmMap.clear();
+        this.realmMap.putAll(realms);
     }
     
     /**
-     * Get the map of realm->SAMLRealm for this token provider
-     * @return the map of realm->SAMLRealm for this token provider
+     * Get the map of realm->RealmProperties for this token provider
+     * @return the map of realm->RealmProperties for this token provider
      */
-    public Map<String, SAMLRealm> getRealmMap() {
-        return realmMap;
+    public Map<String, RealmProperties> getRealmMap() {
+        return Collections.unmodifiableMap(realmMap);
     }
     
     private void validateAssertion(
@@ -290,7 +288,7 @@ public class SAMLTokenRenewer implements TokenRenewer {
         TokenRenewerParameters tokenParameters
     ) throws WSSecurityException {
         // Check the cached renewal properties
-        Properties props = token.getProperties();
+        Map<String, Object> props = token.getProperties();
         if (props == null) {
             LOG.log(Level.WARNING, "Error in getting properties from cached token");
             throw new STSException(
@@ -410,7 +408,7 @@ public class SAMLTokenRenewer implements TokenRenewer {
         if (audienceRestrictions != null && !audienceRestrictions.isEmpty()) {
             for (AudienceRestriction audienceRestriction : audienceRestrictions) {
                 if (audienceRestriction.getAudiences() != null) {
-                    for (org.opensaml.saml2.core.Audience audience : audienceRestriction.getAudiences()) {
+                    for (org.opensaml.saml.saml2.core.Audience audience : audienceRestriction.getAudiences()) {
                         if (appliesTo.equals(audience.getAudienceURI())) {
                             return true;
                         }
@@ -428,77 +426,13 @@ public class SAMLTokenRenewer implements TokenRenewer {
     ) throws Exception {
         if (signToken) {
             STSPropertiesMBean stsProperties = tokenParameters.getStsProperties();
-            
-            // Initialise signature objects with defaults of STSPropertiesMBean
-            Crypto signatureCrypto = stsProperties.getSignatureCrypto();
-            CallbackHandler callbackHandler = stsProperties.getCallbackHandler();
-            SignatureProperties signatureProperties = stsProperties.getSignatureProperties();
-            String alias = stsProperties.getSignatureUsername();
-            
             String realm = tokenParameters.getRealm();
-            SAMLRealm samlRealm = null;
+            RealmProperties samlRealm = null;
             if (realm != null && realmMap.containsKey(realm)) {
                 samlRealm = realmMap.get(realm);
             }
-            if (samlRealm != null) {
-                // If SignatureCrypto configured in realm then
-                // callbackhandler and alias of STSPropertiesMBean is ignored
-                if (samlRealm.getSignatureCrypto() != null) {
-                    LOG.fine("SAMLRealm signature keystore used");
-                    signatureCrypto = samlRealm.getSignatureCrypto();
-                    callbackHandler = samlRealm.getCallbackHandler();
-                    alias = samlRealm.getSignatureAlias();
-                }
-                // SignatureProperties can be defined independently of SignatureCrypto
-                if (samlRealm.getSignatureProperties() != null) {
-                    signatureProperties = samlRealm.getSignatureProperties();
-                }
-            }
             
-            // Get the signature algorithm to use
-            String signatureAlgorithm = tokenParameters.getKeyRequirements().getSignatureAlgorithm();
-            if (signatureAlgorithm == null) {
-                // If none then default to what is configured
-                signatureAlgorithm = signatureProperties.getSignatureAlgorithm();
-            } else {
-                List<String> supportedAlgorithms = 
-                    signatureProperties.getAcceptedSignatureAlgorithms();
-                if (!supportedAlgorithms.contains(signatureAlgorithm)) {
-                    signatureAlgorithm = signatureProperties.getSignatureAlgorithm();
-                    LOG.fine("SignatureAlgorithm not supported, defaulting to: " + signatureAlgorithm);
-                }
-            }
-            
-            // Get the c14n algorithm to use
-            String c14nAlgorithm = tokenParameters.getKeyRequirements().getC14nAlgorithm();
-            if (c14nAlgorithm == null) {
-                // If none then default to what is configured
-                c14nAlgorithm = signatureProperties.getC14nAlgorithm();
-            } else {
-                List<String> supportedAlgorithms = 
-                    signatureProperties.getAcceptedC14nAlgorithms();
-                if (!supportedAlgorithms.contains(c14nAlgorithm)) {
-                    c14nAlgorithm = signatureProperties.getC14nAlgorithm();
-                    LOG.fine("C14nAlgorithm not supported, defaulting to: " + c14nAlgorithm);
-                }
-            }
-            
-            // If alias not defined, get the default of the SignatureCrypto
-            if ((alias == null || "".equals(alias)) && (signatureCrypto != null)) {
-                alias = signatureCrypto.getDefaultX509Identifier();
-                LOG.fine("Signature alias is null so using default alias: " + alias);
-            }
-            // Get the password
-            WSPasswordCallback[] cb = {new WSPasswordCallback(alias, WSPasswordCallback.SIGNATURE)};
-            LOG.fine("Creating SAML Token");
-            callbackHandler.handle(cb);
-            String password = cb[0].getPassword();
-    
-            LOG.fine("Signing SAML Token");
-            boolean useKeyValue = signatureProperties.isUseKeyValue();
-            assertion.signAssertion(
-                alias, password, signatureCrypto, useKeyValue, c14nAlgorithm, signatureAlgorithm
-            );
+            signToken(assertion, samlRealm, stsProperties, tokenParameters.getKeyRequirements());
         } else {
             if (assertion.getSaml1().getSignature() != null) {
                 assertion.getSaml1().setSignature(null);
@@ -514,18 +448,18 @@ public class SAMLTokenRenewer implements TokenRenewer {
             conditionsProvider.getConditions(convertToProviderParameters(tokenParameters));
         
         if (assertion.getSaml1() != null) {
-            org.opensaml.saml1.core.Assertion saml1Assertion = assertion.getSaml1();
+            org.opensaml.saml.saml1.core.Assertion saml1Assertion = assertion.getSaml1();
             saml1Assertion.setIssueInstant(new DateTime());
             
-            org.opensaml.saml1.core.Conditions saml1Conditions =
+            org.opensaml.saml.saml1.core.Conditions saml1Conditions =
                 SAML1ComponentBuilder.createSamlv1Conditions(conditions);
             
             saml1Assertion.setConditions(saml1Conditions);
         } else {
-            org.opensaml.saml2.core.Assertion saml2Assertion = assertion.getSaml2();
+            org.opensaml.saml.saml2.core.Assertion saml2Assertion = assertion.getSaml2();
             saml2Assertion.setIssueInstant(new DateTime());
             
-            org.opensaml.saml2.core.Conditions saml2Conditions =
+            org.opensaml.saml.saml2.core.Conditions saml2Conditions =
                 SAML2ComponentBuilder.createConditions(conditions);
             
             saml2Assertion.setConditions(saml2Conditions);
@@ -544,13 +478,13 @@ public class SAMLTokenRenewer implements TokenRenewer {
         providerParameters.setStsProperties(renewerParameters.getStsProperties());
         providerParameters.setTokenRequirements(renewerParameters.getTokenRequirements());
         providerParameters.setTokenStore(renewerParameters.getTokenStore());
-        providerParameters.setWebServiceContext(renewerParameters.getWebServiceContext());
+        providerParameters.setMessageContext(renewerParameters.getMessageContext());
         
         // Store token to renew in the additional properties in case you want to base some
         // Conditions on the token
         Map<String, Object> additionalProperties = renewerParameters.getAdditionalProperties();
         if (additionalProperties == null) {
-            additionalProperties = new HashMap<String, Object>();
+            additionalProperties = new HashMap<>(1);
         }
         additionalProperties.put(ReceivedToken.class.getName(), renewerParameters.getToken());
         providerParameters.setAdditionalProperties(additionalProperties);
@@ -560,13 +494,13 @@ public class SAMLTokenRenewer implements TokenRenewer {
     
     private String createNewId(SamlAssertionWrapper assertion) {
         if (assertion.getSaml1() != null) {
-            org.opensaml.saml1.core.Assertion saml1Assertion = assertion.getSaml1();
+            org.opensaml.saml.saml1.core.Assertion saml1Assertion = assertion.getSaml1();
             String oldId = saml1Assertion.getID();
             saml1Assertion.setID(IDGenerator.generateID("_"));
             
             return oldId;
         } else {
-            org.opensaml.saml2.core.Assertion saml2Assertion = assertion.getSaml2();
+            org.opensaml.saml.saml2.core.Assertion saml2Assertion = assertion.getSaml2();
             String oldId = saml2Assertion.getID();
             saml2Assertion.setID(IDGenerator.generateID("_"));
             
@@ -608,25 +542,26 @@ public class SAMLTokenRenewer implements TokenRenewer {
         }
     }
 
-    private static class ProofOfPossessionValidator extends AbstractSamlPolicyValidator {
+    private static class ProofOfPossessionValidator {
         
         public boolean checkProofOfPossession(
             TokenRenewerParameters tokenParameters,
             SAMLKeyInfo subjectKeyInfo
         ) {
-            MessageContext messageContext = tokenParameters.getWebServiceContext().getMessageContext();
+            Map<String, Object> messageContext = tokenParameters.getMessageContext();
             final List<WSHandlerResult> handlerResults = 
                 CastUtils.cast((List<?>) messageContext.get(WSHandlerConstants.RECV_RESULTS));
 
-            List<WSSecurityEngineResult> signedResults = new ArrayList<WSSecurityEngineResult>();
+            List<WSSecurityEngineResult> signedResults = new ArrayList<>();
             if (handlerResults != null && handlerResults.size() > 0) {
                 WSHandlerResult handlerResult = handlerResults.get(0);
-                List<WSSecurityEngineResult> results = handlerResult.getResults();
-                final List<Integer> signedActions = new ArrayList<Integer>(2);
-                signedActions.add(WSConstants.SIGN);
-                signedActions.add(WSConstants.UT_SIGN);
                 
-                signedResults.addAll(WSSecurityUtil.fetchAllActionResults(results, signedActions));
+                if (handlerResult.getActionResults().containsKey(WSConstants.SIGN)) {
+                    signedResults.addAll(handlerResult.getActionResults().get(WSConstants.SIGN));
+                }
+                if (handlerResult.getActionResults().containsKey(WSConstants.UT_SIGN)) {
+                    signedResults.addAll(handlerResult.getActionResults().get(WSConstants.UT_SIGN));
+                }
             }
             
             TLSSessionInfo tlsInfo = (TLSSessionInfo)messageContext.get(TLSSessionInfo.class.getName());
@@ -634,8 +569,8 @@ public class SAMLTokenRenewer implements TokenRenewer {
             if (tlsInfo != null) {
                 tlsCerts = tlsInfo.getPeerCertificates();
             }
-            
-            return compareCredentials(subjectKeyInfo, signedResults, tlsCerts);
+           
+            return DOMSAMLUtil.compareCredentials(subjectKeyInfo, signedResults, tlsCerts);
         }
     }
 }

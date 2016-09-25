@@ -47,13 +47,15 @@ public class LoadDistributorTest extends FailoverTest {
             return REPLICA_B;
         } else if (response.endsWith(REPLICA_C)) {
             return REPLICA_C;
+        } else if (response.endsWith(REPLICA_E)) {
+            return REPLICA_E;
         } else {
             return response;
         }
     }
     
-    private void incrementResponseCount(Map< String, Integer > responseCounts
-            , String response) {
+    private void incrementResponseCount(Map< String, Integer > responseCounts,
+                                        String response) {
         String responder = responseFrom(response);
         Integer currentCount = responseCounts.get(responder);
         responseCounts.put(responder, 1 + (currentCount == null ? 0 : currentCount));
@@ -76,6 +78,7 @@ public class LoadDistributorTest extends FailoverTest {
         startTarget(REPLICA_A);
         startTarget(REPLICA_B);
         startTarget(REPLICA_C);
+        startTarget(REPLICA_E);
         setupGreeter();
 
         // Change the strategy to iterate through the endpoints
@@ -95,12 +98,14 @@ public class LoadDistributorTest extends FailoverTest {
             assertNotNull("expected non-null response", response);
             incrementResponseCount(responseCounts, response);
         }
-        assertEquals(4, (long)responseCounts.get(REPLICA_A));
-        assertEquals(4, (long)responseCounts.get(REPLICA_B));
-        assertEquals(4, (long)responseCounts.get(REPLICA_C));
+        assertEquals(3, (long)responseCounts.get(REPLICA_A));
+        assertEquals(3, (long)responseCounts.get(REPLICA_B));
+        assertEquals(3, (long)responseCounts.get(REPLICA_C));
+        assertEquals(3, (long)responseCounts.get(REPLICA_E));
         stopTarget(REPLICA_A);
         stopTarget(REPLICA_B);
         stopTarget(REPLICA_C);
+        stopTarget(REPLICA_E);
     }
     
     @Test
@@ -136,6 +141,7 @@ public class LoadDistributorTest extends FailoverTest {
         startTarget(REPLICA_A);
         startTarget(REPLICA_B);
         startTarget(REPLICA_C);
+        startTarget(REPLICA_E);
         setupGreeter();
         stopTarget(REPLICA_B);
         ConduitSelector conduitSelector =
@@ -158,12 +164,14 @@ public class LoadDistributorTest extends FailoverTest {
                 incrementResponseCount(responseCounts, "");
             }
         }
-        assertEquals(4, (long)responseCounts.get(REPLICA_A));
+        assertEquals(3, (long)responseCounts.get(REPLICA_A));
         assertEquals(null, responseCounts.get(REPLICA_B));
-        assertEquals(4, (long)responseCounts.get(REPLICA_C));
-        assertEquals(4, (long)responseCounts.get(""));
+        assertEquals(3, (long)responseCounts.get(REPLICA_C));
+        assertEquals(3, (long)responseCounts.get(REPLICA_E));
+        assertEquals(3, (long)responseCounts.get(""));
         stopTarget(REPLICA_A);
         stopTarget(REPLICA_C);
+        stopTarget(REPLICA_E);
     }
     
     

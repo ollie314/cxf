@@ -45,14 +45,18 @@ import org.osgi.util.tracker.ServiceTracker;
  * - Blueprint namespaces
  */
 public class CXFActivator implements BundleActivator {
+    
     private List<Extension> extensions;
-    private ManagedWorkQueueList workQueues = new ManagedWorkQueueList();
+    private ManagedWorkQueueList workQueues;
     private ServiceTracker configAdminTracker;
     private CXFExtensionBundleListener cxfBundleListener;
     private ServiceRegistration workQueueServiceRegistration;
+    
+    
 
     /** {@inheritDoc}*/
     public void start(BundleContext context) throws Exception {
+        workQueues = new ManagedWorkQueueList();
         cxfBundleListener = new CXFExtensionBundleListener(context.getBundle().getBundleId());
         context.addBundleListener(cxfBundleListener);
         cxfBundleListener.registerExistingBundles(context);

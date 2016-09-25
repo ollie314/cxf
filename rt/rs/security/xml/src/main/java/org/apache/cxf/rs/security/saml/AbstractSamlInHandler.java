@@ -22,9 +22,11 @@ package org.apache.cxf.rs.security.saml;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -36,37 +38,36 @@ import javax.ws.rs.core.Response;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
-
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.jaxrs.utils.ExceptionUtils;
 import org.apache.cxf.jaxrs.utils.JAXRSUtils;
 import org.apache.cxf.message.Message;
-import org.apache.cxf.message.MessageUtils;
 import org.apache.cxf.rs.security.common.CryptoLoader;
-import org.apache.cxf.rs.security.common.SecurityUtils;
+import org.apache.cxf.rs.security.common.RSSecurityUtils;
 import org.apache.cxf.rs.security.saml.authorization.SecurityContextProvider;
 import org.apache.cxf.rs.security.saml.authorization.SecurityContextProviderImpl;
+import org.apache.cxf.rs.security.xml.AbstractXmlSecInHandler;
+import org.apache.cxf.rt.security.SecurityConstants;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.security.SecurityContext;
 import org.apache.cxf.security.transport.TLSSessionInfo;
 import org.apache.cxf.staxutils.StaxUtils;
-import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.wss4j.common.crypto.Crypto;
+import org.apache.wss4j.common.crypto.WSProviderConfig;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.common.saml.OpenSAMLUtil;
 import org.apache.wss4j.common.saml.SAMLKeyInfo;
 import org.apache.wss4j.common.saml.SAMLUtil;
 import org.apache.wss4j.common.saml.SamlAssertionWrapper;
 import org.apache.wss4j.dom.WSDocInfo;
-import org.apache.wss4j.dom.WSSConfig;
+import org.apache.wss4j.dom.engine.WSSConfig;
 import org.apache.wss4j.dom.handler.RequestData;
-import org.apache.wss4j.dom.handler.WSHandlerConstants;
 import org.apache.wss4j.dom.saml.WSSSAMLKeyInfoProcessor;
 import org.apache.wss4j.dom.validate.Credential;
 import org.apache.wss4j.dom.validate.SamlAssertionValidator;
 import org.apache.wss4j.dom.validate.Validator;
-import org.apache.xml.security.signature.XMLSignature;
-import org.opensaml.xml.signature.KeyInfo;
-import org.opensaml.xml.signature.Signature;
+import org.opensaml.xmlsec.signature.KeyInfo;
+import org.opensaml.xmlsec.signature.Signature;
 
 @PreMatching
 public abstract class AbstractSamlInHandler implements ContainerRequestFilter {
@@ -75,7 +76,7 @@ public abstract class AbstractSamlInHandler implements ContainerRequestFilter {
         LogUtils.getL7dLogger(AbstractSamlInHandler.class);
     
     static {
-        WSSConfig.init();
+        WSProviderConfig.init();
     }
     
     private Validator samlValidator = new SamlAssertionValidator();
@@ -101,7 +102,7 @@ public abstract class AbstractSamlInHandler implements ContainerRequestFilter {
     protected Element readToken(Message message, InputStream tokenStream) {
         
         try {
-            Document doc = StaxUtils.read(new InputStreamReader(tokenStream, "UTF-8"));
+            Document doc = StaxUtils.read(new InputStreamReader(tokenStream, StandardCharsets.UTF_8));
             return doc.getDocumentElement();
         } catch (Exception ex) {
             throwFault("Assertion can not be read as XML document", ex);
@@ -126,10 +127,15 @@ public abstract class AbstractSamlInHandler implements ContainerRequestFilter {
     protected void validateToken(Message message, SamlAssertionWrapper assertion) {
         try {
             RequestData data = new RequestData();
+            data.setMsgContext(message);
+            
+            // Add Audience Restrictions for SAML
+            configureAudienceRestriction(message, data);
+            
             if (assertion.isSigned()) {
                 WSSConfig cfg = WSSConfig.getNewInstance(); 
                 data.setWssConfig(cfg);
-                data.setCallbackHandler(SecurityUtils.getCallbackHandler(message, this.getClass()));
+                data.setCallbackHandler(RSSecurityUtils.getCallbackHandler(message, this.getClass()));
                 try {
                     data.setSigVerCrypto(new CryptoLoader().getCrypto(message,
                                                 SecurityConstants.SIGNATURE_CRYPTO,
@@ -137,8 +143,16 @@ public abstract class AbstractSamlInHandler implements ContainerRequestFilter {
                 } catch (IOException ex) {
                     throwFault("Crypto can not be loaded", ex);
                 }
-                data.setEnableRevocation(MessageUtils.isTrue(
-                    message.getContextualProperty(WSHandlerConstants.ENABLE_REVOCATION)));
+                
+                boolean enableRevocation = false;
+                String enableRevocationStr = 
+                    (String)org.apache.cxf.rt.security.utils.SecurityUtils.getSecurityPropertyValue(
+                        SecurityConstants.ENABLE_REVOCATION, message);
+                if (enableRevocationStr != null) {
+                    enableRevocation = Boolean.parseBoolean(enableRevocationStr);
+                }
+                data.setEnableRevocation(enableRevocation);
+                
                 Signature sig = assertion.getSignature();
                 WSDocInfo docInfo = new WSDocInfo(sig.getDOM().getOwnerDocument());
                 
@@ -177,9 +191,28 @@ public abstract class AbstractSamlInHandler implements ContainerRequestFilter {
         }
     }
     
+    protected void configureAudienceRestriction(Message msg, RequestData reqData) {
+        // Add Audience Restrictions for SAML
+        boolean enableAudienceRestriction = false;
+        String audRestrStr = 
+            (String)org.apache.cxf.rt.security.utils.SecurityUtils.getSecurityPropertyValue(
+                SecurityConstants.AUDIENCE_RESTRICTION_VALIDATION, msg);
+        if (audRestrStr != null) {
+            enableAudienceRestriction = Boolean.parseBoolean(audRestrStr);
+        }
+        
+        if (enableAudienceRestriction) {
+            List<String> audiences = new ArrayList<>();
+            if (msg.getContextualProperty(org.apache.cxf.message.Message.REQUEST_URL) != null) {
+                audiences.add((String)msg.getContextualProperty(org.apache.cxf.message.Message.REQUEST_URL));
+            }
+            reqData.setAudienceRestrictions(audiences);
+        }
+    }
+    
     protected SAMLKeyInfo createKeyInfoFromDefaultAlias(Crypto sigCrypto) throws WSSecurityException {
         try {
-            X509Certificate[] certs = SecurityUtils.getCertificates(sigCrypto, 
+            X509Certificate[] certs = RSSecurityUtils.getCertificates(sigCrypto, 
                                                                     sigCrypto.getDefaultX509Identifier());
             SAMLKeyInfo samlKeyInfo = new SAMLKeyInfo(new X509Certificate[]{certs[0]});
             samlKeyInfo.setPublicKey(certs[0].getPublicKey());
@@ -191,15 +224,25 @@ public abstract class AbstractSamlInHandler implements ContainerRequestFilter {
     }
     
     protected void checkSubjectConfirmationData(Message message, SamlAssertionWrapper assertion) {
-        Certificate[] tlsCerts = getTLSCertificates(message);
-        if (!checkHolderOfKey(message, assertion, tlsCerts)) {
-            throwFault("Holder Of Key claim fails", null);
+        String valSAMLSubjectConf = 
+            (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.VALIDATE_SAML_SUBJECT_CONFIRMATION,
+                                                           message);
+        boolean validateSAMLSubjectConf = true;
+        if (valSAMLSubjectConf != null) {
+            validateSAMLSubjectConf = Boolean.parseBoolean(valSAMLSubjectConf);
         }
-        if (!checkSenderVouches(message, assertion, tlsCerts)) {
-            throwFault("Sender vouchers claim fails", null);
-        }
-        if (!checkBearer(assertion, tlsCerts)) {
-            throwFault("Bearer claim fails", null);
+        
+        if (validateSAMLSubjectConf) {
+            Certificate[] tlsCerts = getTLSCertificates(message);
+            if (!checkHolderOfKey(message, assertion, tlsCerts)) {
+                throwFault("Holder Of Key claim fails", null);
+            }
+            if (!checkSenderVouches(message, assertion, tlsCerts)) {
+                throwFault("Sender vouchers claim fails", null);
+            }
+            if (!checkBearer(assertion, tlsCerts)) {
+                throwFault("Bearer claim fails", null);
+            }
         }
     }
     
@@ -218,7 +261,11 @@ public abstract class AbstractSamlInHandler implements ContainerRequestFilter {
     protected void throwFault(String error, Exception ex) {
         // TODO: get bundle resource message once this filter is moved 
         // to rt/rs/security
-        LOG.warning(error);
+        String errorMsg = error;
+        if (ex != null) {
+            errorMsg += ": " + ExceptionUtils.getStackTrace(ex);
+        }
+        LOG.warning(errorMsg);
         Response response = JAXRSUtils.toResponseBuilder(401).entity(error).build();
         throw ExceptionUtils.toNotAuthorizedException(null, response);
     }
@@ -255,12 +302,8 @@ public abstract class AbstractSamlInHandler implements ContainerRequestFilter {
                 if (assertionParent != signedElement) {
                     // if not then try to compare if the same cert/key was used to sign SAML token
                     // and the payload
-                    XMLSignature signature = message.getContent(XMLSignature.class);
-                    if (signature == null) {
-                        return false;
-                    }
                     SAMLKeyInfo subjectKeyInfo = assertionWrapper.getSignatureKeyInfo();
-                    if (!compareCredentials(subjectKeyInfo, signature, tlsCerts)) {
+                    if (!compareCredentials(subjectKeyInfo, message, tlsCerts)) {
                         return false;
                     }
                 }
@@ -277,9 +320,8 @@ public abstract class AbstractSamlInHandler implements ContainerRequestFilter {
         List<String> confirmationMethods = assertionWrapper.getConfirmationMethods();
         for (String confirmationMethod : confirmationMethods) {
             if (OpenSAMLUtil.isMethodHolderOfKey(confirmationMethod)) {
-                XMLSignature sig = message.getContent(XMLSignature.class);
                 SAMLKeyInfo subjectKeyInfo = assertionWrapper.getSubjectKeyInfo();
-                if (!compareCredentials(subjectKeyInfo, sig, tlsCerts)) {
+                if (!compareCredentials(subjectKeyInfo, message, tlsCerts)) {
                     return false;
                 }
             }
@@ -297,7 +339,7 @@ public abstract class AbstractSamlInHandler implements ContainerRequestFilter {
      */
     private boolean compareCredentials(
         SAMLKeyInfo subjectKeyInfo,
-        XMLSignature sig,
+        Message message,
         Certificate[] tlsCerts
     ) {
         X509Certificate[] subjectCerts = subjectKeyInfo.getCerts();
@@ -314,22 +356,23 @@ public abstract class AbstractSamlInHandler implements ContainerRequestFilter {
             return true;
         }
         
-        if (sig == null) {
-            return false;
-        }
-        
         //
         // Now try the message-level signatures
         //
         try {
-            X509Certificate[] certs =
-                new X509Certificate[] {sig.getKeyInfo().getX509Certificate()};
-            PublicKey publicKey = sig.getKeyInfo().getPublicKey();
-            if (certs != null && certs.length > 0 && subjectCerts != null
-                && subjectCerts.length > 0 && certs[0].equals(subjectCerts[0])) {
+            X509Certificate signingCert = 
+                (X509Certificate)message.getExchange().getInMessage().get(
+                    AbstractXmlSecInHandler.SIGNING_CERT);
+            
+            if (subjectCerts != null && subjectCerts.length > 0 
+                && signingCert != null && signingCert.equals(subjectCerts[0])) {
                 return true;
             }
-            if (publicKey != null && publicKey.equals(subjectPublicKey)) {
+            
+            PublicKey signingKey = 
+                (PublicKey)message.getExchange().getInMessage().get(
+                    AbstractXmlSecInHandler.SIGNING_PUBLIC_KEY);
+            if (signingKey != null && signingKey.equals(subjectPublicKey)) {
                 return true;
             }
         } catch (Exception ex) {

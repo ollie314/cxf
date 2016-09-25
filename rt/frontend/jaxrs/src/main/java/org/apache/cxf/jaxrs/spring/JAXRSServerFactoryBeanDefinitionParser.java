@@ -32,6 +32,7 @@ import javax.xml.namespace.QName;
 import org.w3c.dom.Element;
 
 import org.apache.cxf.bus.spring.BusWiringBeanFactoryPostProcessor;
+import org.apache.cxf.common.classloader.ClassLoaderUtils;
 import org.apache.cxf.common.util.ClasspathScanner;
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.configuration.spring.AbstractBeanDefinitionParser;
@@ -78,6 +79,10 @@ public class JAXRSServerFactoryBeanDefinitionParser extends AbstractBeanDefiniti
             bean.addPropertyValue(name, q);
         } else if ("basePackages".equals(name)) {            
             bean.addPropertyValue("basePackages", ClasspathScanner.parsePackages(val));
+        } else if ("serviceAnnotation".equals(name)) {
+            bean.addPropertyValue("serviceAnnotation", val);
+        } else if ("publish".equals(name)) {
+            mapToProperty(bean, "start", val);
         } else {
             mapToProperty(bean, name, val);
         }
@@ -151,7 +156,12 @@ public class JAXRSServerFactoryBeanDefinitionParser extends AbstractBeanDefiniti
         
         private List<SpringResourceFactory> tempFactories;
         private List<String> basePackages;
+        private String serviceAnnotation;
         private ApplicationContext context;
+        private boolean serviceBeansAvailable;
+        private boolean providerBeansAvailable;
+        private boolean resourceProvidersAvailable;
+        
         public SpringJAXRSServerFactoryBean() {
             super();
         }
@@ -166,9 +176,26 @@ public class JAXRSServerFactoryBeanDefinitionParser extends AbstractBeanDefiniti
                 server.destroy();
             }
         }
-        
+        @Override
+        public void setServiceBeans(List<Object> beans) {
+            super.setServiceBeans(beans);
+            this.serviceBeansAvailable = true;
+        }
+        @Override
+        public void setProviders(List<? extends Object> beans) {
+            super.setProviders(beans);
+            this.providerBeansAvailable = true;
+        }
+        public void setResourceProviders(List<ResourceProvider> rps) {
+            super.setResourceProviders(rps);
+            this.resourceProvidersAvailable = true;
+        }
         public void setBasePackages(List<String> basePackages) {
             this.basePackages = basePackages;
+        }
+        
+        public void setServiceAnnotation(String serviceAnnotation) {
+            this.serviceAnnotation = serviceAnnotation;
         }
         
         public void setTempResourceProviders(List<SpringResourceFactory> providers) {
@@ -187,40 +214,68 @@ public class JAXRSServerFactoryBeanDefinitionParser extends AbstractBeanDefiniti
                     factories.add(factory);
                 }
                 tempFactories.clear();
-                super.setResourceProviders(factories);
+                setResourceProviders(factories);
             }
-            
-            try {
-                if (basePackages != null) {
-                    final Map< Class< ? extends Annotation >, Collection< Class< ? > > > classes = 
+            Class<? extends Annotation> serviceAnnotationClass = loadServiceAnnotationClass();
+            if (basePackages != null) {
+                try {
+                    final Map< Class< ? extends Annotation >, Collection< Class< ? > > > classes =
                         ClasspathScanner.findClasses(basePackages, Provider.class, Path.class);
                                               
-                    this.setProviders(createBeans(classes.get(Provider.class)));
-                    this.setServiceBeans(createBeans(classes.get(Path.class)));
+                    this.setServiceBeans(createBeansFromDiscoveredClasses(context,
+                                                                          classes.get(Path.class),
+                                                                          serviceAnnotationClass));
+                    this.setProviders(createBeansFromDiscoveredClasses(context,
+                                                                       classes.get(Provider.class),
+                                                                       serviceAnnotationClass));
+                } catch (IOException ex) {
+                    throw new BeanDefinitionStoreException("I/O failure during classpath scanning", ex);
+                } catch (ClassNotFoundException ex) {
+                    throw new BeanCreationException("Failed to create bean from classfile", ex);
                 }
-            } catch (IOException ex) {
-                throw new BeanDefinitionStoreException("I/O failure during classpath scanning", ex);
-            } catch (ClassNotFoundException ex) {
-                throw new BeanCreationException("Failed to create bean from classfile", ex);
+            } else if (serviceAnnotationClass != null
+                || !serviceBeansAvailable && !providerBeansAvailable && !resourceProvidersAvailable) {
+                discoverContextResources(serviceAnnotationClass);
             }
-            
             if (bus == null) {
                 setBus(BusWiringBeanFactoryPostProcessor.addDefaultBus(ctx));
             }
         }        
-        private List<Object> createBeans(Collection<Class<?>> classes) {
-            AutowireCapableBeanFactory beanFactory = context.getAutowireCapableBeanFactory();
-            final List< Object > providers = new ArrayList< Object >();
-            for (final Class< ? > clazz: classes) {
-                Object bean = null;
-                try {
-                    bean = beanFactory.createBean(clazz, AutowireCapableBeanFactory.AUTOWIRE_BY_TYPE, true);
-                } catch (Exception ex) {
-                    bean = beanFactory.createBean(clazz);
-                }
-                providers.add(bean);
-            }
-            return providers;
+        private void discoverContextResources(Class<? extends Annotation> serviceAnnotationClass) {
+            AbstractSpringComponentScanServer scanServer = 
+                new AbstractSpringComponentScanServer(serviceAnnotationClass) { };
+            scanServer.setApplicationContext(context);
+            scanServer.setJaxrsResources(this);
         }
+        @SuppressWarnings("unchecked")
+        private Class<? extends Annotation> loadServiceAnnotationClass() {
+            if (serviceAnnotation != null) {
+                try {
+                    return (Class<? extends Annotation>)ClassLoaderUtils.loadClass(serviceAnnotation, this.getClass());
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            } 
+            return null;
+        }
+    }
+    static List<Object> createBeansFromDiscoveredClasses(ApplicationContext context,
+                                                         Collection<Class<?>> classes, 
+                                                         Class<? extends Annotation> serviceClassAnnotation) {
+        AutowireCapableBeanFactory beanFactory = context.getAutowireCapableBeanFactory();
+        final List< Object > providers = new ArrayList< Object >();
+        for (final Class< ? > clazz: classes) {
+            if (serviceClassAnnotation != null && clazz.getAnnotation(serviceClassAnnotation) == null) {
+                continue;
+            }
+            Object bean = null;
+            try {
+                bean = beanFactory.createBean(clazz, AutowireCapableBeanFactory.AUTOWIRE_BY_TYPE, true);
+            } catch (Exception ex) {
+                bean = beanFactory.createBean(clazz);
+            }
+            providers.add(bean);
+        }
+        return providers;
     }
 }

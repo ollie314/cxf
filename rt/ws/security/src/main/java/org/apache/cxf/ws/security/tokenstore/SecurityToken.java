@@ -19,24 +19,31 @@
 
 package org.apache.cxf.ws.security.tokenstore;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.io.StringReader;
 import java.security.Key;
 import java.security.Principal;
 import java.security.cert.X509Certificate;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.util.Date;
-import java.util.Properties;
+import java.util.Map;
+
+import javax.xml.stream.XMLStreamException;
 
 import org.w3c.dom.Element;
-
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.security.SecurityContext;
 import org.apache.cxf.staxutils.StaxUtils;
 import org.apache.cxf.staxutils.W3CDOMStreamWriter;
 import org.apache.wss4j.common.crypto.Crypto;
+import org.apache.wss4j.common.token.Reference;
+import org.apache.wss4j.common.util.DOM2Writer;
+import org.apache.wss4j.common.util.XMLUtils;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.message.token.Reference;
 import org.apache.wss4j.dom.util.XmlSchemaDateFormat;
 
 
@@ -50,7 +57,11 @@ public class SecurityToken implements Serializable {
      */
     public static final String BOOTSTRAP_TOKEN_ID = "bootstrap_security_token_id";
     
-    private static final long serialVersionUID = 3820740387121650613L;
+    /**
+     * 
+     */
+    private static final long serialVersionUID = -8220267049304000696L;
+
 
     /**
      * Token identifier
@@ -66,6 +77,11 @@ public class SecurityToken implements Serializable {
      * The actual token in its current state
      */
     private transient Element token;
+    
+    /**
+     * The String representation of the token (The token can't be serialized as it's a DOM Element) 
+     */
+    private String tokenStr;
     
     /**
      * The RequestedAttachedReference element
@@ -90,7 +106,7 @@ public class SecurityToken implements Serializable {
     /**
      * A bag to hold any other properties
      */
-    private Properties properties;
+    private Map<String, Object> properties;
 
     /**
      * The secret associated with the Token
@@ -161,17 +177,12 @@ public class SecurityToken implements Serializable {
     }
     
     public SecurityToken(String id) {
-        this.id = id;
-        if (this.id != null && this.id.length() > 0 && this.id.charAt(0) == '#') {
-            this.id = this.id.substring(1);
-        }
+        this.id = XMLUtils.getIDFromReference(id);
     }
 
     public SecurityToken(String id, Date created, Date expires) {
-        this.id = id;
-        if (this.id != null && this.id.length() > 0 && this.id.charAt(0) == '#') {
-            this.id = this.id.substring(1);
-        }
+        this.id = XMLUtils.getIDFromReference(id);
+        
         if (created != null) {
             this.created = new Date(created.getTime());
         }
@@ -184,10 +195,8 @@ public class SecurityToken implements Serializable {
                  Element tokenElem,
                  Date created,
                  Date expires) {
-        this.id = id;
-        if (this.id != null && this.id.length() > 0 && this.id.charAt(0) == '#') {
-            this.id = this.id.substring(1);
-        }
+        this.id = XMLUtils.getIDFromReference(id);
+        
         this.token = cloneElement(tokenElem);
         if (created != null) {
             this.created = new Date(created.getTime());
@@ -200,10 +209,8 @@ public class SecurityToken implements Serializable {
     public SecurityToken(String id,
                  Element tokenElem,
                  Element lifetimeElem) {
-        this.id = id;
-        if (this.id != null && this.id.length() > 0 && this.id.charAt(0) == '#') {
-            this.id = this.id.substring(1);
-        }
+        this.id = XMLUtils.getIDFromReference(id);
+        
         this.token = cloneElement(tokenElem);
         if (lifetimeElem != null) {
             processLifeTime(lifetimeElem);
@@ -248,14 +255,14 @@ public class SecurityToken implements Serializable {
     /**
      * @return Returns the properties.
      */
-    public Properties getProperties() {
+    public Map<String, Object> getProperties() {
         return properties;
     }
 
     /**
      * @param properties The properties to set.
      */
-    public void setProperties(Properties properties) {
+    public void setProperties(Map<String, Object> properties) {
         this.properties = properties;
     }
 
@@ -293,10 +300,7 @@ public class SecurityToken implements Serializable {
      * Set the id
      */
     public void setId(String id) {
-        this.id = id;
-        if (this.id != null && this.id.length() > 0 && this.id.charAt(0) == '#') {
-            this.id = this.id.substring(1);
-        }
+        this.id = XMLUtils.getIDFromReference(id);
     }
     
     /**
@@ -558,4 +562,18 @@ public class SecurityToken implements Serializable {
         this.data = data;
     }
     
+    private void writeObject(ObjectOutputStream stream) throws IOException {
+        if (token != null && tokenStr == null) {
+            tokenStr = DOM2Writer.nodeToString(token);
+        }
+        stream.defaultWriteObject();
+    }
+    
+    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException, XMLStreamException {
+        in.defaultReadObject();
+        
+        if (token == null && tokenStr != null) {
+            token = StaxUtils.read(new StringReader(tokenStr)).getDocumentElement();
+        }
+    }
 } 

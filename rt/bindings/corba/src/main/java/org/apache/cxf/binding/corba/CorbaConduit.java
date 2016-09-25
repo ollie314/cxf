@@ -136,7 +136,7 @@ public class CorbaConduit implements Conduit {
 
     public void close(Message message) throws IOException {
         if (message.get(CorbaConstants.CORBA_ENDPOINT_OBJECT) != null) {
-            BindingOperationInfo boi = message.getExchange().get(BindingOperationInfo.class);
+            BindingOperationInfo boi = message.getExchange().getBindingOperationInfo();
             OperationType opType = boi.getExtensor(OperationType.class);
             try {
                 if (message instanceof CorbaMessage) {
@@ -180,7 +180,7 @@ public class CorbaConduit implements Conduit {
     }
         
     public void buildRequest(CorbaMessage message, OperationType opType) throws Exception {        
-        ServiceInfo service = message.getExchange().get(ServiceInfo.class);
+        ServiceInfo service = message.getExchange().getEndpoint().getEndpointInfo().getService();
         NVList nvlist = getArguments(message);
         NamedValue ret = getReturn(message);
         Map<TypeCode, RaisesType> exceptions = getOperationExceptions(opType, typeMap);
@@ -189,15 +189,19 @@ public class CorbaConduit implements Conduit {
         if (request == null) {
             throw new CorbaBindingException("Couldn't build the corba request");
         }
+        Exception ex = null;
         try {
             request.invoke();
-        } catch (SystemException ex) {
-            message.setContent(Exception.class, new Fault(ex));
-            message.setSystemException(ex);
-            return;
+            ex = request.env().exception();
+        } catch (SystemException sysex) {
+            ex = sysex;
         }
-        Exception ex = request.env().exception();
         if (ex != null) {
+            if (ex instanceof SystemException) {
+                message.setContent(Exception.class, new Fault(ex));
+                message.setSystemException((SystemException) ex);
+                return;
+            }
             if (ex instanceof UnknownUserException) {
                 UnknownUserException userEx = (UnknownUserException) ex;
                 Any except = userEx.except;

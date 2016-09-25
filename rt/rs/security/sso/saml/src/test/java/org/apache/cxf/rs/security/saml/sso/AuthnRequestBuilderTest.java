@@ -30,13 +30,13 @@ import org.w3c.dom.Element;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.message.MessageImpl;
 import org.apache.wss4j.common.saml.OpenSAMLUtil;
-import org.opensaml.common.SAMLVersion;
-import org.opensaml.saml2.core.AuthnContextClassRef;
-import org.opensaml.saml2.core.AuthnContextComparisonTypeEnumeration;
-import org.opensaml.saml2.core.AuthnRequest;
-import org.opensaml.saml2.core.Issuer;
-import org.opensaml.saml2.core.NameIDPolicy;
-import org.opensaml.saml2.core.RequestedAuthnContext;
+import org.opensaml.saml.common.SAMLVersion;
+import org.opensaml.saml.saml2.core.AuthnContextClassRef;
+import org.opensaml.saml.saml2.core.AuthnContextComparisonTypeEnumeration;
+import org.opensaml.saml.saml2.core.AuthnRequest;
+import org.opensaml.saml.saml2.core.Issuer;
+import org.opensaml.saml.saml2.core.NameIDPolicy;
+import org.opensaml.saml.saml2.core.RequestedAuthnContext;
 
 /**
  * Some unit tests for the SamlpRequestComponentBuilder and AuthnRequestBuilder
@@ -102,6 +102,17 @@ public class AuthnRequestBuilderTest extends org.junit.Assert {
         doc.appendChild(policyElement);
         // String outputString = DOM2Writer.nodeToString(policyElement);
         assertNotNull(policyElement);
+    }
+    
+    @org.junit.Test
+    public void testAuthnRequestID() throws Exception {
+        AuthnRequestBuilder authnRequestBuilder = new DefaultAuthnRequestBuilder();
+        AuthnRequest authnRequest = 
+            authnRequestBuilder.createAuthnRequest(
+                new MessageImpl(), "http://localhost:9001/app", "http://localhost:9001/sso"
+            );
+        assertTrue("ID must start with a letter or underscore, and can only contain letters, digits, "
+            + "underscores, hyphens, and periods.", authnRequest.getID().matches("^[_a-zA-Z][-_0-9a-zA-Z\\.]+$"));
     }
     
 }

@@ -21,20 +21,16 @@ package org.apache.cxf.ws.security.wss4j;
 
 import java.security.Principal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
-import javax.security.auth.callback.CallbackHandler;
-import javax.xml.namespace.QName;
-
 import org.w3c.dom.Element;
-
 import org.apache.cxf.binding.soap.SoapMessage;
-import org.apache.cxf.common.classloader.ClassLoaderUtils;
 import org.apache.cxf.headers.Header;
 import org.apache.cxf.helpers.CastUtils;
 import org.apache.cxf.helpers.DOMUtils;
-import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.interceptor.security.DefaultSecurityContext;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.security.SecurityContext;
 import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
@@ -42,13 +38,12 @@ import org.apache.cxf.ws.security.tokenstore.TokenStore;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.dom.WSConstants;
 import org.apache.wss4j.dom.WSDocInfo;
-import org.apache.wss4j.dom.WSSConfig;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
+import org.apache.wss4j.dom.engine.WSSConfig;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
 import org.apache.wss4j.dom.handler.RequestData;
 import org.apache.wss4j.dom.handler.WSHandlerConstants;
 import org.apache.wss4j.dom.handler.WSHandlerResult;
 import org.apache.wss4j.dom.processor.BinarySecurityTokenProcessor;
-import org.apache.wss4j.dom.validate.Validator;
 import org.apache.wss4j.policy.model.AbstractToken;
 
 /**
@@ -78,17 +73,18 @@ public class BinarySecurityTokenInterceptor extends AbstractTokenInterceptor {
                         List<WSHandlerResult> results = CastUtils.cast((List<?>)message
                                 .get(WSHandlerConstants.RECV_RESULTS));
                         if (results == null) {
-                            results = new ArrayList<WSHandlerResult>();
+                            results = new ArrayList<>();
                             message.put(WSHandlerConstants.RECV_RESULTS, results);
                         }
-                        WSHandlerResult rResult = new WSHandlerResult(null, bstResults);
+                        WSHandlerResult rResult = 
+                            new WSHandlerResult(null, bstResults,
+                                                Collections.singletonMap(WSConstants.BST, bstResults));
                         results.add(0, rResult);
 
                         assertTokens(message);
                         
                         Principal principal = 
                             (Principal)bstResults.get(0).get(WSSecurityEngineResult.TAG_PRINCIPAL);
-                        message.put(WSS4JInInterceptor.PRINCIPAL_RESULT, principal);                   
                         
                         SecurityContext sc = message.get(SecurityContext.class);
                         if (sc == null || sc.getUserPrincipal() == null) {
@@ -97,7 +93,7 @@ public class BinarySecurityTokenInterceptor extends AbstractTokenInterceptor {
 
                     }
                 } catch (WSSecurityException ex) {
-                    throw new Fault(ex);
+                    throw WSS4JUtils.createSoapFault(message, message.getVersion(), ex);
                 }
             }
             child = DOMUtils.getNextElement(child);
@@ -107,31 +103,14 @@ public class BinarySecurityTokenInterceptor extends AbstractTokenInterceptor {
     private List<WSSecurityEngineResult> processToken(Element tokenElement, final SoapMessage message)
         throws WSSecurityException {
         WSDocInfo wsDocInfo = new WSDocInfo(tokenElement.getOwnerDocument());
-        RequestData data = new RequestData() {
-            public CallbackHandler getCallbackHandler() {
-                return getCallback(message);
-            }
-            public Validator getValidator(QName qName) throws WSSecurityException {
-                String key = SecurityConstants.BST_TOKEN_VALIDATOR;
-                Object o = message.getContextualProperty(key);
-                try {
-                    if (o instanceof Validator) {
-                        return (Validator)o;
-                    } else if (o instanceof Class) {
-                        return (Validator)((Class<?>)o).newInstance();
-                    } else if (o instanceof String) {
-                        return (Validator)ClassLoaderUtils.loadClass(o.toString(),
-                                                                     BinarySecurityTokenInterceptor.class)
-                                                                     .newInstance();
-                    }
-                } catch (RuntimeException t) {
-                    throw t;
-                } catch (Exception ex) {
-                    throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, ex);
-                }
-                return super.getValidator(qName);
-            }
-        };
+        RequestData data = new CXFRequestData();
+        Object o = SecurityUtils.getSecurityPropertyValue(SecurityConstants.CALLBACK_HANDLER, message);
+        try {
+            data.setCallbackHandler(SecurityUtils.getCallbackHandler(o));
+        } catch (Exception ex) {
+            throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, ex);
+        }
+        data.setMsgContext(message);
         data.setWssConfig(WSSConfig.getNewInstance());
         
         BinarySecurityTokenProcessor p = new BinarySecurityTokenProcessor();

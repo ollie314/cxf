@@ -50,9 +50,13 @@ import org.apache.maven.execution.MavenSession;
 import org.apache.maven.model.Resource;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugins.annotations.Component;
+import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.repository.RepositorySystem;
 import org.apache.maven.settings.Proxy;
+import org.apache.maven.toolchain.Toolchain;
+import org.apache.maven.toolchain.ToolchainManager;
 import org.codehaus.plexus.archiver.jar.JarArchiver;
 import org.codehaus.plexus.archiver.jar.Manifest;
 import org.codehaus.plexus.archiver.jar.Manifest.Attribute;
@@ -92,125 +96,104 @@ public abstract class AbstractCodegenMoho extends AbstractMojo {
     private static final String HTTP_PROXY_PASSWORD = "http.proxyPassword";
     
 
-    /**
-     * @parameter expression="${project.build.outputDirectory}"
-     * @required
-     */
+    @Parameter(property = "project.build.outputDirectory", required = true)
     protected String classesDirectory;
    
     /**
      * By default all maven dependencies of type "wsdl" are added to the effective wsdlOptions. Setting this
      * parameter to true disables this functionality
-     * 
-     * @parameter expression="${cxf.disableDependencyScan}" default-value="false"
      */
+    @Parameter(property = "cxf.disableDependencyScan", defaultValue = "false")
     protected boolean disableDependencyScan;
+    
     /**
      * Disables the scanning of the wsdlRoot/testWsdlRoot directories.
      * By default, we scan for *.wsdl (see include/exclude params as well) in the wsdlRoot
      * directories and run the tool on all the wsdls we find. This disables that scan
      * and requires an explicit wsdlOption to be set for each wsdl that needs to be processed.
-     * @parameter expression="${cxf.disableDirectoryScan}" default-value="false"
      */
+    @Parameter(property = "cxf.disableDirectoryScan", defaultValue = "false")
     protected boolean disableDirectoryScan;
+    
     /**
      * Allows running the JavaToWs in a separate process. Valid values are "false", "always", and "once" The
      * value of "true" is equal to "once"
-     * 
-     * @parameter default-value="false"
-     * @since 2.4
      */
+    @Parameter(defaultValue = "false")
     protected String fork;
+    
     /**
      * A list of wsdl files to include. Can contain ant-style wildcards and double wildcards. Defaults to
      * *.wsdl
-     * 
-     * @parameter
      */
+    @Parameter
     protected String includes[];
     /**
      * Directory in which the "DONE" markers are saved that
-     * 
-     * @parameter expression="${cxf.markerDirectory}"
-     *            default-value="${project.build.directory}/cxf-codegen-plugin-markers"
      */
+    @Parameter(property = "cxf.markerDirectory", defaultValue = "${project.build.directory}/cxf-codegen-plugin-markers")
     protected File markerDirectory;
+    
     /**
-     * The plugin dependencies, needed for the fork mode.
-     * 
-     * @parameter expression="${plugin.artifacts}"
-     * @required
-     * @readonly
+     * The plugin dependencies, needed for the fork mode
      */
+    @Parameter(required = true, readonly = true, property = "plugin.artifacts")
     protected List<Artifact> pluginArtifacts;
-    /**
-     * @parameter expression="${project}"
-     * @required
-     */
+    
+    @Parameter(required = true, property = "project")
     protected MavenProject project;
+    
     /**
      * Use the compile classpath rather than the test classpath for execution useful if the test dependencies
      * clash with those of wsdl2java
-     * 
-     * @parameter expression="${cxf.useCompileClasspath}" default-value="false"
      */
+    @Parameter(property = "cxf.useCompileClasspath", defaultValue = "false")
     protected boolean useCompileClasspath;
+    
     /**
      * A list of wsdl files to exclude. Can contain ant-style wildcards and double wildcards.
-     * 
-     * @parameter
      */
+    @Parameter
     protected String excludes[];
-    /**
-     * @parameter expression="${cxf.testWsdlRoot}" default-value="${basedir}/src/test/resources/wsdl"
-     */
+    
+    @Parameter(property = "cxf.testWsdlRoot", defaultValue = "${basedir}/src/test/resources/wsdl")
     protected File testWsdlRoot;
    
-    /**
-     * @parameter expression="${cxf.wsdlRoot}" default-value="${basedir}/src/main/resources/wsdl"
-     */
+    @Parameter(property = "cxf.wsdlRoot", defaultValue = "${basedir}/src/main/resources/wsdl")
     protected File wsdlRoot;
     
-    /** @component */
+    @Component
     protected BuildContext buildContext;
     
     
     /**
      * Sets the JVM arguments (i.e. <code>-Xms128m -Xmx128m</code>) if fork is set to <code>true</code>.
-     * 
-     * @parameter expression="${cxf.codegen.jvmArgs}"
-     * @since 2.4
      */
+    @Parameter(property = "cxf.codegen.jvmArgs")
     private String additionalJvmArgs;
 
     /**
      * Sets the Java executable to use when fork parameter is <code>true</code>.
-     * 
-     * @parameter default-value="${java.home}/bin/java"
-     * @since 2.4
      */
+    @Parameter
     private String javaExecutable;
 
     /**
-     * The Maven session.
-     * 
-     * @parameter expression="${session}"
-     * @readonly
-     * @required
+     * The toolchain manager.
      */
-    private MavenSession mavenSession;
+    @Component
+    private ToolchainManager toolchainManager;
+
     /**
-     * @component
-     * @readonly
-     * @required
+     * The Maven session.
      */
+    @Parameter(readonly = true, required = true, property = "session")
+    private MavenSession mavenSession;
+    
+    @Component
     private ProjectDependenciesResolver projectDependencyResolver;
     
-    /**
-     * @component
-     * @readonly
-     * @required
-     */
+    @Component
     private RepositorySystem repositorySystem;
     
 
@@ -684,7 +667,7 @@ public abstract class AbstractCodegenMoho extends AbstractMojo {
         String cmdLine = CommandLineUtils.toString(cmd.getCommandline());
 
         if (exitCode != 0) {
-            StringBuffer msg = new StringBuffer("\nExit code: ");
+            StringBuilder msg = new StringBuilder("\nExit code: ");
             msg.append(exitCode);
             msg.append('\n');
             msg.append("Command line was: ").append(cmdLine).append('\n').append('\n');
@@ -694,7 +677,7 @@ public abstract class AbstractCodegenMoho extends AbstractMojo {
 
         file.delete();
         if (b.toString().contains("WSDL2Java Error")) {
-            StringBuffer msg = new StringBuffer();
+            StringBuilder msg = new StringBuilder();
             msg.append(b.toString());
             msg.append('\n');
             msg.append("Command line was: ").append(cmdLine).append('\n').append('\n');
@@ -804,17 +787,28 @@ public abstract class AbstractCodegenMoho extends AbstractMojo {
     }
 
     private File getJavaExecutable() throws IOException {
+        if (javaExecutable != null) {
+            getLog().debug("Plugin configuration set the 'javaExecutable' parameter to " + javaExecutable);
+        } else {
+            Toolchain tc = toolchainManager.getToolchainFromBuildContext("jdk", mavenSession);
+            if (tc != null) {
+                getLog().info("Using toolchain " + tc + " to find the java executable");
+                javaExecutable = tc.findTool("java");
+            } else {
+                getLog().debug("The java executable is set to default value");
+                javaExecutable = SystemUtils.getJavaHome() + File.separator + "bin" + File.separator + "java";
+            }
+        }
         String exe = SystemUtils.IS_OS_WINDOWS && !javaExecutable.endsWith(".exe") ? ".exe" : "";
         File javaExe = new File(javaExecutable + exe);
-
         if (!javaExe.isFile()) {
             throw new IOException(
                                   "The java executable '"
                                       + javaExe
                                       + "' doesn't exist or is not a file." 
-                                      + "Verify the <javaExecutable/> parameter.");
+                                      + "Verify the <javaExecutable/> parameter or toolchain configuration.");
         }
-
+        getLog().info("The java executable is " + javaExe.getAbsolutePath());
         return javaExe;
     }
     

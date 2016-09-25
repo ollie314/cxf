@@ -18,14 +18,15 @@
  */
 package org.apache.cxf.rs.security.oauth2.grants.jwt;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import javax.ws.rs.core.MultivaluedMap;
 
 import org.apache.cxf.jaxrs.utils.HttpUtils;
+import org.apache.cxf.rs.security.jose.jws.JwsHeaders;
 import org.apache.cxf.rs.security.jose.jws.JwsJwtCompactConsumer;
 import org.apache.cxf.rs.security.jose.jwt.JwtToken;
-import org.apache.cxf.rs.security.jose.jwt.JwtTokenReader;
 import org.apache.cxf.rs.security.oauth2.common.Client;
 import org.apache.cxf.rs.security.oauth2.common.ServerAccessToken;
 import org.apache.cxf.rs.security.oauth2.common.UserSubject;
@@ -42,9 +43,8 @@ public class JwtBearerGrantHandler extends AbstractJwtHandler {
         //  AccessTokenService may be configured with the form provider
         // which will not decode by default - so listing both the actual 
         // and encoded grant type value will help
-        ENCODED_JWT_BEARER_GRANT = HttpUtils.urlEncode(Constants.JWT_BEARER_GRANT, "UTF-8");
+        ENCODED_JWT_BEARER_GRANT = HttpUtils.urlEncode(Constants.JWT_BEARER_GRANT, StandardCharsets.UTF_8.name());
     }
-    private JwtTokenReader jwtReader;
     public JwtBearerGrantHandler() {
         super(Arrays.asList(Constants.JWT_BEARER_GRANT, ENCODED_JWT_BEARER_GRANT));
     }
@@ -59,12 +59,12 @@ public class JwtBearerGrantHandler extends AbstractJwtHandler {
         try {
             JwsJwtCompactConsumer jwsReader = getJwsReader(assertion);
             JwtToken jwtToken = jwsReader.getJwtToken();
-            super.validateSignature(jwtToken.getHeaders(),
-                                    jwsReader.getUnsignedEncodedSequence(), 
-                                    jwsReader.getDecodedSignature());
+            validateSignature(new JwsHeaders(jwtToken.getJwsHeaders()),
+                                  jwsReader.getUnsignedEncodedSequence(), 
+                                  jwsReader.getDecodedSignature());
             
                    
-            super.validateClaims(client, jwtToken.getClaims());
+            validateClaims(client, jwtToken.getClaims());
             UserSubject grantSubject = new UserSubject(jwtToken.getClaims().getSubject());
             
             return doCreateAccessToken(client, 
@@ -80,12 +80,7 @@ public class JwtBearerGrantHandler extends AbstractJwtHandler {
     }
 
     protected JwsJwtCompactConsumer getJwsReader(String assertion) {
-        return new JwsJwtCompactConsumer(assertion, jwtReader);
+        return new JwsJwtCompactConsumer(assertion);
     }
-    
-    public void setJwtReader(JwtTokenReader tokenReader) {
-        this.jwtReader = tokenReader;
-    }
-
-    
+        
 }

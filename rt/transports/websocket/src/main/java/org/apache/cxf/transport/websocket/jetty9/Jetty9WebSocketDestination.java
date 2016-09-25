@@ -22,6 +22,7 @@ package org.apache.cxf.transport.websocket.jetty9;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.security.Principal;
 import java.util.Enumeration;
@@ -29,6 +30,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.servlet.DispatcherType;
@@ -48,9 +50,9 @@ import org.apache.cxf.transport.http_jetty.JettyHTTPServerEngineFactory;
 import org.apache.cxf.transport.websocket.InvalidPathException;
 import org.apache.cxf.transport.websocket.WebSocketConstants;
 import org.apache.cxf.transport.websocket.WebSocketDestinationService;
-import org.apache.cxf.transport.websocket.WebSocketServletHolder;
-import org.apache.cxf.transport.websocket.WebSocketVirtualServletRequest;
-import org.apache.cxf.transport.websocket.WebSocketVirtualServletResponse;
+import org.apache.cxf.transport.websocket.jetty.WebSocketServletHolder;
+import org.apache.cxf.transport.websocket.jetty.WebSocketVirtualServletRequest;
+import org.apache.cxf.transport.websocket.jetty.WebSocketVirtualServletResponse;
 import org.apache.cxf.workqueue.WorkQueueManager;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.websocket.api.Session;
@@ -81,10 +83,19 @@ public class Jetty9WebSocketDestination extends JettyHTTPDestination implements
             webSocketFactory = (WebSocketServletFactory)ClassLoaderUtils
                 .loadClass("org.eclipse.jetty.websocket.server.WebSocketServerFactory",
                            WebSocketServletFactory.class).newInstance();
+            
         } catch (InstantiationException | IllegalAccessException | ClassNotFoundException e) {
             throw new RuntimeException(e);
         }
         webSocketFactory.setCreator(new Creator());
+        
+        try {
+            Field f = webSocketFactory.getClass().getDeclaredField("objectFactory");
+            f.setAccessible(true);
+            f.set(webSocketFactory, f.getType().newInstance());
+        } catch (Throwable t) {
+            //ignore, on Jetty <=9.2 this field doesn't exist
+        }
         executor = bus.getExtension(WorkQueueManager.class).getAutomaticWorkQueue();
     }
     
@@ -149,11 +160,10 @@ public class Jetty9WebSocketDestination extends JettyHTTPDestination implements
                     }
                     invoke(null, null, request, response);
                 } catch (InvalidPathException ex) {
-                    ex.printStackTrace();
                     reportErrorStatus(session, 400, response);
                 } catch (Exception e) {
+                    LOG.log(Level.WARNING, "Failed to invoke service", e);
                     reportErrorStatus(session, 500, response);
-                    e.printStackTrace();
                 }
             }
 
@@ -222,7 +232,7 @@ public class Jetty9WebSocketDestination extends JettyHTTPDestination implements
     
     class Jetty9WebSocketHolder implements WebSocketServletHolder {
         final Session session;
-        public Jetty9WebSocketHolder(Session s) {
+        Jetty9WebSocketHolder(Session s) {
             session = s;
         }
         public String getAuthType() {

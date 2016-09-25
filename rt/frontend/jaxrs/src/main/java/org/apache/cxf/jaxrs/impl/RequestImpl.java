@@ -32,6 +32,9 @@ import javax.ws.rs.HttpMethod;
 import javax.ws.rs.core.EntityTag;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.NioCompletionHandler;
+import javax.ws.rs.core.NioErrorHandler;
+import javax.ws.rs.core.NioReaderHandler;
 import javax.ws.rs.core.Request;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.ResponseBuilder;
@@ -90,7 +93,7 @@ public class RequestImpl implements Request {
             }
             
             boolean encMatched = acceptEncs.isEmpty() || enc == null 
-                || acceptEncs.contains(enc);
+                || isEncMatached(acceptEncs, enc);
             if (encMatched) {
                 handleVaryValues(varyValues, HttpHeaders.ACCEPT_ENCODING);
             }
@@ -142,6 +145,18 @@ public class RequestImpl implements Request {
             String language = locale.getLanguage();
             if ("*".equals(language) 
                 || language.equalsIgnoreCase(l.getLanguage())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isEncMatached(List<String> accepts, String enc) {
+        if (accepts.contains(enc)) {
+            return true;
+        }
+        for (String accept : accepts) {
+            if ("*".equals(accept)) {
                 return true;
             }
         }
@@ -369,5 +384,25 @@ public class RequestImpl implements Request {
             }
             return 0;
         }
+    }
+
+    @Override
+    public void entity(NioReaderHandler arg0) {
+        // TODO: Implementation required (JAX-RS 2.1)
+    }
+
+    @Override
+    public void entity(NioReaderHandler arg0, NioCompletionHandler arg1) {
+        // TODO: Implementation required (JAX-RS 2.1)
+    }
+
+    @Override
+    public void entity(NioReaderHandler arg0, NioErrorHandler arg1) {
+        // TODO: Implementation required (JAX-RS 2.1)
+    }
+
+    @Override
+    public void entity(NioReaderHandler arg0, NioCompletionHandler arg1, NioErrorHandler arg2) {
+        // TODO: Implementation required (JAX-RS 2.1)
     }
 }

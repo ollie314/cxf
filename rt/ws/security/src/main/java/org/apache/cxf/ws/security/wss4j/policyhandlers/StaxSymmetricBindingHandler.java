@@ -19,7 +19,6 @@
 
 package org.apache.cxf.ws.security.wss4j.policyhandlers;
 
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -33,14 +32,17 @@ import org.apache.cxf.binding.soap.SoapMessage;
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.message.MessageUtils;
+import org.apache.cxf.rt.security.utils.SecurityUtils;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
 import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
+import org.apache.cxf.ws.security.tokenstore.TokenStoreUtils;
+import org.apache.cxf.ws.security.wss4j.TokenStoreCallbackHandler;
 import org.apache.cxf.ws.security.wss4j.WSS4JUtils;
 import org.apache.wss4j.common.ConfigurationConstants;
 import org.apache.wss4j.common.ext.WSSecurityException;
-import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.WSSConfig;
+import org.apache.wss4j.common.util.KeyUtils;
+import org.apache.wss4j.common.util.XMLUtils;
 import org.apache.wss4j.policy.SPConstants;
 import org.apache.wss4j.policy.model.AbstractSymmetricAsymmetricBinding;
 import org.apache.wss4j.policy.model.AbstractToken;
@@ -60,7 +62,6 @@ import org.apache.wss4j.stax.ext.WSSConstants;
 import org.apache.wss4j.stax.ext.WSSSecurityProperties;
 import org.apache.wss4j.stax.securityEvent.WSSecurityEventConstants;
 import org.apache.wss4j.stax.securityToken.WSSecurityTokenConstants;
-import org.apache.xml.security.algorithms.JCEMapper;
 import org.apache.xml.security.exceptions.XMLSecurityException;
 import org.apache.xml.security.stax.ext.OutboundSecurityContext;
 import org.apache.xml.security.stax.ext.SecurePart;
@@ -112,12 +113,17 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
         if (asymSignatureAlgorithm != null && sbinding.getAlgorithmSuite() != null) {
             sbinding.getAlgorithmSuite().setAsymmetricSignature(asymSignatureAlgorithm);
         }
+        String symSignatureAlgorithm = 
+            (String)getMessage().getContextualProperty(SecurityConstants.SYMMETRIC_SIGNATURE_ALGORITHM);
+        if (symSignatureAlgorithm != null && sbinding.getAlgorithmSuite() != null) {
+            sbinding.getAlgorithmSuite().setSymmetricSignature(symSignatureAlgorithm);
+        }
         
         // Set up CallbackHandler which wraps the configured Handler
         WSSSecurityProperties properties = getProperties();
         TokenStoreCallbackHandler callbackHandler = 
             new TokenStoreCallbackHandler(
-                properties.getCallbackHandler(), WSS4JUtils.getTokenStore(message)
+                properties.getCallbackHandler(), TokenStoreUtils.getTokenStore(message)
             );
         properties.setCallbackHandler(callbackHandler);
         
@@ -167,7 +173,7 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
                 
                 if (tok == null && !isRequestor()) {
                     org.apache.xml.security.stax.securityToken.SecurityToken securityToken = 
-                        findInboundSecurityToken(WSSecurityEventConstants.SamlToken);
+                        findInboundSecurityToken(WSSecurityEventConstants.SAML_TOKEN);
                     tokenId = WSS4JUtils.parseAndStoreStreamingSecurityToken(securityToken, message);
                 }
             } else if (encryptionToken instanceof SecureConversationToken
@@ -180,7 +186,7 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
                     properties.addAction(actionToPerform);
                 } else if (tok == null && !isRequestor()) {
                     org.apache.xml.security.stax.securityToken.SecurityToken securityToken = 
-                        findInboundSecurityToken(WSSecurityEventConstants.SecurityContextToken);
+                        findInboundSecurityToken(WSSecurityEventConstants.SECURITY_CONTEXT_TOKEN);
                     tokenId = WSS4JUtils.parseAndStoreStreamingSecurityToken(securityToken, message);
                 }
             } else if (encryptionToken instanceof X509Token) {
@@ -192,17 +198,15 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
                     tokenId = WSS4JUtils.parseAndStoreStreamingSecurityToken(securityToken, message);
                 }
             } else if (encryptionToken instanceof UsernameToken) {
-                policyNotAsserted(sbinding, "UsernameTokens not supported with Symmetric binding");
+                unassertPolicy(sbinding, "UsernameTokens not supported with Symmetric binding");
                 return;
             }
             assertToken(encryptionToken);
             if (tok == null) {
-                if (tokenId != null && tokenId.startsWith("#")) {
-                    tokenId = tokenId.substring(1);
-                }
+                tokenId = XMLUtils.getIDFromReference(tokenId);
 
                 // Get hold of the token from the token storage
-                tok = WSS4JUtils.getTokenStore(message).getToken(tokenId);
+                tok = TokenStoreUtils.getTokenStore(message).getToken(tokenId);
             }
             
             // Store key
@@ -234,7 +238,7 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
                         new SecurePart(new QName(WSSConstants.NS_DSIG, "Signature"), Modifier.Element);
                     encrParts.add(part);
                     if (signatureConfirmationAdded) {
-                        part = new SecurePart(WSSConstants.TAG_wsse11_SignatureConfirmation, Modifier.Element);
+                        part = new SecurePart(WSSConstants.TAG_WSSE11_SIG_CONF, Modifier.Element);
                         encrParts.add(part);
                     }
                     assertPolicy(
@@ -253,12 +257,14 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
                 
             if (sigParts.size() > 0) {
                 AbstractTokenWrapper sigAbstractTokenWrapper = getSignatureToken();
-                AbstractToken sigToken = sigAbstractTokenWrapper.getToken();
-                if (sigAbstractTokenWrapper != null && isRequestor()) {
-                    doSignature(sigAbstractTokenWrapper, sigToken, tok, sigParts);
-                } else if (!isRequestor()) {
-                    addSignatureConfirmation(sigParts);
-                    doSignature(sigAbstractTokenWrapper, sigToken, tok, sigParts);
+                if (sigAbstractTokenWrapper != null) {
+                    AbstractToken sigToken = sigAbstractTokenWrapper.getToken();
+                    if (isRequestor()) {
+                        doSignature(sigAbstractTokenWrapper, sigToken, tok, sigParts);
+                    } else {
+                        addSignatureConfirmation(sigParts);
+                        doSignature(sigAbstractTokenWrapper, sigToken, tok, sigParts);
+                    }
                 }
             }
             
@@ -293,7 +299,7 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
                     
                     if (sigTok == null && !isRequestor()) {
                         org.apache.xml.security.stax.securityToken.SecurityToken securityToken = 
-                            findInboundSecurityToken(WSSecurityEventConstants.SamlToken);
+                            findInboundSecurityToken(WSSecurityEventConstants.SAML_TOKEN);
                         sigTokId = WSS4JUtils.parseAndStoreStreamingSecurityToken(securityToken, message);
                     }
                 } else if (sigToken instanceof SecureConversationToken
@@ -306,7 +312,7 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
                         properties.addAction(actionToPerform);
                     } else if (sigTok == null && !isRequestor()) {
                         org.apache.xml.security.stax.securityToken.SecurityToken securityToken = 
-                            findInboundSecurityToken(WSSecurityEventConstants.SecurityContextToken);
+                            findInboundSecurityToken(WSSecurityEventConstants.SECURITY_CONTEXT_TOKEN);
                         sigTokId = WSS4JUtils.parseAndStoreStreamingSecurityToken(securityToken, message);
                     }
                 } else if (sigToken instanceof X509Token) {
@@ -318,21 +324,21 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
                         sigTokId = WSS4JUtils.parseAndStoreStreamingSecurityToken(securityToken, message);
                     }
                 } else if (sigToken instanceof UsernameToken) {
-                    policyNotAsserted(sbinding, "UsernameTokens not supported with Symmetric binding");
+                    unassertPolicy(sbinding, "UsernameTokens not supported with Symmetric binding");
                     return;
                 }
                 assertToken(sigToken);
             } else {
-                policyNotAsserted(sbinding, "No signature token");
+                unassertPolicy(sbinding, "No signature token");
                 return;
             }
             
             if (sigTok == null && StringUtils.isEmpty(sigTokId)) {
-                policyNotAsserted(sigAbstractTokenWrapper, "No signature token id");
+                unassertPolicy(sigAbstractTokenWrapper, "No signature token id");
                 return;
             }
             if (sigTok == null) {
-                sigTok = WSS4JUtils.getTokenStore(message).getToken(sigTokId);
+                sigTok = TokenStoreUtils.getTokenStore(message).getToken(sigTokId);
             }
             
             // Store key
@@ -341,7 +347,7 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
             }
 
             // Add timestamp
-            List<SecurePart> sigs = new ArrayList<SecurePart>();
+            List<SecurePart> sigs = new ArrayList<>();
             if (timestampAdded) {
                 SecurePart part = 
                     new SecurePart(new QName(WSSConstants.NS_WSU10, "Timestamp"), Modifier.Element);
@@ -370,7 +376,7 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
                     new SecurePart(new QName(WSSConstants.NS_DSIG, "Signature"), Modifier.Element);
                 enc.add(part);
                 if (signatureConfirmationAdded) {
-                    part = new SecurePart(WSSConstants.TAG_wsse11_SignatureConfirmation, Modifier.Element);
+                    part = new SecurePart(WSSConstants.TAG_WSSE11_SIG_CONF, Modifier.Element);
                     enc.add(part);
                 }
                 assertPolicy(
@@ -423,31 +429,31 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
             properties.addAction(actionToPerform);
 
             if (isRequestor()) {
-                properties.setEncryptionKeyIdentifier(getKeyIdentifierType(recToken, encrToken));
+                properties.setEncryptionKeyIdentifier(getKeyIdentifierType(encrToken));
                 properties.setDerivedKeyKeyIdentifier(
-                    WSSecurityTokenConstants.KeyIdentifier_SecurityTokenDirectReference);
+                    WSSecurityTokenConstants.KEYIDENTIFIER_SECURITY_TOKEN_DIRECT_REFERENCE);
             } else if (recToken.getToken() instanceof KerberosToken && !isRequestor()) {
                 properties.setEncryptionKeyIdentifier(
-                    WSSecurityTokenConstants.KeyIdentifier_KerberosSha1Identifier);
+                    WSSecurityTokenConstants.KEYIDENTIFIER_KERBEROS_SHA1_IDENTIFIER);
                 properties.setDerivedKeyKeyIdentifier(
-                    WSSecurityTokenConstants.KeyIdentifier_KerberosSha1Identifier);
+                    WSSecurityTokenConstants.KEYIDENTIFIER_KERBEROS_SHA1_IDENTIFIER);
                 if (recToken.getToken().getDerivedKeys() == DerivedKeys.RequireDerivedKeys) {
                     properties.setEncryptionKeyIdentifier(
-                        WSSecurityTokenConstants.KeyIdentifier_SecurityTokenDirectReference);
+                        WSSecurityTokenConstants.KEYIDENTIFIER_SECURITY_TOKEN_DIRECT_REFERENCE);
                 }
             } else if ((recToken.getToken() instanceof IssuedToken 
                 || recToken.getToken() instanceof SecureConversationToken
                 || recToken.getToken() instanceof SpnegoContextToken) && !isRequestor()) {
                 properties.setEncryptionKeyIdentifier(
-                    WSSecurityTokenConstants.KeyIdentifier_SecurityTokenDirectReference);
+                    WSSecurityTokenConstants.KEYIDENTIFIER_SECURITY_TOKEN_DIRECT_REFERENCE);
             } else {
                 properties.setEncryptionKeyIdentifier(
-                    WSSecurityTokenConstants.KeyIdentifier_EncryptedKeySha1Identifier);
+                    WSSecurityTokenConstants.KEYIDENTIFIER_ENCRYPTED_KEY_SHA1_IDENTIFIER);
                 if (recToken.getToken().getDerivedKeys() == DerivedKeys.RequireDerivedKeys) {
                     properties.setDerivedKeyKeyIdentifier(
-                        WSSecurityTokenConstants.KeyIdentifier_EncryptedKeySha1Identifier);
+                        WSSecurityTokenConstants.KEYIDENTIFIER_ENCRYPTED_KEY_SHA1_IDENTIFIER);
                     properties.setEncryptionKeyIdentifier(
-                        WSSecurityTokenConstants.KeyIdentifier_SecurityTokenDirectReference);
+                        WSSecurityTokenConstants.KEYIDENTIFIER_SECURITY_TOKEN_DIRECT_REFERENCE);
                     properties.setEncryptSymmetricEncryptionKey(false);
                 }
             }
@@ -457,8 +463,8 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
             if (encrToken instanceof X509Token 
                 && isTokenRequired(encrToken.getIncludeTokenType())
                 && (WSSecurityTokenConstants.KeyIdentifier_IssuerSerial.equals(keyIdentifier)
-                    || WSSecurityTokenConstants.KeyIdentifier_ThumbprintIdentifier.equals(keyIdentifier)
-                    || WSSecurityTokenConstants.KeyIdentifier_SecurityTokenDirectReference.equals(
+                    || WSSecurityTokenConstants.KEYIDENTIFIER_THUMBPRINT_IDENTIFIER.equals(keyIdentifier)
+                    || WSSecurityTokenConstants.KEYIDENTIFIER_SECURITY_TOKEN_DIRECT_REFERENCE.equals(
                         keyIdentifier))) {
                 properties.setIncludeEncryptionToken(true);
             } else {
@@ -469,10 +475,15 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
                        algorithmSuite.getAlgorithmSuiteType().getAsymmetricKeyWrap());
             properties.setEncryptionSymAlgorithm(
                        algorithmSuite.getAlgorithmSuiteType().getEncryption());
+            properties.setEncryptionKeyTransportDigestAlgorithm(
+                       algorithmSuite.getAlgorithmSuiteType().getEncryptionDigest());
+            properties.setEncryptionKeyTransportMGFAlgorithm(
+                       algorithmSuite.getAlgorithmSuiteType().getMGFAlgo());
 
-            String encUser = (String)message.getContextualProperty(SecurityConstants.ENCRYPT_USERNAME);
+            String encUser = 
+                (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.ENCRYPT_USERNAME, message);
             if (encUser == null) {
-                encUser = (String)message.getContextualProperty(SecurityConstants.USERNAME);
+                encUser = (String)SecurityUtils.getSecurityPropertyValue(SecurityConstants.USERNAME, message);
             }
             if (encUser != null && properties.getEncryptionUser() == null) {
                 properties.setEncryptionUser(encUser);
@@ -538,7 +549,7 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
             properties.addSignaturePart(securePart);
         }
         
-        configureSignature(wrapper, sigToken, false);
+        configureSignature(sigToken, false);
         
         if (policyToken instanceof X509Token) {
             properties.setIncludeSignatureToken(false);
@@ -547,28 +558,28 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
                     WSSecurityTokenConstants.KeyIdentifier_EncryptedKey);
             } else {
                 properties.setSignatureKeyIdentifier(
-                    WSSecurityTokenConstants.KeyIdentifier_EncryptedKeySha1Identifier);
+                    WSSecurityTokenConstants.KEYIDENTIFIER_ENCRYPTED_KEY_SHA1_IDENTIFIER);
                 if (wrapper.getToken().getDerivedKeys() == DerivedKeys.RequireDerivedKeys) {
                     properties.setDerivedKeyKeyIdentifier(
-                        WSSecurityTokenConstants.KeyIdentifier_EncryptedKeySha1Identifier);
+                        WSSecurityTokenConstants.KEYIDENTIFIER_ENCRYPTED_KEY_SHA1_IDENTIFIER);
                     properties.setSignatureKeyIdentifier(
-                        WSSecurityTokenConstants.KeyIdentifier_SecurityTokenDirectReference);
+                        WSSecurityTokenConstants.KEYIDENTIFIER_SECURITY_TOKEN_DIRECT_REFERENCE);
                 }
             }
         } else if (policyToken instanceof KerberosToken) {
             if (isRequestor()) {
                 properties.setDerivedKeyKeyIdentifier(
-                    WSSecurityTokenConstants.KeyIdentifier_SecurityTokenDirectReference);
+                    WSSecurityTokenConstants.KEYIDENTIFIER_SECURITY_TOKEN_DIRECT_REFERENCE);
             } else {
                 if (wrapper.getToken().getDerivedKeys() == DerivedKeys.RequireDerivedKeys) {
                     properties.setSignatureKeyIdentifier(
-                        WSSecurityTokenConstants.KeyIdentifier_SecurityTokenDirectReference);
+                        WSSecurityTokenConstants.KEYIDENTIFIER_SECURITY_TOKEN_DIRECT_REFERENCE);
                 } else {
                     properties.setSignatureKeyIdentifier(
-                        WSSecurityTokenConstants.KeyIdentifier_KerberosSha1Identifier);
+                        WSSecurityTokenConstants.KEYIDENTIFIER_KERBEROS_SHA1_IDENTIFIER);
                 }
                 properties.setDerivedKeyKeyIdentifier(
-                    WSSecurityTokenConstants.KeyIdentifier_KerberosSha1Identifier);
+                    WSSecurityTokenConstants.KEYIDENTIFIER_KERBEROS_SHA1_IDENTIFIER);
             }
         } else if (policyToken instanceof IssuedToken || policyToken instanceof SecurityContextToken
             || policyToken instanceof SecureConversationToken || policyToken instanceof SpnegoContextToken) {
@@ -578,7 +589,7 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
                 properties.setIncludeSignatureToken(true);
             }
             properties.setDerivedKeyKeyIdentifier(
-                WSSecurityTokenConstants.KeyIdentifier_SecurityTokenDirectReference);
+                WSSecurityTokenConstants.KEYIDENTIFIER_SECURITY_TOKEN_DIRECT_REFERENCE);
         }
         
         if (sigToken.getDerivedKeys() == DerivedKeys.RequireDerivedKeys) {
@@ -596,29 +607,30 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
             new SecurityToken(IDGenerator.generateID(null), created, expires);
         
         KeyGenerator keyGenerator = 
-            getKeyGenerator(sbinding.getAlgorithmSuite().getAlgorithmSuiteType().getEncryption());
+            KeyUtils.getKeyGenerator(sbinding.getAlgorithmSuite().getAlgorithmSuiteType().getEncryption());
         SecretKey symmetricKey = keyGenerator.generateKey();
         tempTok.setKey(symmetricKey);
         tempTok.setSecret(symmetricKey.getEncoded());
         
-        WSS4JUtils.getTokenStore(message).add(tempTok);
+        TokenStoreUtils.getTokenStore(message).add(tempTok);
         
         return tempTok.getId();
     }
     
-    private org.apache.xml.security.stax.securityToken.SecurityToken 
-    findEncryptedKeyToken() throws XMLSecurityException {
+    private org.apache.xml.security.stax.securityToken.SecurityToken findEncryptedKeyToken() 
+        throws XMLSecurityException {
         @SuppressWarnings("unchecked")
         final List<SecurityEvent> incomingEventList = 
             (List<SecurityEvent>) message.getExchange().get(SecurityEvent.class.getName() + ".in");
         if (incomingEventList != null) {
             for (SecurityEvent incomingEvent : incomingEventList) {
-                if (WSSecurityEventConstants.EncryptedPart == incomingEvent.getSecurityEventType()
+                if (WSSecurityEventConstants.ENCRYPTED_PART == incomingEvent.getSecurityEventType()
                     || WSSecurityEventConstants.EncryptedElement 
                         == incomingEvent.getSecurityEventType()) {
                     org.apache.xml.security.stax.securityToken.SecurityToken token = 
                         ((AbstractSecuredElementSecurityEvent)incomingEvent).getSecurityToken();
-                    if (token.getKeyWrappingToken() != null && token.getKeyWrappingToken().getSecretKey() != null 
+                    if (token != null && token.getKeyWrappingToken() != null 
+                        && token.getKeyWrappingToken().getSecretKey() != null 
                         && token.getKeyWrappingToken().getSha1Identifier() != null) {
                         return token.getKeyWrappingToken();
                     } else if (token != null && token.getSecretKey() != null 
@@ -630,12 +642,13 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
             
             // Fall back to a Signature in case there was no encrypted Element in the request
             for (SecurityEvent incomingEvent : incomingEventList) {
-                if (WSSecurityEventConstants.SignedPart == incomingEvent.getSecurityEventType()
+                if (WSSecurityEventConstants.SIGNED_PART == incomingEvent.getSecurityEventType()
                     || WSSecurityEventConstants.SignedElement 
                         == incomingEvent.getSecurityEventType()) {
                     org.apache.xml.security.stax.securityToken.SecurityToken token = 
                         ((AbstractSecuredElementSecurityEvent)incomingEvent).getSecurityToken();
-                    if (token.getKeyWrappingToken() != null && token.getKeyWrappingToken().getSecretKey() != null 
+                    if (token != null && token.getKeyWrappingToken() != null 
+                        && token.getKeyWrappingToken().getSecretKey() != null 
                         && token.getKeyWrappingToken().getSha1Identifier() != null) {
                         return token.getKeyWrappingToken();
                     } else if (token != null && token.getSecretKey() != null 
@@ -646,35 +659,6 @@ public class StaxSymmetricBindingHandler extends AbstractStaxBindingHandler {
             }
         }
         return null;
-    }
-    
-    private KeyGenerator getKeyGenerator(String symEncAlgo) throws WSSecurityException {
-        try {
-            //
-            // Assume AES as default, so initialize it
-            //
-            WSSConfig.init();
-            String keyAlgorithm = JCEMapper.getJCEKeyAlgorithmFromURI(symEncAlgo);
-            if (keyAlgorithm == null || "".equals(keyAlgorithm)) {
-                keyAlgorithm = JCEMapper.translateURItoJCEID(symEncAlgo);
-            }
-            KeyGenerator keyGen = KeyGenerator.getInstance(keyAlgorithm);
-            if (symEncAlgo.equalsIgnoreCase(WSConstants.AES_128)
-                || symEncAlgo.equalsIgnoreCase(WSConstants.AES_128_GCM)) {
-                keyGen.init(128);
-            } else if (symEncAlgo.equalsIgnoreCase(WSConstants.AES_192)
-                || symEncAlgo.equalsIgnoreCase(WSConstants.AES_192_GCM)) {
-                keyGen.init(192);
-            } else if (symEncAlgo.equalsIgnoreCase(WSConstants.AES_256)
-                || symEncAlgo.equalsIgnoreCase(WSConstants.AES_256_GCM)) {
-                keyGen.init(256);
-            }
-            return keyGen;
-        } catch (NoSuchAlgorithmException e) {
-            throw new WSSecurityException(
-                WSSecurityException.ErrorCode.UNSUPPORTED_ALGORITHM, e
-            );
-        }
     }
     
 }

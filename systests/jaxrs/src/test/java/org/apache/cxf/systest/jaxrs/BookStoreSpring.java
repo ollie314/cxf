@@ -21,6 +21,9 @@ package org.apache.cxf.systest.jaxrs;
 
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -50,13 +53,12 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.transform.Source;
 import javax.xml.transform.dom.DOMSource;
 
-import org.apache.cxf.annotations.Logging;
+import org.apache.cxf.helpers.IOUtils;
 import org.apache.cxf.staxutils.DepthExceededStaxException;
 import org.apache.cxf.staxutils.StaxUtils;
 
 @Path("/")
 @Produces("application/json")
-@Logging
 public class BookStoreSpring {
 
     private Map<Long, Book> books = new HashMap<Long, Book>();
@@ -81,6 +83,24 @@ public class BookStoreSpring {
         //System.out.println("PreDestroy called");
     }
     
+    @POST
+    @Path("/bookform")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces("application/xml")
+    public Book echoBookForm(@Context HttpServletRequest req) {
+        String name = req.getParameter("name");
+        long id = Long.valueOf(req.getParameter("id"));
+        return new Book(name, id);
+    }
+    @POST
+    @Path("/bookform")
+    @Consumes("application/xml")
+    @Produces("application/xml")
+    public String echoBookFormXml(@Context HttpServletRequest req) throws IOException {
+        InputStream is = req.getInputStream();
+        return IOUtils.readStringFromStream(is);
+    }
+    
     @GET
     @Path("/books/webex")
     public Books getBookWebEx() {
@@ -95,8 +115,8 @@ public class BookStoreSpring {
     @GET
     @Path("/link")
     public Response getBookLink() {
-        Link link = Link.fromResource(BookStoreSpring.class)
-            .baseUri(ui.getBaseUri()).rel("self").build();
+        URI selfUri = ui.getBaseUriBuilder().path(BookStoreSpring.class).build();
+        Link link = Link.fromUri(selfUri).rel("self").build();
         return Response.ok().links(link).build();
     }
     
@@ -125,6 +145,12 @@ public class BookStoreSpring {
     @Produces("application/xml")
     public Book getBookXsiType() {
         return new SuperBook("SuperBook", 999L, true);
+    }
+    @GET
+    @Path("/books/text")
+    @Produces("text/*")
+    public String getBookText() {
+        return "SuperBook";
     }
     
     @SuppressWarnings("unchecked")

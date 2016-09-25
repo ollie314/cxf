@@ -29,14 +29,14 @@ class ParsingEvent {
     private QName name;
     private String value;
         
-    public ParsingEvent(int event, QName name, String value) {
+    ParsingEvent(int event, QName name, String value) {
         this.event = event;
         this.name = name;
         this.value = value;
     }
         
     public String toString() {
-        return new StringBuffer().append("Event(").
+        return new StringBuilder().append("Event(").
             append(event).append(", ").append(name).append(", ").append(value).append(")").
             toString();
     }

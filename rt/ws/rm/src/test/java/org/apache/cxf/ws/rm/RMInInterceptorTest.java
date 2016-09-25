@@ -40,6 +40,8 @@ import org.apache.cxf.ws.addressing.JAXWSAConstants;
 import org.apache.cxf.ws.addressing.MAPAggregator;
 import org.apache.cxf.ws.addressing.VersionTransformer.Names200408;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
+import org.apache.cxf.ws.rm.manager.DestinationPolicyType;
+import org.apache.cxf.ws.rm.manager.RetryPolicyType;
 import org.apache.cxf.ws.rm.v200702.CreateSequenceResponseType;
 import org.apache.cxf.ws.rm.v200702.Identifier;
 import org.apache.cxf.ws.rm.v200702.SequenceAcknowledgement;
@@ -131,8 +133,8 @@ public class RMInInterceptorTest extends Assert {
         testHandleSequenceAck(true);
     }
     
-    private void testHandleSequenceAck(boolean onServer) throws SequenceFault, RMException, 
-    NoSuchMethodException {
+    private void testHandleSequenceAck(boolean onServer)  
+        throws SequenceFault, RMException, NoSuchMethodException {
         Method m = RMInInterceptor.class.getDeclaredMethod("processAcknowledgments",
             new Class[] {RMEndpoint.class, RMProperties.class, ProtocolVariation.class});
         interceptor =
@@ -367,6 +369,29 @@ public class RMInInterceptorTest extends Assert {
         } catch (Exception e) {
             fail("unexpected exception thrown from handleFault: " + e);
         }
+
+        control.reset();
+        org.apache.cxf.transport.Destination td = control.createMock(org.apache.cxf.transport.Destination.class);
+        EasyMock.expect(exchange.getDestination()).andReturn(td).anyTimes();
+        EasyMock.expect(message.getExchange()).andReturn(exchange).anyTimes();
+        EasyMock.expect(message.get(RMMessageConstants.RM_PROTOCOL_VARIATION))
+            .andReturn(ProtocolVariation.RM10WSA200408).anyTimes();
+        EasyMock.expect(message.getContent(Exception.class)).andReturn(new SequenceFault("no sequence")).anyTimes();
+        DestinationPolicyType dp = new DestinationPolicyType();
+        RetryPolicyType rp = new RetryPolicyType();
+        dp.setRetryPolicy(rp);
+        EasyMock.expect(manager.getDestinationPolicy()).andReturn(dp).anyTimes();
+        RedeliveryQueue rq = control.createMock(RedeliveryQueue.class);
+        EasyMock.expect(manager.getRedeliveryQueue()).andReturn(rq).anyTimes();
+        rq.addUndelivered(message);
+        EasyMock.expectLastCall().andThrow(new RuntimeException("shouldn't be queued")).anyTimes();
+        control.replay();
+
+        try {
+            interceptor.handleFault(message);
+        } catch (Exception e) {
+            fail("unexpected exception thrown from handleFault: " + e);
+        }
     }
 
     @Test
@@ -403,7 +428,7 @@ public class RMInInterceptorTest extends Assert {
         Endpoint ep = control.createMock(Endpoint.class);
         EndpointInfo epi = control.createMock(EndpointInfo.class);
         EasyMock.expect(ep.getEndpointInfo()).andReturn(epi).anyTimes();
-        EasyMock.expect(exchange.get(Endpoint.class)).andReturn(ep).anyTimes();
+        EasyMock.expect(exchange.getEndpoint()).andReturn(ep).anyTimes();
         EasyMock.expect(maps.getFaultTo())
             .andReturn(RMUtils.createReference("http://localhost:9999/decoupled")).anyTimes();
         EasyMock.expect(message.get(JAXWSAConstants.ADDRESSING_PROPERTIES_INBOUND)).andReturn(maps);

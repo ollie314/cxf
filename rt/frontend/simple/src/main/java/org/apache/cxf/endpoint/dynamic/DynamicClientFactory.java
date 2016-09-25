@@ -368,7 +368,7 @@ public class DynamicClientFactory {
         
         List<File> srcFiles = FileUtils.getFilesRecurse(src, ".+\\.java$"); 
         if (srcFiles.size() > 0 && !compileJavaSrc(classPath.toString(), srcFiles, classes.toString())) {
-            LOG.log(Level.SEVERE , new Message("COULD_NOT_COMPILE_SRC", LOG, wsdlUrl).toString());
+            LOG.log(Level.SEVERE, new Message("COULD_NOT_COMPILE_SRC", LOG, wsdlUrl).toString());
         }
         FileUtils.removeDir(src);
         URL[] urls = null;
@@ -614,9 +614,7 @@ public class DynamicClientFactory {
     static void addClasspathFromManifest(StringBuilder classPath, File file) 
         throws URISyntaxException, IOException {
         
-        JarFile jar = null;
-        try {
-            jar = new JarFile(file);
+        try (JarFile jar = new JarFile(file)) {
             Attributes attr = null;
             if (jar.getManifest() != null) {
                 attr = jar.getManifest().getMainAttributes();
@@ -644,10 +642,6 @@ public class DynamicClientFactory {
                         classPath.append(File.pathSeparator);
                     }
                 }
-            }
-        } finally {
-            if (jar != null) {
-                jar.close();
             }
         }
     }
@@ -773,7 +767,7 @@ public class DynamicClientFactory {
     static class RelativeEntityResolver implements EntityResolver {
         private String baseURI;
 
-        public RelativeEntityResolver(String baseURI) {
+        RelativeEntityResolver(String baseURI) {
             super();
             this.baseURI = baseURI;
         }

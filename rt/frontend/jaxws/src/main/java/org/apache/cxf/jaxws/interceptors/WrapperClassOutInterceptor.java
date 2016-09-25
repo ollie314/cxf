@@ -19,13 +19,13 @@
 
 package org.apache.cxf.jaxws.interceptors;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
 import javax.xml.namespace.QName;
 
 import org.apache.cxf.annotations.SchemaValidation.SchemaValidationType;
+import org.apache.cxf.databinding.AbstractWrapperHelper;
 import org.apache.cxf.databinding.DataBinding;
 import org.apache.cxf.databinding.WrapperCapableDatabinding;
 import org.apache.cxf.databinding.WrapperHelper;
@@ -41,7 +41,6 @@ import org.apache.cxf.service.model.BindingMessageInfo;
 import org.apache.cxf.service.model.BindingOperationInfo;
 import org.apache.cxf.service.model.MessageInfo;
 import org.apache.cxf.service.model.MessagePartInfo;
-import org.apache.cxf.service.model.OperationInfo;
 import org.apache.cxf.service.model.ServiceModelUtil;
 import org.apache.cxf.wsdl.service.factory.ReflectionServiceFactoryBean;
 
@@ -68,16 +67,16 @@ public class WrapperClassOutInterceptor extends AbstractPhaseInterceptor<Message
         }
              
         Class<?> wrapped = null;
-        List<MessagePartInfo> parts = wrappedMsgInfo.getMessageParts();
-        if (parts.size() > 0) {
-            wrapped = parts.get(0).getTypeClass();
+        if (wrappedMsgInfo.getMessagePartsNumber() > 0) {
+            wrapped = wrappedMsgInfo.getFirstMessagePart().getTypeClass();
         }
 
         if (wrapped != null) {
+            MessagePartInfo firstMessagePart = wrappedMsgInfo.getFirstMessagePart();
             MessageContentsList objs = MessageContentsList.getContentsList(message);
-            WrapperHelper helper = parts.get(0).getProperty("WRAPPER_CLASS", WrapperHelper.class);
+            WrapperHelper helper = firstMessagePart.getProperty("WRAPPER_CLASS", WrapperHelper.class);
             if (helper == null) {
-                helper = getWrapperHelper(message, messageInfo, wrappedMsgInfo, wrapped, parts.get(0));
+                helper = getWrapperHelper(message, messageInfo, wrappedMsgInfo, wrapped, firstMessagePart);
             }
             if (helper == null) {
                 return;
@@ -85,21 +84,12 @@ public class WrapperClassOutInterceptor extends AbstractPhaseInterceptor<Message
             
             try {
                 MessageContentsList newObjs = new MessageContentsList();
-                // set the validate option for XMLBeans Wrapper Helper
-                if (ServiceUtils.isSchemaValidationEnabled(SchemaValidationType.OUT, message)) {
-                    try {
-                        Class<?> xmlBeanWrapperHelperClass = 
-                            Class.forName("org.apache.cxf.xmlbeans.XmlBeansWrapperHelper");
-                        if (xmlBeanWrapperHelperClass.isInstance(helper)) {
-                            Method method = xmlBeanWrapperHelperClass.getMethod("setValidate", boolean.class);
-                            method.invoke(helper, true);
-                        }
-                    } catch (Exception exception) {
-                        // do nothing there
-                    }
+                if (ServiceUtils.isSchemaValidationEnabled(SchemaValidationType.OUT, message)
+                    && helper instanceof AbstractWrapperHelper) {
+                    ((AbstractWrapperHelper)helper).setValidate(true);
                 }
                 Object o2 = helper.createWrapperObject(objs);
-                newObjs.put(parts.get(0), o2);
+                newObjs.put(firstMessagePart, o2);
                 
                 for (MessagePartInfo p : messageInfo.getMessageParts()) {
                     if (Boolean.TRUE.equals(p.getProperty(ReflectionServiceFactoryBean.HEADER))) {
@@ -119,7 +109,6 @@ public class WrapperClassOutInterceptor extends AbstractPhaseInterceptor<Message
             
             // we've now wrapped the object, so use the wrapped binding op
             ex.put(BindingOperationInfo.class, newbop);
-            ex.put(OperationInfo.class, newbop.getOperationInfo());
             
             if (messageInfo == bop.getOperationInfo().getInput()) {
                 message.put(MessageInfo.class, newbop.getOperationInfo().getInput());

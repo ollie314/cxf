@@ -31,8 +31,6 @@ import java.util.List;
 import javax.crypto.SecretKey;
 import javax.ws.rs.core.MediaType;
 
-import org.apache.cxf.common.util.crypto.CryptoUtils;
-import org.apache.cxf.common.util.crypto.KeyProperties;
 import org.apache.cxf.jaxrs.impl.MetadataMap;
 import org.apache.cxf.jaxrs.provider.json.JSONProvider;
 import org.apache.cxf.rs.security.oauth2.common.AccessTokenRegistration;
@@ -44,6 +42,8 @@ import org.apache.cxf.rs.security.oauth2.grants.code.AuthorizationCodeRegistrati
 import org.apache.cxf.rs.security.oauth2.grants.code.ServerAuthorizationCodeGrant;
 import org.apache.cxf.rs.security.oauth2.tokens.bearer.BearerAccessToken;
 import org.apache.cxf.rs.security.oauth2.tokens.refresh.RefreshToken;
+import org.apache.cxf.rt.security.crypto.CryptoUtils;
+import org.apache.cxf.rt.security.crypto.KeyProperties;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -133,7 +133,9 @@ public class CryptoUtilsTest extends Assert {
     
     @Test
     public void testBearerTokenJSONCertificate() throws Exception {
-        
+        if ("IBM Corporation".equals(System.getProperty("java.vendor"))) {
+            return;
+        }
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         KeyPair keyPair = kpg.generateKeyPair();
         PublicKey publicKey = keyPair.getPublic();
@@ -226,7 +228,7 @@ public class CryptoUtilsTest extends Assert {
         assertEquals(endUser1.getRoles(), endUser2.getRoles());
         
         assertEquals(token.getRefreshToken(), token2.getRefreshToken());
-        assertEquals(token.getAudience(), token2.getAudience());
+        assertEquals(token.getAudiences(), token2.getAudiences());
         assertEquals(token.getGrantType(), token2.getGrantType());
         assertEquals(token.getParameters(), token2.getParameters());
         
@@ -249,7 +251,7 @@ public class CryptoUtilsTest extends Assert {
         Client regClient = p.getClient("1");
         atr.setClient(regClient);
         atr.setGrantType("code");
-        atr.setAudience("http://localhost");
+        atr.setAudiences(Collections.singletonList("http://localhost"));
         UserSubject endUser = new UserSubject("Barry", "BarryId");
         atr.setSubject(endUser);
         endUser.setRoles(Collections.singletonList("role1"));

@@ -107,6 +107,7 @@ public class SchemaValidator extends AbstractDefinitionValidator {
         DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
         try {
             docFactory.setNamespaceAware(true);
+            docFactory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, Boolean.TRUE);
             docBuilder = docFactory.newDocumentBuilder();
         } catch (ParserConfigurationException e) {
             throw new ToolException(e);
@@ -124,7 +125,8 @@ public class SchemaValidator extends AbstractDefinitionValidator {
         throws SAXException, IOException {
 
         SchemaFactory sf = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
-
+        sf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, Boolean.TRUE);
+        sf.setProperty(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "file");
         SchemaResourceResolver resourceResolver = new SchemaResourceResolver();
 
         sf.setResourceResolver(resourceResolver);
@@ -156,6 +158,7 @@ public class SchemaValidator extends AbstractDefinitionValidator {
     private Schema createSchema(String[] schemas) throws SAXException, IOException {
 
         SchemaFactory sf = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
+        sf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, Boolean.TRUE);
 
         SchemaResourceResolver resourceResolver = new SchemaResourceResolver();
 
@@ -181,6 +184,7 @@ public class SchemaValidator extends AbstractDefinitionValidator {
         try {
             SAXParserFactory saxFactory = SAXParserFactory.newInstance();
             saxFactory.setFeature("http://xml.org/sax/features/namespaces", true);
+            saxFactory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, Boolean.TRUE);
             saxParser = saxFactory.newSAXParser();
 
             if (defaultSchemas != null) {
@@ -247,19 +251,21 @@ public class SchemaValidator extends AbstractDefinitionValidator {
 
             File[] files = f.listFiles(filter);
 
-            List<String> xsdUrls = new ArrayList<String>(files.length);
-            for (File file : files) {
-                try {
-                    String s = file.toURI().toURL().toString();
-                    xsdUrls.add(s);
-                    if (s.contains("http-conf")) {
-                        xsdUrls.add(0, s);
+            if (files != null) {
+                List<String> xsdUrls = new ArrayList<String>(files.length);
+                for (File file : files) {
+                    try {
+                        String s = file.toURI().toURL().toString();
+                        xsdUrls.add(s);
+                        if (s.contains("http-conf")) {
+                            xsdUrls.add(0, s);
+                        }
+                    } catch (MalformedURLException e) {
+                        throw new ToolException(e);
                     }
-                } catch (MalformedURLException e) {
-                    throw new ToolException(e);
                 }
+                return xsdUrls.toArray(new String[xsdUrls.size()]);
             }
-            return xsdUrls.toArray(new String[xsdUrls.size()]);
         }
         return null;
     }

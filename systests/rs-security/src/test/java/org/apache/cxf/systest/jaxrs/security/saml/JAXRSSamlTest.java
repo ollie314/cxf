@@ -23,6 +23,7 @@ import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 
+import javax.security.auth.callback.CallbackHandler;
 import javax.ws.rs.ProcessingException;
 import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Form;
@@ -41,9 +42,11 @@ import org.apache.cxf.rs.security.saml.SamlEnvelopedOutInterceptor;
 import org.apache.cxf.rs.security.saml.SamlFormOutInterceptor;
 import org.apache.cxf.rs.security.saml.SamlHeaderOutInterceptor;
 import org.apache.cxf.rs.security.xml.XmlSigOutInterceptor;
+import org.apache.cxf.rt.security.SecurityConstants;
 import org.apache.cxf.systest.jaxrs.security.Book;
 import org.apache.cxf.testutil.common.AbstractBusClientServerTestBase;
-
+import org.apache.wss4j.common.saml.builder.SAML2Constants;
+import org.apache.wss4j.dom.WSConstants;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -60,7 +63,7 @@ public class JAXRSSamlTest extends AbstractBusClientServerTestBase {
     public void testGetBookSAMLTokenAsHeader() throws Exception {
         String address = "https://localhost:" + PORT + "/samlheader/bookstore/books/123";
         
-        WebClient wc = createWebClient(address, new SamlHeaderOutInterceptor(), null, true);
+        WebClient wc = createWebClient(address, new SamlHeaderOutInterceptor(), null);
         
         try {
             Book book = wc.get(Book.class);
@@ -100,8 +103,7 @@ public class JAXRSSamlTest extends AbstractBusClientServerTestBase {
         String address = "https://localhost:" + PORT + "/samlform/bookstore/books";
         FormEncodingProvider<Form> formProvider = new FormEncodingProvider<Form>();
         formProvider.setExpectedEncoded(true);
-        WebClient wc = createWebClient(address, new SamlFormOutInterceptor(),
-                                       formProvider, true);
+        WebClient wc = createWebClient(address, new SamlFormOutInterceptor(), formProvider);
         
         wc.type(MediaType.APPLICATION_FORM_URLENCODED).accept(MediaType.APPLICATION_XML);
         try {
@@ -123,6 +125,16 @@ public class JAXRSSamlTest extends AbstractBusClientServerTestBase {
     @Test
     public void testEnvelopedSelfSignedSAMLToken() throws Exception {
         doTestEnvelopedSAMLToken(true);
+    }
+    
+    @Test
+    public void testBearerSignedDifferentAlgorithms() throws Exception {
+        SamlCallbackHandler callbackHandler = new SamlCallbackHandler();
+        callbackHandler.setSignatureAlgorithm("http://www.w3.org/2001/04/xmldsig-more#rsa-sha256");
+        callbackHandler.setDigestAlgorithm(WSConstants.SHA256);
+        callbackHandler.setConfirmationMethod(SAML2Constants.CONF_BEARER);
+        callbackHandler.setSignAssertion(true);
+        doTestEnvelopedSAMLToken(true, callbackHandler);
     }
     
     @Test
@@ -178,9 +190,12 @@ public class JAXRSSamlTest extends AbstractBusClientServerTestBase {
     }
     
     public void doTestEnvelopedSAMLToken(boolean signed) throws Exception {
+        doTestEnvelopedSAMLToken(signed, new SamlCallbackHandler());
+    }
+    
+    public void doTestEnvelopedSAMLToken(boolean signed, CallbackHandler samlCallbackHandler) throws Exception {
         String address = "https://localhost:" + PORT + "/samlxml/bookstore/books";
-        WebClient wc = createWebClient(address, new SamlEnvelopedOutInterceptor(!signed),
-                                       null, signed);
+        WebClient wc = createWebClient(address, new SamlEnvelopedOutInterceptor(!signed), null, samlCallbackHandler);
         XmlSigOutInterceptor xmlSig = new XmlSigOutInterceptor();
         if (signed) {
             xmlSig.setStyle(XmlSigOutInterceptor.DETACHED_SIG);
@@ -205,8 +220,14 @@ public class JAXRSSamlTest extends AbstractBusClientServerTestBase {
     
     private WebClient createWebClient(String address, 
                                       Interceptor<Message> outInterceptor,
+                                      Object provider) {
+        return createWebClient(address, outInterceptor, provider, new SamlCallbackHandler());
+    }
+    
+    private WebClient createWebClient(String address, 
+                                      Interceptor<Message> outInterceptor,
                                       Object provider,
-                                      boolean selfSign) {
+                                      CallbackHandler samlCallbackHandler) {
         JAXRSClientFactoryBean bean = new JAXRSClientFactoryBean();
         bean.setAddress(address);
         
@@ -216,16 +237,12 @@ public class JAXRSSamlTest extends AbstractBusClientServerTestBase {
         bean.setBus(springBus);
 
         Map<String, Object> properties = new HashMap<String, Object>();
-        properties.put("ws-security.callback-handler", 
+        properties.put(SecurityConstants.CALLBACK_HANDLER, 
                        "org.apache.cxf.systest.jaxrs.security.saml.KeystorePasswordCallback");
-        properties.put("ws-security.saml-callback-handler", 
-                       "org.apache.cxf.systest.jaxrs.security.saml.SamlCallbackHandler");
-        properties.put("ws-security.signature.username", "alice");
-        properties.put("ws-security.signature.properties", 
+        properties.put(SecurityConstants.SAML_CALLBACK_HANDLER, samlCallbackHandler);
+        properties.put(SecurityConstants.SIGNATURE_USERNAME, "alice");
+        properties.put(SecurityConstants.SIGNATURE_PROPERTIES, 
                        "org/apache/cxf/systest/jaxrs/security/alice.properties");
-        if (selfSign) {
-            properties.put("ws-security.self-sign-saml-assertion", "true");
-        }
         bean.setProperties(properties);
         
         bean.getOutInterceptors().add(outInterceptor);

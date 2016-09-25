@@ -181,6 +181,8 @@ public class SoapJMSInInterceptor extends AbstractSoapInterceptor {
             String contentType = ct.get(0);
             if (!contentType.startsWith("text/xml")
                 && !contentType.startsWith("application/soap+xml")
+                && !contentType.startsWith("application/fastinfoset")
+                && !contentType.startsWith("application/soap+fastinfoset")
                 && !contentType.startsWith("multipart/related")) {
                 jmsFault = JMSFaultFactory.createContentTypeMismatchFault(contentType);
             }
@@ -216,7 +218,7 @@ public class SoapJMSInInterceptor extends AbstractSoapInterceptor {
 
     private Fault createFault(SoapMessage message, JMSFault jmsFault) {
         Fault f = null;
-        Endpoint e = message.getExchange().get(Endpoint.class);
+        Endpoint e = message.getExchange().getEndpoint();
         Binding b = null;
         if (null != e) {
             b = e.getBinding();

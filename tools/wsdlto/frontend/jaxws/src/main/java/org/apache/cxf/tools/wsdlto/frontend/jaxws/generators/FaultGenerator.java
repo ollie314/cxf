@@ -49,17 +49,13 @@ public class FaultGenerator extends AbstractJAXWSGenerator {
             || env.optionSet(ToolConstants.CFG_ALL)) {
             return false;
         } 
-        if (env.optionSet(ToolConstants.CFG_GEN_ANT)
+        return env.optionSet(ToolConstants.CFG_GEN_ANT)
             || env.optionSet(ToolConstants.CFG_GEN_TYPES)
             || env.optionSet(ToolConstants.CFG_GEN_CLIENT)
             || env.optionSet(ToolConstants.CFG_GEN_IMPL)
             || env.optionSet(ToolConstants.CFG_GEN_SEI)
             || env.optionSet(ToolConstants.CFG_GEN_SERVER)
-            || env.optionSet(ToolConstants.CFG_GEN_SERVICE)) {
-            return true;
-        }
-        
-        return false;
+            || env.optionSet(ToolConstants.CFG_GEN_SERVICE);
     }
 
     public void generate(ToolContext penv) throws ToolException {
@@ -149,6 +145,6 @@ public class FaultGenerator extends AbstractJAXWSGenerator {
     }
 
     public void register(final ClassCollector collector, String packageName, String fileName) {
-        collector.addExceptionClassName(packageName , fileName , packageName + "." + fileName);
+        collector.addExceptionClassName(packageName, fileName, packageName + "." + fileName);
     }
 }

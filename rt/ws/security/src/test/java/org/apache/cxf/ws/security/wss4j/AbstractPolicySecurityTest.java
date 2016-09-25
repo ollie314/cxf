@@ -30,7 +30,6 @@ import java.util.concurrent.Executor;
 import javax.xml.namespace.NamespaceContext;
 import javax.xml.namespace.QName;
 import javax.xml.soap.Node;
-import javax.xml.soap.SOAPException;
 import javax.xml.soap.SOAPMessage;
 import javax.xml.xpath.XPath;
 import javax.xml.xpath.XPathConstants;
@@ -70,10 +69,9 @@ import org.apache.wss4j.common.crypto.CryptoFactory;
 import org.apache.wss4j.common.crypto.CryptoType;
 import org.apache.wss4j.dom.WSConstants;
 import org.apache.wss4j.dom.WSDataRef;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
 import org.apache.wss4j.dom.handler.WSHandlerConstants;
 import org.apache.wss4j.dom.handler.WSHandlerResult;
-import org.apache.wss4j.dom.util.WSSecurityUtil;
 import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.model.AsymmetricBinding;
 
@@ -110,8 +108,7 @@ public abstract class AbstractPolicySecurityTest extends AbstractSecurityTest {
         final Element inPolicyElement;
 
         if (inPolicyDocument != null) {
-            inPolicyElement = this.readDocument(inPolicyDocument)
-                    .getDocumentElement();
+            inPolicyElement = this.readDocument(inPolicyDocument).getDocumentElement();
         } else {
             inPolicyElement = outPolicyElement;
         }
@@ -133,13 +130,15 @@ public abstract class AbstractPolicySecurityTest extends AbstractSecurityTest {
         
         // Use this snippet if you need intermediate output for debugging.
         /*
-        TransformerFactory tf = TransformerFactory.newInstance();
-        Transformer t = tf.newTransformer();
-        t.setOutputProperty(OutputKeys.INDENT, "no");
-        t.transform(new DOMSource(inDoc), new StreamResult(System.out));
-        */
-        
-        
+         * dumpDocument(inDoc);
+         */
+
+        /* This verifies of the header elements have been
+         * wrapped in an EncryptedHeader
+         * See SOAP Message Security 1.1, chapter 9.3
+         */
+        verifyEncryptedHeader(originalDoc, inDoc);
+
         this.runInInterceptorAndValidate(inDoc,
                 inPolicy, inAssertions.getAssertedAssertions(),
                 inAssertions.getNotAssertedAssertions(), types);
@@ -227,7 +226,7 @@ public abstract class AbstractPolicySecurityTest extends AbstractSecurityTest {
         }
     }
     
-    private void checkAssertion(AssertionInfoMap aim, 
+    protected void checkAssertion(AssertionInfoMap aim, 
                                 QName name,
                                 AssertionInfo inf,
                                 boolean asserted) {
@@ -350,12 +349,12 @@ public abstract class AbstractPolicySecurityTest extends AbstractSecurityTest {
         cryptoType.setAlias(alias);
         issuedToken.setX509Certificate(crypto.getX509Certificates(cryptoType)[0], crypto);
         
-        msg.getExchange().get(Endpoint.class).put(SecurityConstants.TOKEN_ID, 
+        msg.getExchange().getEndpoint().put(SecurityConstants.TOKEN_ID, 
                 issuedToken.getId());
         msg.getExchange().put(SecurityConstants.TOKEN_ID, issuedToken.getId());
         
         TokenStore tokenStore = new MemoryTokenStore();
-        msg.getExchange().get(Endpoint.class).getEndpointInfo()
+        msg.getExchange().getEndpoint().getEndpointInfo()
             .setProperty(TokenStore.class.getName(), tokenStore);
         tokenStore.add(issuedToken);
         
@@ -405,11 +404,11 @@ public abstract class AbstractPolicySecurityTest extends AbstractSecurityTest {
      * @see #getSoapMessageForDom(Document, AssertionInfoMap)
      */
     protected SoapMessage getOutSoapMessageForDom(Document doc, AssertionInfoMap aim)
-        throws SOAPException {
+        throws Exception {
         SoapMessage msg = this.getSoapMessageForDom(doc, aim);
         msg.put(SecurityConstants.SIGNATURE_PROPERTIES, "outsecurity.properties");
         msg.put(SecurityConstants.ENCRYPT_PROPERTIES, "outsecurity.properties");
-        msg.put(SecurityConstants.CALLBACK_HANDLER, TestPwdCallback.class.getName());
+        msg.put(SecurityConstants.CALLBACK_HANDLER, new TestPwdCallback());
         msg.put(SecurityConstants.SIGNATURE_USERNAME, "myalias");
         msg.put(SecurityConstants.ENCRYPT_USERNAME, "myalias");
         
@@ -421,7 +420,7 @@ public abstract class AbstractPolicySecurityTest extends AbstractSecurityTest {
     }
     
     protected SoapMessage getSoapMessageForDom(Document doc, AssertionInfoMap aim)
-        throws SOAPException {
+        throws Exception {
         
         SoapMessage msg = this.getSoapMessageForDom(doc);
         if (aim != null) {
@@ -432,9 +431,13 @@ public abstract class AbstractPolicySecurityTest extends AbstractSecurityTest {
     }
     
     protected void verifyWss4jSigResults(SoapMessage inmsg) {
-        WSSecurityEngineResult result = 
-            (WSSecurityEngineResult) inmsg.get(WSS4JInInterceptor.SIGNATURE_RESULT);
-        assertNotNull(result);
+        List<WSHandlerResult> results = 
+            CastUtils.cast((List<?>)inmsg.get(WSHandlerConstants.RECV_RESULTS));
+        assertTrue(results != null && results.size() == 1);
+        
+        List<WSSecurityEngineResult> signatureResults = 
+            results.get(0).getActionResults().get(WSConstants.SIGN);
+        assertTrue(!(signatureResults == null || signatureResults.isEmpty()));
     }
     
     protected void verifyWss4jEncResults(SoapMessage inmsg) {
@@ -447,16 +450,22 @@ public abstract class AbstractPolicySecurityTest extends AbstractSecurityTest {
         assertSame(handlerResults.size(), 1);
 
         final List<WSSecurityEngineResult> protectionResults = 
-            WSSecurityUtil.fetchAllActionResults(handlerResults.get(0).getResults(), WSConstants.ENCR);
+            handlerResults.get(0).getActionResults().get(WSConstants.ENCR);
         assertNotNull(protectionResults);
         
         //
         // This result should contain a reference to the decrypted element
         //
-        final Map<String, Object> result = protectionResults.get(0);
-        final List<WSDataRef> protectedElements = 
-            CastUtils.cast((List<?>)result.get(WSSecurityEngineResult.TAG_DATA_REF_URIS));
-        assertNotNull(protectedElements);
+        boolean foundReferenceList = false;
+        for (Map<String, Object> result : protectionResults) {
+            final List<WSDataRef> protectedElements = 
+                CastUtils.cast((List<?>)result.get(WSSecurityEngineResult.TAG_DATA_REF_URIS));
+            if (protectedElements != null) {
+                foundReferenceList = true;
+                break;
+            }
+        }
+        assertTrue(foundReferenceList);
     }
     
     // TODO: This method can be removed when runOutInterceptorAndValidateAsymmetricBinding
@@ -535,8 +544,8 @@ public abstract class AbstractPolicySecurityTest extends AbstractSecurityTest {
         assertNotNull("SecurityTokenReference for " + assertionId + " not found in security header.", strId);
         
         // Verify STR is included in the signature references
-        final XPathExpression sigRefExpr = xpath.compile(
-            "/s:Envelope/s:Header/wsse:Security/ds:Signature/ds:SignedInfo/ds:Reference");
+        final XPathExpression sigRefExpr =
+                xpath.compile("/s:Envelope/s:Header/wsse:Security/ds:Signature/ds:SignedInfo/ds:Reference");
         
         final NodeList sigReferenceNodes = 
             (NodeList) sigRefExpr.evaluate(signedDoc, XPathConstants.NODESET);
@@ -550,10 +559,27 @@ public abstract class AbstractPolicySecurityTest extends AbstractSecurityTest {
                 break;
             }
         }
-        
+
         assertTrue("SecurityTokenReference for " + assertionId + " is not signed.", foundStrReference);
     }
-    
+
+    protected void verifyEncryptedHeader(Document originalDoc, Document processedDoc) throws Exception {
+        XPathFactory factory = XPathFactory.newInstance();
+        XPath xpath = factory.newXPath();
+        final NamespaceContext nsContext = this.getNamespaceContext();
+        xpath.setNamespaceContext(nsContext);
+
+        // Find EncryptedData in the message, should not be there
+        final XPathExpression strData = xpath.compile(
+                "/s:Envelope/s:Header/xenc:EncryptedData");
+
+        final NodeList strDataNodes =
+                (NodeList) strData.evaluate(processedDoc, XPathConstants.NODESET);
+
+        assertEquals("EncryptedData found without in header without being wrapped in an EncryptedHeader.",
+                0, strDataNodes.getLength());
+    }
+
     protected static final class MockEndpoint extends 
         AbstractAttributedInterceptorProvider implements Endpoint {
 

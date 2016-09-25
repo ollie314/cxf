@@ -27,7 +27,6 @@ import java.util.Map;
 import java.util.Properties;
 
 import org.w3c.dom.Element;
-import org.apache.cxf.jaxws.context.WebServiceContextImpl;
 import org.apache.cxf.jaxws.context.WrappedMessageContext;
 import org.apache.cxf.message.MessageImpl;
 import org.apache.cxf.rt.security.claims.Claim;
@@ -54,8 +53,8 @@ import org.apache.wss4j.common.saml.SamlAssertionWrapper;
 import org.apache.wss4j.common.saml.builder.SAML2Constants;
 import org.apache.wss4j.common.util.DOM2Writer;
 import org.apache.wss4j.dom.WSConstants;
-import org.opensaml.saml2.core.Attribute;
-import org.opensaml.xml.XMLObject;
+import org.opensaml.core.xml.XMLObject;
+import org.opensaml.saml.saml2.core.Attribute;
 
 /**
  * A unit test for creating a SAML Tokens with various Attributes populated by a ClaimsHandler.
@@ -100,7 +99,7 @@ public class SAMLClaimsTest extends org.junit.Assert {
         assertTrue(providerResponse != null);
         assertTrue(providerResponse.getToken() != null && providerResponse.getTokenId() != null);
         
-        Element token = providerResponse.getToken();
+        Element token = (Element)providerResponse.getToken();
         String tokenString = DOM2Writer.nodeToString(token);
         assertTrue(tokenString.contains(providerResponse.getTokenId()));
         assertTrue(tokenString.contains("AttributeStatement"));
@@ -145,7 +144,7 @@ public class SAMLClaimsTest extends org.junit.Assert {
         assertTrue(providerResponse != null);
         assertTrue(providerResponse.getToken() != null && providerResponse.getTokenId() != null);
         
-        Element token = providerResponse.getToken();
+        Element token = (Element)providerResponse.getToken();
         String tokenString = DOM2Writer.nodeToString(token);
         assertTrue(tokenString.contains(providerResponse.getTokenId()));
         assertTrue(tokenString.contains("AttributeStatement"));
@@ -194,7 +193,7 @@ public class SAMLClaimsTest extends org.junit.Assert {
         assertTrue(providerResponse != null);
         assertTrue(providerResponse.getToken() != null && providerResponse.getTokenId() != null);
         
-        Element token = providerResponse.getToken();
+        Element token = (Element)providerResponse.getToken();
         String tokenString = DOM2Writer.nodeToString(token);
         assertTrue(tokenString.contains(providerResponse.getTokenId()));
         assertTrue(tokenString.contains("AttributeStatement"));
@@ -238,7 +237,7 @@ public class SAMLClaimsTest extends org.junit.Assert {
         assertTrue(providerResponse != null);
         assertTrue(providerResponse.getToken() != null && providerResponse.getTokenId() != null);
         
-        Element token = providerResponse.getToken();
+        Element token = (Element)providerResponse.getToken();
         String tokenString = DOM2Writer.nodeToString(token);
         assertTrue(tokenString.contains(providerResponse.getTokenId()));
         assertTrue(tokenString.contains("AttributeStatement"));
@@ -295,7 +294,7 @@ public class SAMLClaimsTest extends org.junit.Assert {
         assertTrue(providerResponse != null);
         assertTrue(providerResponse.getToken() != null && providerResponse.getTokenId() != null);
         
-        Element token = providerResponse.getToken();
+        Element token = (Element)providerResponse.getToken();
         String tokenString = DOM2Writer.nodeToString(token);
         assertTrue(tokenString.contains(providerResponse.getTokenId()));
         assertTrue(tokenString.contains("AttributeStatement"));
@@ -387,7 +386,7 @@ public class SAMLClaimsTest extends org.junit.Assert {
         assertTrue(providerResponse != null);
         assertTrue(providerResponse.getToken() != null && providerResponse.getTokenId() != null);
         
-        Element token = providerResponse.getToken();
+        Element token = (Element)providerResponse.getToken();
         String tokenString = DOM2Writer.nodeToString(token);
         assertTrue(tokenString.contains(providerResponse.getTokenId()));
         assertTrue(tokenString.contains("AttributeStatement"));
@@ -414,8 +413,7 @@ public class SAMLClaimsTest extends org.junit.Assert {
         // Mock up message context
         MessageImpl msg = new MessageImpl();
         WrappedMessageContext msgCtx = new WrappedMessageContext(msg);
-        WebServiceContextImpl webServiceContext = new WebServiceContextImpl(msgCtx);
-        parameters.setWebServiceContext(webServiceContext);
+        parameters.setMessageContext(msgCtx);
         
         if (appliesTo != null) {
             parameters.setAppliesToAddress(appliesTo);
@@ -447,7 +445,7 @@ public class SAMLClaimsTest extends org.junit.Assert {
             "org.apache.wss4j.crypto.provider", "org.apache.wss4j.common.crypto.Merlin"
         );
         properties.put("org.apache.wss4j.crypto.merlin.keystore.password", "stsspass");
-        properties.put("org.apache.wss4j.crypto.merlin.keystore.file", "stsstore.jks");
+        properties.put("org.apache.wss4j.crypto.merlin.keystore.file", "keys/stsstore.jks");
         
         return properties;
     }

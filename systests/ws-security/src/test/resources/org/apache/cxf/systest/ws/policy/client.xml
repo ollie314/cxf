@@ -26,12 +26,12 @@
     </cxf:bus>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItAsymmetricPort" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
-            <entry key="ws-security.encryption.properties" value="bob.properties"/>
-            <entry key="ws-security.encryption.username" value="bob"/>
-            <entry key="ws-security.signature.properties" value="alice.properties"/>
-            <entry key="ws-security.signature.username" value="alice"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.encryption.properties" value="bob.properties"/>
+            <entry key="security.encryption.username" value="bob"/>
+            <entry key="security.signature.properties" value="alice.properties"/>
+            <entry key="security.signature.username" value="alice"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -41,22 +41,22 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItNoSecurityPort" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
-            <entry key="ws-security.encryption.properties" value="bob.properties"/>
-            <entry key="ws-security.encryption.username" value="bob"/>
-            <entry key="ws-security.signature.properties" value="alice.properties"/>
-            <entry key="ws-security.signature.username" value="alice"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.encryption.properties" value="bob.properties"/>
+            <entry key="security.encryption.username" value="bob"/>
+            <entry key="security.signature.properties" value="alice.properties"/>
+            <entry key="security.signature.username" value="alice"/>
         </jaxws:properties>
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItUsernameTokenPort" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
-            <entry key="ws-security.encryption.properties" value="bob.properties"/>
-            <entry key="ws-security.encryption.username" value="bob"/>
-            <entry key="ws-security.signature.properties" value="alice.properties"/>
-            <entry key="ws-security.signature.username" value="alice"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.encryption.properties" value="bob.properties"/>
+            <entry key="security.encryption.username" value="bob"/>
+            <entry key="security.signature.properties" value="alice.properties"/>
+            <entry key="security.signature.username" value="alice"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -66,8 +66,8 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItClientCertPort" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="Alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
+            <entry key="security.username" value="Alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.UTPasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -77,9 +77,9 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItTransportSupportingSignedPort" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.signature.properties" value="alice.properties"/>
-            <entry key="ws-security.signature.username" value="alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.KeystorePasswordCallback"/>
+            <entry key="security.signature.properties" value="alice.properties"/>
+            <entry key="security.signature.username" value="alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.KeystorePasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -89,10 +89,10 @@
     </jaxws:client>
     <jaxws:client name="{http://www.example.org/contract/DoubleIt}DoubleItTransportUTSupportingSignedPort" createdFromAPI="true">
         <jaxws:properties>
-            <entry key="ws-security.username" value="alice"/>
-            <entry key="ws-security.signature.properties" value="alice.properties"/>
-            <entry key="ws-security.signature.username" value="alice"/>
-            <entry key="ws-security.callback-handler" value="org.apache.cxf.systest.ws.common.KeystorePasswordCallback"/>
+            <entry key="security.username" value="alice"/>
+            <entry key="security.signature.properties" value="alice.properties"/>
+            <entry key="security.signature.username" value="alice"/>
+            <entry key="security.callback-handler" value="org.apache.cxf.systest.ws.common.KeystorePasswordCallback"/>
         </jaxws:properties>
         <jaxws:features>
             <p:policies>
@@ -103,7 +103,7 @@
     <http:conduit name="https://localhost:.*">
         <http:tlsClientParameters disableCNCheck="true">
             <sec:trustManagers>
-                <sec:keyStore type="jks" password="password" resource="org/apache/cxf/systest/ws/security/Truststore.jks"/>
+                <sec:keyStore type="jks" password="password" resource="keys/Truststore.jks"/>
             </sec:trustManagers>
         </http:tlsClientParameters>
     </http:conduit>

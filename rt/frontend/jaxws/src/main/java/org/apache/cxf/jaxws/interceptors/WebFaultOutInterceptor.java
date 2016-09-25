@@ -47,7 +47,6 @@ import org.apache.cxf.interceptor.FaultOutInterceptor;
 import org.apache.cxf.message.FaultMode;
 import org.apache.cxf.message.Message;
 import org.apache.cxf.service.Service;
-import org.apache.cxf.service.model.BindingOperationInfo;
 import org.apache.cxf.service.model.FaultInfo;
 import org.apache.cxf.service.model.MessagePartInfo;
 import org.apache.cxf.service.model.OperationInfo;
@@ -92,8 +91,14 @@ public class WebFaultOutInterceptor extends FaultOutInterceptor {
             return;
         }
         try {
-            if (f.getCause().getClass().equals(SOAPFaultException.class)) {
-                SOAPFaultException sf = (SOAPFaultException) (f.getCause());
+            Throwable thr = f.getCause();
+            SOAPFaultException sf = null;
+            if (thr instanceof SOAPFaultException) {
+                sf = (SOAPFaultException)thr;
+            } else if (thr.getCause() instanceof SOAPFaultException) {
+                sf = (SOAPFaultException)thr.getCause();
+            }
+            if (sf != null) {
                 if (f instanceof SoapFault) {
                     for (Iterator<QName> it = CastUtils.cast(sf.getFault().getFaultSubcodes()); it.hasNext();) {
                         ((SoapFault) f).addSubCode(it.next());    
@@ -135,7 +140,7 @@ public class WebFaultOutInterceptor extends FaultOutInterceptor {
             } catch (IllegalArgumentException e) {
                 throw new Fault(new org.apache.cxf.common.i18n.Message("COULD_NOT_INVOKE", BUNDLE), e);
             }
-            Service service = message.getExchange().get(Service.class);
+            Service service = message.getExchange().getService();
 
             try {
                 DataWriter<XMLStreamWriter> writer 
@@ -147,7 +152,7 @@ public class WebFaultOutInterceptor extends FaultOutInterceptor {
                     writer.setSchema(schema);
                 }
 
-                OperationInfo op = message.getExchange().get(BindingOperationInfo.class).getOperationInfo();
+                OperationInfo op = message.getExchange().getBindingOperationInfo().getOperationInfo();
                 QName faultName = getFaultName(fault, cause.getClass(), op);
                 MessagePartInfo part = getFaultMessagePart(faultName, op);
                 if (f.hasDetails()) {

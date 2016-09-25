@@ -23,6 +23,7 @@ import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -34,7 +35,7 @@ import java.util.regex.Pattern;
 public final class StringUtils {
     public static final Map<String, Pattern> PATTERN_MAP = new HashMap<String, Pattern>();
     static {
-        String patterns[] = {"/", " ", ":", "," , ";", "="}; 
+        String patterns[] = {"/", " ", ":", ",", ";", "=", "\\.", "\\+"}; 
         for (String p : patterns) {
             PATTERN_MAP.put(p, Pattern.compile(p));
         }
@@ -78,10 +79,7 @@ public final class StringUtils {
         if (list == null || list.size() == 0) {
             return true;
         }
-        if (list.size() == 1 && isEmpty(list.get(0))) {
-            return true;
-        }
-        return false;
+        return list.size() == 1 && isEmpty(list.get(0));
     }
    
     public static String diff(String str1, String str2) {
@@ -93,8 +91,8 @@ public final class StringUtils {
     }
     
     public static List<String> getParts(String str, String separator) {
-        List<String> ret = new ArrayList<String>();
-        List<String> parts = Arrays.asList(split(str, separator));
+        String[] parts = split(str, separator);
+        List<String> ret = new ArrayList<String>(parts.length);
         for (String part : parts) {
             if (!isEmpty(part)) {
                 ret.add(part);
@@ -200,20 +198,24 @@ public final class StringUtils {
     }    
     
     public static byte[] toBytesUTF8(String str) {
-        try {
-            return toBytes(str, "UTF-8");
-        } catch (UnsupportedEncodingException ex) { 
-            throw new RuntimeException(ex);
-        }
+        return toBytes(str, StandardCharsets.UTF_8.name());
     }
     public static byte[] toBytesASCII(String str) {
+        return toBytes(str, "US-ASCII");
+    }
+    public static byte[] toBytes(String str, String enc) {
         try {
-            return toBytes(str, "US-ASCII");
+            return str.getBytes(enc);
         } catch (UnsupportedEncodingException ex) { 
             throw new RuntimeException(ex);
         }
     }
-    public static byte[] toBytes(String str, String enc) throws UnsupportedEncodingException {
-        return str.getBytes(enc);
+
+    public static String toHexString(byte[] bytes) {
+        StringBuilder hexString = new StringBuilder();
+        for (int i = 0; i < bytes.length; i++) {
+            hexString.append(Integer.toHexString(0xFF & bytes[i]));
+        }
+        return hexString.toString();
     }
 }

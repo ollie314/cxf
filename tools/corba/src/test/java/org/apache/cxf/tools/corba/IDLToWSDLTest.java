@@ -135,7 +135,7 @@ public class IDLToWSDLTest extends ToolTestBase {
         String[] cmdArgs = {};
         int exc = execute(cmdArgs);
         assertEquals("IDLToWSDL Failed", error, exc);
-        StringBuffer strBuf = new StringBuffer();
+        StringBuilder strBuf = new StringBuilder();
         strBuf.append("Missing argument: idl\n\n");
         strBuf.append(usageBuf.toString());
         checkStrings(strBuf.toString().getBytes(), bout.toByteArray());
@@ -192,15 +192,16 @@ public class IDLToWSDLTest extends ToolTestBase {
         File expectedWsdlFile = wsdlGenTester.writeDefinition(output, expected);
         File actualWsdlFile = wsdlGenTester.writeDefinition(output, actual);
 
-        InputStream actualFileStream = new FileInputStream(actualWsdlFile);
-        InputStream expectedFileStream = new FileInputStream(expectedWsdlFile);
+        try (InputStream actualFileStream = new FileInputStream(actualWsdlFile);
+            InputStream expectedFileStream = new FileInputStream(expectedWsdlFile)) {
         
-        XMLInputFactory factory = XMLInputFactory.newInstance();
-        
-        XMLStreamReader actualStream = factory.createXMLStreamReader(actualFileStream);
-        XMLStreamReader expectedStream = factory.createXMLStreamReader(expectedFileStream);
-        
-        wsdlGenTester.compare(expectedStream, actualStream);
+            XMLInputFactory factory = XMLInputFactory.newInstance();
+            
+            XMLStreamReader actualStream = factory.createXMLStreamReader(actualFileStream);
+            XMLStreamReader expectedStream = factory.createXMLStreamReader(expectedFileStream);
+            
+            wsdlGenTester.compare(expectedStream, actualStream);
+        }
     }
     
     // test "-x <schema-namespace>" 

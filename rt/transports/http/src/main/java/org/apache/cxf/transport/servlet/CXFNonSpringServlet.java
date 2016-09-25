@@ -38,6 +38,7 @@ import org.apache.cxf.BusException;
 import org.apache.cxf.BusFactory;
 import org.apache.cxf.common.classloader.ClassLoaderUtils;
 import org.apache.cxf.common.classloader.ClassLoaderUtils.ClassLoaderHolder;
+import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.helpers.CastUtils;
 import org.apache.cxf.resource.ResourceManager;
 import org.apache.cxf.transport.DestinationFactory;
@@ -48,8 +49,11 @@ import org.apache.cxf.transport.http.HTTPTransportFactory;
 import org.apache.cxf.transport.servlet.servicelist.ServiceListGeneratorServlet;
 
 public class CXFNonSpringServlet extends AbstractHTTPServlet {
+    public static final String TRANSPORT_ID = "transportId";
+    
     private static final long serialVersionUID = -2437897227486327166L;
-   
+    private static final String IGNORE_SERVLET_CONTEXT_RESOLVER = "ignore.servlet.context.resolver";
+    
     protected Bus bus;
     private DestinationRegistry destinationRegistry;
     private boolean globalRegistry;
@@ -77,10 +81,9 @@ public class CXFNonSpringServlet extends AbstractHTTPServlet {
         }
         if (this.bus != null) {
             loader = initClassLoader();
-            ResourceManager resourceManager = bus.getExtension(ResourceManager.class);
-            resourceManager.addResourceResolver(new ServletContextResourceResolver(sc.getServletContext()));
+            registerServletContextResolver(sc);
             if (destinationRegistry == null) {
-                this.destinationRegistry = getDestinationRegistryFromBus();
+                this.destinationRegistry = getDestinationRegistryFromBusOrDefault(sc.getInitParameter(TRANSPORT_ID));
             }
         }
 
@@ -88,15 +91,25 @@ public class CXFNonSpringServlet extends AbstractHTTPServlet {
         finalizeServletInit(sc);
     }
 
+    protected void registerServletContextResolver(ServletConfig sc) {
+        if (Boolean.valueOf(sc.getInitParameter(IGNORE_SERVLET_CONTEXT_RESOLVER))) {
+            return;
+        }
+        
+        ResourceManager resourceManager = bus.getExtension(ResourceManager.class);
+        resourceManager.addResourceResolver(new ServletContextResourceResolver(sc.getServletContext()));
+    }
+
     protected ClassLoader initClassLoader() {
         return bus.getExtension(ClassLoader.class);
     }
     
-    protected DestinationRegistry getDestinationRegistryFromBus() {
+    protected DestinationRegistry getDestinationRegistryFromBusOrDefault(final String transportId) {
         DestinationFactoryManager dfm = bus.getExtension(DestinationFactoryManager.class);
         try {
-            DestinationFactory df = dfm
-                .getDestinationFactory("http://cxf.apache.org/transports/http/configuration");
+            DestinationFactory df = StringUtils.isEmpty(transportId)
+                ? dfm.getDestinationFactory("http://cxf.apache.org/transports/http/configuration")
+                    : dfm.getDestinationFactory(transportId);
             if (df instanceof HTTPTransportFactory) {
                 HTTPTransportFactory transportFactory = (HTTPTransportFactory)df;
                 return transportFactory.getRegistry();
@@ -171,7 +184,7 @@ public class CXFNonSpringServlet extends AbstractHTTPServlet {
             controller.invoke(request, response);
         } finally {
             if (origBus != bus) {
-                BusFactory.setThreadDefaultBus(null);
+                BusFactory.setThreadDefaultBus(origBus);
             }
             if (origLoader != null) {
                 origLoader.reset();
@@ -193,6 +206,7 @@ public class CXFNonSpringServlet extends AbstractHTTPServlet {
             destinationRegistry = null;
         }
         destroyBus();
+        super.destroy();
     }
     
     public void destroyBus() {
@@ -206,7 +220,7 @@ public class CXFNonSpringServlet extends AbstractHTTPServlet {
         private String filterName;
         private String servletPath;
         private String pathInfo;
-        public HttpServletRequestFilter(HttpServletRequest request, String filterName) {
+        HttpServletRequestFilter(HttpServletRequest request, String filterName) {
             super(request);
             this.filterName = filterName;
         }

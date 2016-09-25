@@ -27,6 +27,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -59,7 +60,6 @@ import javax.ws.rs.container.ContainerResponseContext;
 import javax.ws.rs.container.ContainerResponseFilter;
 import javax.ws.rs.container.ResourceContext;
 import javax.ws.rs.container.ResourceInfo;
-import javax.ws.rs.container.Suspended;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.Configuration;
 import javax.ws.rs.core.Cookie;
@@ -85,12 +85,14 @@ import javax.xml.namespace.QName;
 import org.apache.cxf.common.i18n.BundleUtils;
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.common.util.PackageUtils;
+import org.apache.cxf.common.util.PropertyUtils;
 import org.apache.cxf.common.util.ReflectionUtil;
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.jaxrs.JAXRSServiceImpl;
 import org.apache.cxf.jaxrs.ext.ContextProvider;
+import org.apache.cxf.jaxrs.ext.DefaultMethod;
 import org.apache.cxf.jaxrs.ext.MessageContext;
 import org.apache.cxf.jaxrs.ext.MessageContextImpl;
 import org.apache.cxf.jaxrs.ext.ProtocolHeaders;
@@ -100,6 +102,7 @@ import org.apache.cxf.jaxrs.impl.AsyncResponseImpl;
 import org.apache.cxf.jaxrs.impl.ContainerRequestContextImpl;
 import org.apache.cxf.jaxrs.impl.ContainerResponseContextImpl;
 import org.apache.cxf.jaxrs.impl.HttpHeadersImpl;
+import org.apache.cxf.jaxrs.impl.HttpServletRequestFilter;
 import org.apache.cxf.jaxrs.impl.HttpServletResponseFilter;
 import org.apache.cxf.jaxrs.impl.MediaTypeHeaderProvider;
 import org.apache.cxf.jaxrs.impl.MetadataMap;
@@ -147,6 +150,7 @@ public final class JAXRSUtils {
     public static final String ROOT_INSTANCE = "service.root.instance";
     public static final String ROOT_PROVIDER = "service.root.provider";
     public static final String EXCEPTION_FROM_MAPPER = "exception.from.mapper";
+    public static final String SECOND_JAXRS_EXCEPTION = "second.jaxrs.exception";
     public static final String PARTIAL_HIERARCHICAL_MEDIA_SUBTYPE_CHECK = 
         "media.subtype.partial.check"; 
     public static final String DOC_LOCATION = "wadl.location";
@@ -160,7 +164,8 @@ public final class JAXRSUtils {
     private static final String PATH_SEGMENT_SEP = "/";
     private static final String REPORT_FAULT_MESSAGE_PROPERTY = "org.apache.cxf.jaxrs.report-fault-message";
     private static final String NO_CONTENT_EXCEPTION = "javax.ws.rs.core.NoContentException";
-    private static final String HTTP_CHARSET_PARAM = "charset"; 
+    private static final String HTTP_CHARSET_PARAM = "charset";
+    private static final Annotation[] EMPTY_ANNOTATIONS = new Annotation[0]; 
     
     private JAXRSUtils() {        
     }
@@ -254,7 +259,7 @@ public final class JAXRSUtils {
                                                      m.getParameterTypes()[0]);
             Object o;
             
-            if (p.getType() == ParameterType.BEAN && bri instanceof ClassResourceInfo) {
+            if (p.getType() == ParameterType.BEAN) {
                 o = createBeanParamValue(message, m.getParameterTypes()[0], ori);    
             } else {
                 o = createHttpParameterValue(p, 
@@ -273,7 +278,7 @@ public final class JAXRSUtils {
                                                      f.getType());
             Object o = null;
             
-            if (p.getType() == ParameterType.BEAN && bri instanceof ClassResourceInfo) {
+            if (p.getType() == ParameterType.BEAN) {
                 o = createBeanParamValue(message, f.getType(), ori);    
             } else {
                 o = createHttpParameterValue(p, 
@@ -390,7 +395,6 @@ public final class JAXRSUtils {
         int methodMatched = 0;
         int consumeMatched = 0;
         
-        boolean resourceMethodsAdded = false;
         List<OperationResourceInfo> finalPathSubresources = null;
         for (Map.Entry<ClassResourceInfo, MultivaluedMap<String, String>> rEntry : matchedResources.entrySet()) {
             ClassResourceInfo resource = rEntry.getKey();
@@ -435,7 +439,6 @@ public final class JAXRSUtils {
                                     if (matchProduceTypes(acceptType, ori)) {
                                         candidateList.put(ori, map);
                                         added = true;
-                                        resourceMethodsAdded = true;
                                         break;
                                     }
                                 }
@@ -455,7 +458,7 @@ public final class JAXRSUtils {
                 }
             }
         }
-        if (finalPathSubresources != null && resourceMethodsAdded
+        if (finalPathSubresources != null && pathMatched > 0
             && !MessageUtils.getContextualBoolean(message, KEEP_SUBRESOURCE_CANDIDATES, false)) {
             for (OperationResourceInfo key : finalPathSubresources) {
                 candidateList.remove(key);
@@ -566,7 +569,7 @@ public final class JAXRSUtils {
     }
     
     public static List<ClassResourceInfo> getRootResources(Message message) {
-        Service service = message.getExchange().get(Service.class);
+        Service service = message.getExchange().getService();
         return ((JAXRSServiceImpl)service).getClassResourceInfos();
     }
     
@@ -619,11 +622,9 @@ public final class JAXRSUtils {
     }
     
     private static boolean matchHttpMethod(String expectedMethod, String httpMethod) {
-        if (expectedMethod.equalsIgnoreCase(httpMethod) 
-            || headMethodPossible(expectedMethod, httpMethod)) {
-            return true;
-        }
-        return false;
+        return expectedMethod.equalsIgnoreCase(httpMethod) 
+            || headMethodPossible(expectedMethod, httpMethod)
+            || expectedMethod.equals(DefaultMethod.class.getSimpleName());
     }
     
     public static boolean headMethodPossible(String expectedMethod, String httpMethod) {
@@ -757,25 +758,37 @@ public final class JAXRSUtils {
                                                  Message message)
         throws IOException, WebApplicationException {
         
-        
-        
         Class<?>[] parameterTypes = ori.getInParameterTypes();
-        Parameter[] paramsInfo = ori.getParameters().toArray(new Parameter[ori.getParameters().size()]);  
+        List<Parameter> paramsInfo = ori.getParameters();  
+        boolean preferModelParams = paramsInfo.size() > parameterTypes.length 
+            && !PropertyUtils.isTrue(message.getContextualProperty("org.apache.cxf.preferMethodParameters"));
+        
+        int parameterTypesLengh = preferModelParams ? paramsInfo.size() : parameterTypes.length;
         
         Type[] genericParameterTypes = ori.getInGenericParameterTypes();
         Annotation[][] anns = ori.getInParameterAnnotations();
-        List<Object> params = new ArrayList<Object>(parameterTypes.length);
+        List<Object> params = new ArrayList<Object>(parameterTypesLengh);
 
-        for (int i = 0; i < parameterTypes.length; i++) {
-            Class<?> param = parameterTypes[i]; 
-            Type genericParam = InjectionUtils.processGenericTypeIfNeeded(
-                ori.getClassResourceInfo().getServiceClass(), param, genericParameterTypes[i]);
-            param = InjectionUtils.updateParamClassToTypeIfNeeded(param, genericParam);
+        for (int i = 0; i < parameterTypesLengh; i++) {
+            Class<?> param = null;
+            Type genericParam = null;
+            Annotation[] paramAnns = null;
+            if (!preferModelParams) {
+                param = parameterTypes[i]; 
+                genericParam = InjectionUtils.processGenericTypeIfNeeded(
+                    ori.getClassResourceInfo().getServiceClass(), param, genericParameterTypes[i]);
+                param = InjectionUtils.updateParamClassToTypeIfNeeded(param, genericParam);
+                paramAnns = anns == null ? EMPTY_ANNOTATIONS : anns[i];
+            } else {
+                param = paramsInfo.get(i).getJavaType();
+                genericParam = param;
+                paramAnns = EMPTY_ANNOTATIONS;
+            }
             
             Object paramValue = processParameter(param, 
                                                  genericParam,
-                                                 anns == null ? new Annotation[0] : anns[i],
-                                                 paramsInfo[i], 
+                                                 paramAnns,
+                                                 paramsInfo.get(i), 
                                                  values, 
                                                  message,
                                                  ori);
@@ -797,8 +810,7 @@ public final class JAXRSUtils {
 
         if (parameter.getType() == ParameterType.REQUEST_BODY) {
             
-            if (parameterClass == AsyncResponse.class 
-                && AnnotationUtils.getAnnotation(parameterAnns, Suspended.class) != null) {
+            if (parameterClass == AsyncResponse.class) {
                 return new AsyncResponseImpl(message);
             }
             
@@ -933,7 +945,7 @@ public final class JAXRSUtils {
             m.put(FormUtils.FORM_PARAM_MAP, params);
         
             if (mt == null || mt.isCompatible(MediaType.APPLICATION_FORM_URLENCODED_TYPE)) {
-                String enc = HttpUtils.getEncoding(mt, "UTF-8");
+                String enc = HttpUtils.getEncoding(mt, StandardCharsets.UTF_8.name());
                 String body = FormUtils.readBody(m.getContent(InputStream.class), enc);
                 HttpServletRequest request = (HttpServletRequest)m.get(AbstractHTTPDestination.HTTP_REQUEST);
                 FormUtils.populateMapFromString(params, m, body, enc, decode, request);
@@ -1050,12 +1062,18 @@ public final class JAXRSUtils {
         return instance;
     }
     
-    public static <T> T createContextValue(Message m, Type genericType, Class<T> clazz) {
- 
+    public static Message getContextMessage(Message m) {
+        
         Message contextMessage = m.getExchange() != null ? m.getExchange().getInMessage() : m;
-        if (contextMessage == null && Boolean.FALSE.equals(m.get(Message.INBOUND_MESSAGE))) {
+        if (contextMessage == null && !PropertyUtils.isTrue(m.get(Message.INBOUND_MESSAGE))) {
             contextMessage = m;
         }
+        return contextMessage;
+    }
+    
+    public static <T> T createContextValue(Message m, Type genericType, Class<T> clazz) {
+ 
+        Message contextMessage = getContextMessage(m);
         Object o = null;
         if (UriInfo.class.isAssignableFrom(clazz)) {
             o = createUriInfo(contextMessage);
@@ -1083,16 +1101,15 @@ public final class JAXRSUtils {
             ProviderInfo<?> providerInfo = 
                 (ProviderInfo<?>)contextMessage.getExchange().getEndpoint().get(Application.class.getName());
             o = providerInfo == null ? null : providerInfo.getProvider();
+        } else if (contextMessage != null) {
+            ContextProvider<?> provider = 
+                ProviderFactory.getInstance(contextMessage).createContextProvider(clazz, contextMessage);
+            if (provider != null) {
+                o = provider.createContext(contextMessage);
+            }
         }
         if (o == null && contextMessage != null && !MessageUtils.isRequestor(contextMessage)) {
             o = createServletResourceValue(contextMessage, clazz);
-            if (o == null) {
-                ContextProvider<?> provider = 
-                    ServerProviderFactory.getInstance(m).createContextProvider(clazz, contextMessage);
-                if (provider != null) {
-                    o = provider.createContext(contextMessage);
-                }
-            }
         }
         return clazz.cast(o);
     }
@@ -1135,17 +1152,15 @@ public final class JAXRSUtils {
     public static <T> T createServletResourceValue(Message m, Class<T> clazz) {
         
         Object value = null; 
-        if (HttpServletRequest.class.isAssignableFrom(clazz)) {
-            value = m.get(AbstractHTTPDestination.HTTP_REQUEST);
-        }
-        if (HttpServletResponse.class.isAssignableFrom(clazz)) {
+        if (clazz == HttpServletRequest.class) {
+            HttpServletRequest request = (HttpServletRequest)m.get(AbstractHTTPDestination.HTTP_REQUEST);
+            value = request != null ? new HttpServletRequestFilter(request, m) : null;
+        } else if (clazz == HttpServletResponse.class) {
             HttpServletResponse response = (HttpServletResponse)m.get(AbstractHTTPDestination.HTTP_RESPONSE);
             value = response != null ? new HttpServletResponseFilter(response, m) : null;
-        }
-        if (ServletContext.class.isAssignableFrom(clazz)) {
+        } else if (clazz == ServletContext.class) {
             value = m.get(AbstractHTTPDestination.HTTP_CONTEXT);
-        }
-        if (ServletConfig.class.isAssignableFrom(clazz)) {
+        } else if (clazz == ServletConfig.class) {
             value = m.get(AbstractHTTPDestination.HTTP_CONFIG);
         }
         
@@ -1226,6 +1241,15 @@ public final class JAXRSUtils {
                                            String sep, 
                                            boolean decode,
                                            boolean decodePlus) {
+        getStructuredParams(queries, query, sep, decode, decodePlus, false);
+    }
+        
+    public static void getStructuredParams(MultivaluedMap<String, String> queries,
+                                           String query, 
+                                           String sep, 
+                                           boolean decode,
+                                           boolean decodePlus,
+                                           boolean valueIsCollection) {    
         if (!StringUtils.isEmpty(query)) {            
             List<String> parts = Arrays.asList(StringUtils.split(query, sep));
             for (String part : parts) {
@@ -1238,14 +1262,34 @@ public final class JAXRSUtils {
                 } else {
                     name = part.substring(0, index);
                     value =  index < part.length() ? part.substring(index + 1) : "";
-                    if (decode || (decodePlus && value.contains("+"))) {
-                        value = (";".equals(sep))
-                            ? HttpUtils.pathDecode(value) : HttpUtils.urlDecode(value); 
-                    }
                 }
-                queries.add(HttpUtils.urlDecode(name), value);
+                if (valueIsCollection) {
+                    for (String s : value.split(",")) {
+                        addStructuredPartToMap(queries, sep, name, s, decode, decodePlus);
+                    }
+                } else {
+                    addStructuredPartToMap(queries, sep, name, value, decode, decodePlus);
+                }
             }
         }
+    }
+    
+    private static void addStructuredPartToMap(MultivaluedMap<String, String> queries,
+                                               String sep, 
+                                               String name,
+                                               String value,
+                                               boolean decode,
+                                               boolean decodePlus) {    
+        
+        if (decodePlus && value.contains("+")) {
+            value = value.replace('+', ' ');
+        }
+        if (decode) {
+            value = (";".equals(sep))
+                ? HttpUtils.pathDecode(value) : HttpUtils.urlDecode(value); 
+        }
+        
+        queries.add(HttpUtils.urlDecode(name), value);
     }
 
     private static Object readFromMessageBody(Class<?> targetTypeClass,
@@ -1381,11 +1425,8 @@ public final class JAXRSUtils {
                                          MediaType acceptContentType, 
                                          OperationResourceInfo ori) {
         
-        if (intersectMimeTypes(ori.getConsumeTypes(), requestContentType).size() != 0
-            && intersectMimeTypes(ori.getProduceTypes(), acceptContentType).size() != 0) {
-            return true;
-        }
-        return false;
+        return intersectMimeTypes(ori.getConsumeTypes(), requestContentType).size() != 0
+            && intersectMimeTypes(ori.getProduceTypes(), acceptContentType).size() != 0;
     }
 
     public static List<MediaType> parseMediaTypes(String types) {
@@ -1616,8 +1657,7 @@ public final class JAXRSUtils {
     public static boolean runContainerRequestFilters(ServerProviderFactory pf, 
                                                      Message m, 
                                                      boolean preMatch, 
-                                                     Set<String> names,
-                                                     boolean sub) {
+                                                     Set<String> names) {
         List<ProviderInfo<ContainerRequestFilter>> containerFilters = preMatch 
             ? pf.getPreMatchContainerRequestFilters() : pf.getPostMatchContainerRequestFilters(names);
         if (!containerFilters.isEmpty()) {

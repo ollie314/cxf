@@ -50,7 +50,7 @@ public enum Applications {
 
     private String uri;
 
-    private Applications(String uri) {
+    Applications(String uri) {
         this.uri = uri;
     }
 
@@ -59,7 +59,7 @@ public enum Applications {
     }
     
     public static Applications fromUri(String uri) {
-        for (Applications app :  Applications.values()) {
+        for (Applications app : Applications.values()) {
             if (app.getUri().equals(uri)) {
                 return app;
             }

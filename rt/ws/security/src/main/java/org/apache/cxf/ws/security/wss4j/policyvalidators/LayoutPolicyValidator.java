@@ -27,68 +27,67 @@ import java.util.List;
 import javax.xml.namespace.QName;
 
 import org.w3c.dom.Element;
+
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.helpers.CastUtils;
-import org.apache.cxf.message.Message;
 import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.wss4j.common.saml.SAMLKeyInfo;
 import org.apache.wss4j.common.saml.SamlAssertionWrapper;
+import org.apache.wss4j.common.token.BinarySecurity;
+import org.apache.wss4j.common.token.PKIPathSecurity;
+import org.apache.wss4j.common.token.X509Security;
 import org.apache.wss4j.dom.WSConstants;
 import org.apache.wss4j.dom.WSDataRef;
-import org.apache.wss4j.dom.WSSecurityEngine;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
-import org.apache.wss4j.dom.message.token.BinarySecurity;
-import org.apache.wss4j.dom.message.token.PKIPathSecurity;
-import org.apache.wss4j.dom.message.token.X509Security;
-import org.apache.wss4j.policy.SPConstants;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
+import org.apache.wss4j.policy.SP11Constants;
+import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.model.Layout;
 import org.apache.wss4j.policy.model.Layout.LayoutType;
 
 /**
  * Validate a Layout policy.
  */
-public class LayoutPolicyValidator extends AbstractTokenPolicyValidator {
+public class LayoutPolicyValidator extends AbstractSecurityPolicyValidator {
     
-    public boolean validatePolicy(
-        AssertionInfoMap aim,
-        Message message,
-        Element soapBody,
-        List<WSSecurityEngineResult> results,
-        List<WSSecurityEngineResult> signedResults
-    ) {
-        Collection<AssertionInfo> ais = getAllAssertionsByLocalname(aim, SPConstants.LAYOUT);
-        if (!ais.isEmpty()) {
-            parsePolicies(aim, ais, message, results, signedResults);
-        }
-
-        return true;
+    /**
+     * Return true if this SecurityPolicyValidator implementation is capable of validating a 
+     * policy defined by the AssertionInfo parameter
+     */
+    public boolean canValidatePolicy(AssertionInfo assertionInfo) {
+        return assertionInfo.getAssertion() != null 
+            && (SP12Constants.LAYOUT.equals(assertionInfo.getAssertion().getName())
+                || SP11Constants.LAYOUT.equals(assertionInfo.getAssertion().getName()));
     }
-        
-    private void parsePolicies(
-        AssertionInfoMap aim,
-        Collection<AssertionInfo> ais, 
-        Message message,  
-        List<WSSecurityEngineResult> results,
-        List<WSSecurityEngineResult> signedResults
-    ) {
+    
+    /**
+     * Validate policies.
+     */
+    public void validatePolicies(PolicyValidatorParameters parameters, Collection<AssertionInfo> ais) {
         for (AssertionInfo ai : ais) {
             Layout layout = (Layout)ai.getAssertion();
             ai.setAsserted(true);
+            assertToken(layout, parameters.getAssertionInfoMap());
             
-            if (!validatePolicy(layout, results, signedResults)) {
+            if (!validatePolicy(layout, parameters.getResults().getResults(), 
+                                parameters.getSignedResults())) {
                 String error = "Layout does not match the requirements";
                 ai.setNotAsserted(error);
             }
         }
-        
-        assertPolicy(aim, SPConstants.LAYOUT_LAX);
-        assertPolicy(aim, SPConstants.LAYOUT_LAX_TIMESTAMP_FIRST);
-        assertPolicy(aim, SPConstants.LAYOUT_LAX_TIMESTAMP_LAST);
-        assertPolicy(aim, SPConstants.LAYOUT_STRICT);
     }
     
-    public boolean validatePolicy(
+    private void assertToken(Layout token, AssertionInfoMap aim) {
+        String namespace = token.getName().getNamespaceURI();
+
+        LayoutType layoutType = token.getLayoutType();
+        if (layoutType != null) {
+            PolicyUtils.assertPolicy(aim, new QName(namespace, layoutType.name()));
+        }
+    }
+    
+    private boolean validatePolicy(
         Layout layout, 
         List<WSSecurityEngineResult> results,
         List<WSSecurityEngineResult> signedResults
@@ -116,7 +115,7 @@ public class LayoutPolicyValidator extends AbstractTokenPolicyValidator {
             }
         } else if (strict && (!validateStrictSignaturePlacement(results, signedResults) 
             || !validateStrictSignatureTokenPlacement(results)
-            || !checkSignatureIsSignedPlacement(signedResults))) {
+            || !checkSignatureIsSignedPlacement(results, signedResults))) {
             return false;
         }
         
@@ -181,9 +180,11 @@ public class LayoutPolicyValidator extends AbstractTokenPolicyValidator {
         return true;
     }
     
-    private boolean checkSignatureIsSignedPlacement(List<WSSecurityEngineResult> signedResults) {
-        for (int i = 0; i < signedResults.size(); i++) {
-            WSSecurityEngineResult signedResult = signedResults.get(i);
+    private boolean checkSignatureIsSignedPlacement(
+        List<WSSecurityEngineResult> results,
+        List<WSSecurityEngineResult> signedResults
+    ) {
+        for (WSSecurityEngineResult signedResult : signedResults) {
             List<WSDataRef> sl =
                 CastUtils.cast((List<?>)signedResult.get(
                     WSSecurityEngineResult.TAG_DATA_REF_URIS
@@ -191,25 +192,37 @@ public class LayoutPolicyValidator extends AbstractTokenPolicyValidator {
             if (sl != null && sl.size() >= 1) {
                 for (WSDataRef dataRef : sl) {
                     QName signedQName = dataRef.getName();
-                    if (WSSecurityEngine.SIGNATURE.equals(signedQName)) {
+                    if (WSConstants.SIGNATURE.equals(signedQName)) {
                         Element protectedElement = dataRef.getProtectedElement();
-                        boolean endorsingSigFound = false;
-                        // Results are stored in reverse order
-                        for (WSSecurityEngineResult result : signedResults) {
-                            if (result == signedResult) {
-                                endorsingSigFound = true;
-                            }
-                            Element resultElement = 
-                                (Element)result.get(WSSecurityEngineResult.TAG_TOKEN_ELEMENT);
-                            if (resultElement == protectedElement) {
-                                if (endorsingSigFound) {
-                                    break;
-                                } else {
-                                    return false;
-                                }
-                            }
+                        if (!isEndorsingSignatureInCorrectPlace(results, signedResult,
+                                                                protectedElement)) {
+                            return false;
                         }
                     }
+                }
+            }
+        }
+        return true;
+    }
+    
+    private boolean isEndorsingSignatureInCorrectPlace(List<WSSecurityEngineResult> results,
+                                              WSSecurityEngineResult signedResult,
+                                              Element protectedElement) {
+        boolean endorsingSigFound = false;
+        // Results are stored in reverse order
+        for (WSSecurityEngineResult result : results) {
+            Integer action = (Integer)result.get(WSSecurityEngineResult.TAG_ACTION);
+            if (WSConstants.SIGN == action || WSConstants.ST_SIGNED == action
+                || WSConstants.UT_SIGN == action) {
+                if (result == signedResult) {
+                    endorsingSigFound = true;
+                }
+                Element resultElement = 
+                    (Element)result.get(WSSecurityEngineResult.TAG_TOKEN_ELEMENT);
+                if (endorsingSigFound && resultElement == protectedElement) {
+                    return true;
+                } else if (resultElement == protectedElement) {
+                    return false;
                 }
             }
         }

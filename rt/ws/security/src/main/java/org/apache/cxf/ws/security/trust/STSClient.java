@@ -28,7 +28,6 @@ import org.w3c.dom.Element;
 
 import org.apache.cxf.Bus;
 import org.apache.cxf.common.logging.LogUtils;
-import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
@@ -115,7 +114,7 @@ public class STSClient extends AbstractSTSClient {
         el = DOMUtils.getFirstElement(el);
         String reason = null;
         boolean valid = false;
-        List<SecurityToken> tokens = new LinkedList<SecurityToken>();
+        List<SecurityToken> tokens = new LinkedList<>();
         while (el != null) {
             if ("Status".equals(el.getLocalName())) {
                 Element e2 = DOMUtils.getFirstChildWithName(el, el.getNamespaceURI(), "Code");
@@ -127,14 +126,22 @@ public class STSClient extends AbstractSTSClient {
                     reason = DOMUtils.getContent(e2);
                 }
             } else if ("RequestedSecurityToken".equals(el.getLocalName())) {
-                Element requestedSecurityTokenElement = DOMUtils.getFirstElement(el);
-                String id = findID(null, null, requestedSecurityTokenElement);
-                if (StringUtils.isEmpty(id)) {
-                    throw new TrustException("NO_ID", LOG);
+                SecurityToken token = 
+                    createSecurityToken(getDocumentElement(response.getResponse()), response.getEntropy());
+                
+                if (response.getCert() != null) {
+                    token.setX509Certificate(response.getCert(), response.getCrypto());
                 }
-                SecurityToken requestedSecurityToken = new SecurityToken(id);
-                requestedSecurityToken.setToken(requestedSecurityTokenElement);
-                tokens.add(requestedSecurityToken);
+                if (token.getTokenType() == null) {
+                    String tokenTypeFromTemplate = getTokenTypeFromTemplate();
+                    if (tokenTypeFromTemplate != null) {
+                        token.setTokenType(tokenTypeFromTemplate);
+                    } else if (tokenType != null) {
+                        token.setTokenType(tokenType);
+                    }
+                }
+                
+                tokens.add(token);
             }
             el = DOMUtils.getNextElement(el);
         }

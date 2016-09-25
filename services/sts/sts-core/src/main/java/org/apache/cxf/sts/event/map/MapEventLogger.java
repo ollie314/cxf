@@ -33,7 +33,7 @@ import org.apache.cxf.common.logging.LogUtils;
 public class MapEventLogger implements MapEventListener {
     private static final Logger LOG = LogUtils.getL7dLogger(MapEventLogger.class);
     
-    private List<String> fieldOrder = new ArrayList<String>();
+    private List<String> fieldOrder = new ArrayList<>();
     private boolean logStacktrace;
     private boolean logFieldname;
     private Level logLevel = Level.FINE;
@@ -55,6 +55,7 @@ public class MapEventLogger implements MapEventListener {
         fieldOrder.add(KEYS.CANCEL_PRINCIPAL.name());
         fieldOrder.add(KEYS.RENEW_PRINCIPAL.name());
         fieldOrder.add(KEYS.TOKENTYPE.name());
+        fieldOrder.add(KEYS.KEYTYPE.name());
         fieldOrder.add(KEYS.APPLIESTO.name());
         fieldOrder.add(KEYS.CLAIMS_PRIMARY.name());
         fieldOrder.add(KEYS.CLAIMS_SECONDARY.name());

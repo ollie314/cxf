@@ -49,8 +49,16 @@ http://cxf.apache.org/schemas/jaxrs.xsd">
             <ref bean="jackson"/>
         </jaxrs:providers>
     </jaxrs:server>
-    
-    <core:bus name="cxf1" id="cxf1"/>
+    <core:bus>
+       <core:properties>
+           <entry key="skip.default.json.provider.registration" value="true"/>
+       </core:properties>
+    </core:bus>
+    <core:bus name="cxf1" id="cxf1">
+       <core:properties>
+           <entry key="skip.default.json.provider.registration" value="true"/>
+       </core:properties>
+    </core:bus>
     
     <jaxrs:server id="genericBookStore"
                   bus="cxf1"
@@ -67,6 +75,25 @@ http://cxf.apache.org/schemas/jaxrs.xsd">
                   address="/genericstore2">
         <jaxrs:serviceBeans>
             <ref bean="gBookStore2"/>
+        </jaxrs:serviceBeans>
+        <jaxrs:providers>
+            <ref bean="jackson"/>
+        </jaxrs:providers>
+    </jaxrs:server>
+    
+    <jaxrs:server id="genericBookStoreInt1"
+                  address="/genericstoreInt1">
+        <jaxrs:serviceBeans>
+            <ref bean="gBookStoreInt1"/>
+        </jaxrs:serviceBeans>
+        <jaxrs:providers>
+            <ref bean="jackson"/>
+        </jaxrs:providers>
+    </jaxrs:server>
+    <jaxrs:server id="genericBookStoreInt2"
+                  address="/genericstoreInt2">
+        <jaxrs:serviceBeans>
+            <ref bean="gBookStoreInt2"/>
         </jaxrs:serviceBeans>
         <jaxrs:providers>
             <ref bean="jackson"/>
@@ -106,4 +133,6 @@ http://cxf.apache.org/schemas/jaxrs.xsd">
     <bean id="multipartStore" class="org.apache.cxf.systest.jaxrs.MultipartStore"/>    
     <bean id="gBookStore" class="org.apache.cxf.systest.jaxrs.GenericBookStoreSpring"/>
     <bean id="gBookStore2" class="org.apache.cxf.systest.jaxrs.GenericBookStoreSpring2"/>
+    <bean id="gBookStoreInt1" class="org.apache.cxf.systest.jaxrs.GenericBookStoreSpringInt1"/>
+    <bean id="gBookStoreInt2" class="org.apache.cxf.systest.jaxrs.GenericBookStoreSpringInt2"/>
 </beans>

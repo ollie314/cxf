@@ -134,7 +134,7 @@ public class JMSDestinationTest extends AbstractJMSTester {
             char buffer[] = new char[5000];
             try {
                 int i = reader.read(buffer);
-                response = new String(buffer, 0 , i);
+                response = new String(buffer, 0, i);
             } catch (IOException e) {
                 assertFalse("Read the Destination recieved Message error ", false);
                 e.printStackTrace();
@@ -180,12 +180,31 @@ public class JMSDestinationTest extends AbstractJMSTester {
 
     @Test
     public void testRoundTripDestination() throws Exception {
+        Message msg = testRoundTripDestination(true);
+        SecurityContext securityContext = msg.get(SecurityContext.class);
+        
+        assertNotNull("SecurityContext should be set in message received by JMSDestination", securityContext);
+        assertEquals("Principal in SecurityContext should be", "testUser", 
+                securityContext.getUserPrincipal().getName());
+    }
+    
+    @Test
+    public void testRoundTripDestinationDoNotCreateSecurityContext() throws Exception {
+        Message msg = testRoundTripDestination(false);
+        SecurityContext securityContext = msg.get(SecurityContext.class);
+        assertNull("SecurityContext should not be set in message received by JMSDestination", securityContext);
+    }
+    
+    private Message testRoundTripDestination(boolean createSecurityContext) throws Exception {
         EndpointInfo ei = setupServiceInfo("HelloWorldService", "HelloWorldPort");
         JMSConduit conduit = setupJMSConduitWithObserver(ei);
+        conduit.getJmsConfig().setCreateSecurityContext(createSecurityContext);
+        
         final Message outMessage = new MessageImpl();
         setupMessageHeader(outMessage, null);
         final JMSDestination destination = setupJMSDestination(ei);
-
+        
+        
         // set up MessageObserver for handling the conduit message
         MessageObserver observer = new MessageObserver() {
             public void onMessage(Message m) {
@@ -222,9 +241,12 @@ public class JMSDestinationTest extends AbstractJMSTester {
         waitForReceiveInMessage();
         verifyReceivedMessage(inMessage);
 
+        // wait for a while for the jms session recycling
         Thread.sleep(1000);
         conduit.close();
         destination.shutdown();
+        
+        return inMessage;
     }
 
     @Test
@@ -302,8 +324,22 @@ public class JMSDestinationTest extends AbstractJMSTester {
     
     @Test
     public void testSecurityContext() throws Exception {
+        SecurityContext ctx = testSecurityContext(true);
+        assertNotNull("SecurityContext should be set in message received by JMSDestination", ctx);
+        assertEquals("Principal in SecurityContext should be", "testUser", 
+                ctx.getUserPrincipal().getName());
+    }
+    
+    @Test
+    public void testDoNotCreateSecurityContext() throws Exception {
+        SecurityContext ctx = testSecurityContext(false);
+        assertNull("SecurityContext should not be set in message received by JMSDestination", ctx);
+    }
+    
+    private SecurityContext testSecurityContext(boolean createSecurityContext) throws Exception {
         EndpointInfo ei = setupServiceInfo("HelloWorldService", "HelloWorldPort");
         final JMSDestination destination = setupJMSDestination(ei);
+        destination.getJmsConfig().setCreateSecurityContext(createSecurityContext);
         destination.setMessageObserver(createMessageObserver());
         // set up the conduit send to be true
         JMSConduit conduit = setupJMSConduitWithObserver(ei);
@@ -312,11 +348,11 @@ public class JMSDestinationTest extends AbstractJMSTester {
         sendOneWayMessage(conduit, outMessage);
         waitForReceiveDestMessage();
         SecurityContext securityContext = destMessage.get(SecurityContext.class);
-        assertNotNull("SecurityContext should be set in message received by JMSDestination", securityContext);
-        assertEquals("Principal in SecurityContext should be", "testUser", 
-                     securityContext.getUserPrincipal().getName());
+        
         conduit.close();
         destination.shutdown();
+        
+        return securityContext;
     }
 
     

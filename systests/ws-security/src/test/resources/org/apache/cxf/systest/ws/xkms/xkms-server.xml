@@ -30,16 +30,11 @@
     <!-- Transport Layer Security (TLS) settings -->
     <!-- -->
     <httpj:engine-factory id="tls-settings">
-        <httpj:engine port="${testutil.ports.XKMSServer}">
+        <httpj:engine port="${testutil.ports.xkms.XKMSServer}">
             <httpj:tlsServerParameters>
                 <sec:keyManagers keyPassword="password">
-                    <sec:keyStore type="jks" password="password" resource="org/apache/cxf/systest/ws/security/Bethal.jks"/>
+                    <sec:keyStore type="jks" password="password" resource="keys/Bethal.jks"/>
                 </sec:keyManagers>
-                <sec:cipherSuitesFilter>
-                    <sec:include>.*_EXPORT_.*</sec:include>
-                    <sec:include>.*_EXPORT1024_.*</sec:include>
-                    <sec:include>.*_WITH_AES_.*</sec:include>
-                </sec:cipherSuitesFilter>
                 <sec:clientAuthentication want="true" required="false"/>
             </httpj:tlsServerParameters>
         </httpj:engine>
@@ -69,7 +64,7 @@
         </property>
     </bean>
     <bean id="additionalClasses" class="org.apache.cxf.xkms.model.extensions.AdditionalClassesFactory"/>
-    <jaxws:endpoint xmlns:serviceNamespace="http://www.w3.org/2002/03/xkms#wsdl" id="XKMSService" serviceName="serviceNamespace:XKMSService" endpointName="serviceNamespace:XKMSPort" implementor="#xkmsProviderBean" address="https://localhost:${testutil.ports.XKMSServer}/XKMS">
+    <jaxws:endpoint xmlns:serviceNamespace="http://www.w3.org/2002/03/xkms#wsdl" id="XKMSService" serviceName="serviceNamespace:XKMSService" endpointName="serviceNamespace:XKMSPort" implementor="#xkmsProviderBean" address="https://localhost:${testutil.ports.xkms.XKMSServer}/XKMS">
         <jaxws:properties>
             <entry key="jaxb.additionalContextClasses">
                 <bean factory-bean="additionalClasses" factory-method="create"/>

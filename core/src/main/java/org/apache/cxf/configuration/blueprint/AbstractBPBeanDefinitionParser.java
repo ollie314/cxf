@@ -48,11 +48,11 @@ import org.apache.aries.blueprint.mutable.MutableValueMetadata;
 import org.apache.cxf.bus.blueprint.BlueprintBus;
 import org.apache.cxf.common.jaxb.JAXBContextCache;
 import org.apache.cxf.common.jaxb.JAXBContextCache.CachedContextAndSchemas;
+import org.apache.cxf.common.jaxb.JAXBUtils;
 import org.apache.cxf.common.util.PackageUtils;
 import org.apache.cxf.common.util.StringUtils;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.staxutils.StaxUtils;
-import org.osgi.framework.Bundle;
 import org.osgi.service.blueprint.reflect.BeanMetadata;
 import org.osgi.service.blueprint.reflect.CollectionMetadata;
 import org.osgi.service.blueprint.reflect.ComponentMetadata;
@@ -266,11 +266,7 @@ public abstract class AbstractBPBeanDefinitionParser {
     protected MutableBeanMetadata getBus(ParserContext context, String name) {
         ComponentDefinitionRegistry cdr = context.getComponentDefinitionRegistry();
         ComponentMetadata meta = cdr.getComponentDefinition("blueprintBundle");
-
-        Bundle blueprintBundle = null;
-        if (meta instanceof PassThroughMetadata) {
-            blueprintBundle = (Bundle) ((PassThroughMetadata) meta).getObject();
-        }
+        
         if (!cdr.containsComponentDefinition(InterceptorTypeConverter.class.getName())) {
             MutablePassThroughMetadata md = context.createMetadata(MutablePassThroughMetadata.class);
             md.setObject(new InterceptorTypeConverter());
@@ -278,13 +274,16 @@ public abstract class AbstractBPBeanDefinitionParser {
             md.setId(InterceptorTypeConverter.class.getName());
             context.getComponentDefinitionRegistry().registerTypeConverter(md);
         }
-        if (blueprintBundle != null && !cdr.containsComponentDefinition(name)) {
+        if (!cdr.containsComponentDefinition(name)) {
             //Create a bus
 
             MutableBeanMetadata bus = context.createMetadata(MutableBeanMetadata.class);
             bus.setId(name);
             bus.setRuntimeClass(BlueprintBus.class);
-            bus.addProperty("bundleContext", createRef(context, "blueprintBundleContext"));
+            if (meta != null) {
+                //blueprint-no-osgi does not provide a bundleContext
+                bus.addProperty("bundleContext", createRef(context, "blueprintBundleContext"));
+            }
             bus.addProperty("blueprintContainer", createRef(context, "blueprintContainer"));
             bus.setDestroyMethod("shutdown");
             bus.setInitMethod("initialize");
@@ -337,7 +336,7 @@ public abstract class AbstractBPBeanDefinitionParser {
         public Object createJAXBBean(String v) {
             XMLStreamReader reader = StaxUtils.createXMLStreamReader(new StringReader(v));
             try {
-                Object o = ctx.createUnmarshaller().unmarshal(reader, cls);
+                Object o = JAXBUtils.unmarshall(ctx, reader, cls);
                 if (o instanceof JAXBElement<?>) {
                     JAXBElement<?> el = (JAXBElement<?>)o;
                     o = el.getValue();
@@ -362,6 +361,7 @@ public abstract class AbstractBPBeanDefinitionParser {
                                             Class<?> c) {   
         try {
             XMLStreamWriter xmlWriter = null;
+            Unmarshaller u = null;
             try {
                 StringWriter writer = new StringWriter();
                 xmlWriter = StaxUtils.createXMLStreamWriter(writer);
@@ -377,7 +377,8 @@ public abstract class AbstractBPBeanDefinitionParser {
                 bean.addProperty(propertyName, factory);
 
             } catch (Exception ex) {                
-                Unmarshaller u = getContext(c).createUnmarshaller();
+                u = getContext(c).createUnmarshaller();
+                u.setEventHandler(null);
                 Object obj;
                 if (c != null) {
                     obj = u.unmarshal(data, c);
@@ -395,6 +396,7 @@ public abstract class AbstractBPBeanDefinitionParser {
                 }
             } finally {
                 StaxUtils.close(xmlWriter);
+                JAXBUtils.closeUnmarshaller(u);
             }
         } catch (JAXBException e) {
             throw new RuntimeException("Could not parse configuration.", e);

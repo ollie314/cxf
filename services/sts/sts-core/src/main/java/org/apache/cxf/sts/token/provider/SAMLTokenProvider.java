@@ -20,13 +20,12 @@
 package org.apache.cxf.sts.token.provider;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
-import javax.security.auth.callback.CallbackHandler;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -34,16 +33,13 @@ import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.helpers.DOMUtils;
 import org.apache.cxf.sts.STSConstants;
 import org.apache.cxf.sts.STSPropertiesMBean;
-import org.apache.cxf.sts.SignatureProperties;
 import org.apache.cxf.sts.cache.CacheUtils;
 import org.apache.cxf.sts.claims.ClaimsAttributeStatementProvider;
 import org.apache.cxf.sts.request.KeyRequirements;
 import org.apache.cxf.sts.request.TokenRequirements;
-import org.apache.cxf.sts.token.realm.SAMLRealm;
+import org.apache.cxf.sts.token.realm.RealmProperties;
 import org.apache.cxf.ws.security.sts.provider.STSException;
 import org.apache.cxf.ws.security.tokenstore.SecurityToken;
-import org.apache.wss4j.common.crypto.Crypto;
-import org.apache.wss4j.common.ext.WSPasswordCallback;
 import org.apache.wss4j.common.saml.SAMLCallback;
 import org.apache.wss4j.common.saml.SAMLUtil;
 import org.apache.wss4j.common.saml.SamlAssertionWrapper;
@@ -54,12 +50,12 @@ import org.apache.wss4j.common.saml.bean.ConditionsBean;
 import org.apache.wss4j.common.saml.bean.SubjectBean;
 import org.apache.wss4j.dom.WSConstants;
 import org.joda.time.DateTime;
-import org.opensaml.common.SAMLVersion;
+import org.opensaml.saml.common.SAMLVersion;
 
 /**
  * A TokenProvider implementation that provides a SAML Token.
  */
-public class SAMLTokenProvider implements TokenProvider {
+public class SAMLTokenProvider extends AbstractSAMLTokenProvider implements TokenProvider {
     
     private static final Logger LOG = LogUtils.getL7dLogger(SAMLTokenProvider.class);
     
@@ -69,7 +65,7 @@ public class SAMLTokenProvider implements TokenProvider {
     private SubjectProvider subjectProvider = new DefaultSubjectProvider();
     private ConditionsProvider conditionsProvider = new DefaultConditionsProvider();
     private boolean signToken = true;
-    private Map<String, SAMLRealm> realmMap = new HashMap<String, SAMLRealm>();
+    private Map<String, RealmProperties> realmMap = new HashMap<>();
     private SamlCustomHandler samlCustomHandler;
     
     /**
@@ -88,11 +84,8 @@ public class SAMLTokenProvider implements TokenProvider {
         if (realm != null && !realmMap.containsKey(realm)) {
             return false;
         }
-        if (WSConstants.WSS_SAML2_TOKEN_TYPE.equals(tokenType) || WSConstants.SAML2_NS.equals(tokenType)
-            || WSConstants.WSS_SAML_TOKEN_TYPE.equals(tokenType) || WSConstants.SAML_NS.equals(tokenType)) {
-            return true;
-        }
-        return false;
+        return WSConstants.WSS_SAML2_TOKEN_TYPE.equals(tokenType) || WSConstants.SAML2_NS.equals(tokenType)
+            || WSConstants.WSS_SAML_TOKEN_TYPE.equals(tokenType) || WSConstants.SAML_NS.equals(tokenType);
     }
     
     /**
@@ -100,14 +93,16 @@ public class SAMLTokenProvider implements TokenProvider {
      */
     public TokenProviderResponse createToken(TokenProviderParameters tokenParameters) {
         testKeyType(tokenParameters);
+        KeyRequirements keyRequirements = tokenParameters.getKeyRequirements();
+        TokenRequirements tokenRequirements = tokenParameters.getTokenRequirements();
+        if (LOG.isLoggable(Level.FINE)) {
+            LOG.fine("Handling token of type: " + tokenRequirements.getTokenType());
+        }
+        
         byte[] secret = null;
         byte[] entropyBytes = null;
         long keySize = 0;
         boolean computedKey = false;
-        KeyRequirements keyRequirements = tokenParameters.getKeyRequirements();
-        TokenRequirements tokenRequirements = tokenParameters.getTokenRequirements();
-        LOG.fine("Handling token of type: " + tokenRequirements.getTokenType());
-        
         if (STSConstants.SYMMETRIC_KEY_KEYTYPE.equals(keyRequirements.getKeyType())) {
             SymmetricKeyHandler keyHandler = new SymmetricKeyHandler(tokenParameters);
             keyHandler.createSymmetricKey();
@@ -142,7 +137,7 @@ public class SAMLTokenProvider implements TokenProvider {
             }
             
             TokenProviderResponse response = new TokenProviderResponse();
-            response.setToken(token);
+            
             String tokenType = tokenRequirements.getTokenType();
             if (WSConstants.WSS_SAML2_TOKEN_TYPE.equals(tokenType) 
                 || WSConstants.SAML2_NS.equals(tokenType)) {
@@ -150,6 +145,15 @@ public class SAMLTokenProvider implements TokenProvider {
             } else {
                 response.setTokenId(token.getAttributeNS(null, "AssertionID"));
             }
+            
+            if (tokenParameters.isEncryptToken()) {
+                token = TokenProviderUtils.encryptToken(token, response.getTokenId(), 
+                                                        tokenParameters.getStsProperties(), 
+                                                        tokenParameters.getEncryptionProperties(), 
+                                                        keyRequirements,
+                                                        tokenParameters.getMessageContext());
+            }
+            response.setToken(token);
             
             DateTime validFrom = null;
             DateTime validTill = null;
@@ -169,6 +173,7 @@ public class SAMLTokenProvider implements TokenProvider {
             }
             response.setComputedKey(computedKey);
             
+            LOG.fine("SAML Token successfully created");
             return response;
         } catch (Exception e) {
             LOG.log(Level.WARNING, "", e);
@@ -267,19 +272,22 @@ public class SAMLTokenProvider implements TokenProvider {
     }
     
     /**
-     * Set the map of realm->SAMLRealm for this token provider
-     * @param realms the map of realm->SAMLRealm for this token provider
+     * Set the map of realm->RealmProperties for this token provider
+     * @param realms the map of realm->RealmProperties for this token provider
      */
-    public void setRealmMap(Map<String, SAMLRealm> realms) {
-        this.realmMap = realms;
+    public void setRealmMap(Map<String, ? extends RealmProperties> realms) {
+        this.realmMap.clear();
+        if (realms != null) {
+            this.realmMap.putAll(realms);
+        }
     }
     
     /**
-     * Get the map of realm->SAMLRealm for this token provider
-     * @return the map of realm->SAMLRealm for this token provider
+     * Get the map of realm->RealmProperties for this token provider
+     * @return the map of realm->RealmProperties for this token provider
      */
-    public Map<String, SAMLRealm> getRealmMap() {
-        return realmMap;
+    public Map<String, RealmProperties> getRealmMap() {
+        return Collections.unmodifiableMap(realmMap);
     }
 
     public void setSamlCustomHandler(SamlCustomHandler samlCustomHandler) {
@@ -290,7 +298,7 @@ public class SAMLTokenProvider implements TokenProvider {
         TokenProviderParameters tokenParameters, byte[] secret, Document doc
     ) throws Exception {
         String realm = tokenParameters.getRealm();
-        SAMLRealm samlRealm = null;
+        RealmProperties samlRealm = null;
         if (realm != null && realmMap.containsKey(realm)) {
             samlRealm = realmMap.get(realm);
         }
@@ -308,94 +316,33 @@ public class SAMLTokenProvider implements TokenProvider {
         
         if (signToken) {
             STSPropertiesMBean stsProperties = tokenParameters.getStsProperties();
-            
-            // Initialise signature objects with defaults of STSPropertiesMBean
-            Crypto signatureCrypto = stsProperties.getSignatureCrypto();
-            CallbackHandler callbackHandler = stsProperties.getCallbackHandler();
-            SignatureProperties signatureProperties = stsProperties.getSignatureProperties();
-            String alias = stsProperties.getSignatureUsername();
-            
-            if (samlRealm != null) {
-                // If SignatureCrypto configured in realm then
-                // callbackhandler and alias of STSPropertiesMBean is ignored
-                if (samlRealm.getSignatureCrypto() != null) {
-                    LOG.fine("SAMLRealm signature keystore used");
-                    signatureCrypto = samlRealm.getSignatureCrypto();
-                    callbackHandler = samlRealm.getCallbackHandler();
-                    alias = samlRealm.getSignatureAlias();
-                }
-                // SignatureProperties can be defined independently of SignatureCrypto
-                if (samlRealm.getSignatureProperties() != null) {
-                    signatureProperties = samlRealm.getSignatureProperties();
-                }
-            }
-            
-            // Get the signature algorithm to use
-            String signatureAlgorithm = tokenParameters.getKeyRequirements().getSignatureAlgorithm();
-            if (signatureAlgorithm == null) {
-                // If none then default to what is configured
-                signatureAlgorithm = signatureProperties.getSignatureAlgorithm();
-            } else {
-                List<String> supportedAlgorithms = 
-                    signatureProperties.getAcceptedSignatureAlgorithms();
-                if (!supportedAlgorithms.contains(signatureAlgorithm)) {
-                    signatureAlgorithm = signatureProperties.getSignatureAlgorithm();
-                    LOG.fine("SignatureAlgorithm not supported, defaulting to: " + signatureAlgorithm);
-                }
-            }
-            
-            // Get the c14n algorithm to use
-            String c14nAlgorithm = tokenParameters.getKeyRequirements().getC14nAlgorithm();
-            if (c14nAlgorithm == null) {
-                // If none then default to what is configured
-                c14nAlgorithm = signatureProperties.getC14nAlgorithm();
-            } else {
-                List<String> supportedAlgorithms = 
-                    signatureProperties.getAcceptedC14nAlgorithms();
-                if (!supportedAlgorithms.contains(c14nAlgorithm)) {
-                    c14nAlgorithm = signatureProperties.getC14nAlgorithm();
-                    LOG.fine("C14nAlgorithm not supported, defaulting to: " + c14nAlgorithm);
-                }
-            }
-            
-            // If alias not defined, get the default of the SignatureCrypto
-            if ((alias == null || "".equals(alias)) && (signatureCrypto != null)) {
-                alias = signatureCrypto.getDefaultX509Identifier();
-                LOG.fine("Signature alias is null so using default alias: " + alias);
-            }
-            // Get the password
-            WSPasswordCallback[] cb = {new WSPasswordCallback(alias, WSPasswordCallback.SIGNATURE)};
-            LOG.fine("Creating SAML Token");
-            callbackHandler.handle(cb);
-            String password = cb[0].getPassword();
-    
-            LOG.fine("Signing SAML Token");
-            boolean useKeyValue = signatureProperties.isUseKeyValue();
-            assertion.signAssertion(
-                alias, password, signatureCrypto, useKeyValue, c14nAlgorithm, signatureAlgorithm,
-                signatureProperties.getDigestAlgorithm()
-            );
+            signToken(assertion, samlRealm, stsProperties, tokenParameters.getKeyRequirements());
         }
         
         return assertion;
     }
     
     public SamlCallbackHandler createCallbackHandler(
-        TokenProviderParameters tokenParameters, byte[] secret, SAMLRealm samlRealm, Document doc
+        TokenProviderParameters tokenParameters, byte[] secret, RealmProperties samlRealm, Document doc
     ) throws Exception {
+        boolean statementAdded = false;
+        
         // Parse the AttributeStatements
         List<AttributeStatementBean> attrBeanList = null;
         if (attributeStatementProviders != null && attributeStatementProviders.size() > 0) {
-            attrBeanList = new ArrayList<AttributeStatementBean>();
+            attrBeanList = new ArrayList<>();
             for (AttributeStatementProvider statementProvider : attributeStatementProviders) {
                 AttributeStatementBean statementBean = statementProvider.getStatement(tokenParameters);
                 if (statementBean != null) {
-                    LOG.fine(
-                        "AttributeStatements" + statementBean.toString() 
-                        + "returned by AttributeStatementProvider " 
-                        + statementProvider.getClass().getName()
-                    );
+                    if (LOG.isLoggable(Level.FINE)) {
+                        LOG.fine(
+                            "AttributeStatements" + statementBean.toString() 
+                            + "returned by AttributeStatementProvider " 
+                            + statementProvider.getClass().getName()
+                        );
+                    }
                     attrBeanList.add(statementBean);
+                    statementAdded = true;
                 }
             }
         }
@@ -403,17 +350,19 @@ public class SAMLTokenProvider implements TokenProvider {
         // Parse the AuthenticationStatements
         List<AuthenticationStatementBean> authBeanList = null;
         if (authenticationStatementProviders != null && authenticationStatementProviders.size() > 0) {
-            authBeanList = new ArrayList<AuthenticationStatementBean>();
+            authBeanList = new ArrayList<>();
             for (AuthenticationStatementProvider statementProvider : authenticationStatementProviders) {
-                AuthenticationStatementBean statementBean = 
-                    statementProvider.getStatement(tokenParameters);
+                AuthenticationStatementBean statementBean = statementProvider.getStatement(tokenParameters);
                 if (statementBean != null) {
-                    LOG.fine(
-                        "AuthenticationStatement" + statementBean.toString() 
-                        + "returned by AuthenticationStatementProvider " 
-                        + statementProvider.getClass().getName()
-                    );
+                    if (LOG.isLoggable(Level.FINE)) {
+                        LOG.fine(
+                            "AuthenticationStatement" + statementBean.toString() 
+                            + "returned by AuthenticationStatementProvider " 
+                            + statementProvider.getClass().getName()
+                        );
+                    }
                     authBeanList.add(statementBean);
+                    statementAdded = true;
                 }
             }
         }
@@ -422,28 +371,27 @@ public class SAMLTokenProvider implements TokenProvider {
         List<AuthDecisionStatementBean> authDecisionBeanList = null;
         if (authDecisionStatementProviders != null 
             && authDecisionStatementProviders.size() > 0) {
-            authDecisionBeanList = new ArrayList<AuthDecisionStatementBean>();
-            for (AuthDecisionStatementProvider statementProvider 
-                : authDecisionStatementProviders) {
-                AuthDecisionStatementBean statementBean = 
-                    statementProvider.getStatement(tokenParameters);
+            authDecisionBeanList = new ArrayList<>();
+            for (AuthDecisionStatementProvider statementProvider : authDecisionStatementProviders) {
+                AuthDecisionStatementBean statementBean = statementProvider.getStatement(tokenParameters);
                 if (statementBean != null) {
-                    LOG.fine(
-                        "AuthDecisionStatement" + statementBean.toString() 
-                        + "returned by AuthDecisionStatementProvider " 
-                        + statementProvider.getClass().getName()
-                    );
+                    if (LOG.isLoggable(Level.FINE)) {
+                        LOG.fine(
+                            "AuthDecisionStatement" + statementBean.toString() 
+                            + "returned by AuthDecisionStatementProvider " 
+                            + statementProvider.getClass().getName()
+                        );
+                    }
                     authDecisionBeanList.add(statementBean);
+                    statementAdded = true;
                 }
             }
         }
         
         // If no providers have been configured, then default to the ClaimsAttributeStatementProvider
         // If no Claims are available then use the DefaultAttributeStatementProvider
-        if ((attributeStatementProviders == null || attributeStatementProviders.isEmpty()) 
-            && (authenticationStatementProviders == null || authenticationStatementProviders.isEmpty())
-            && (authDecisionStatementProviders == null || authDecisionStatementProviders.isEmpty())) {
-            attrBeanList = new ArrayList<AttributeStatementBean>();
+        if (!statementAdded) {
+            attrBeanList = new ArrayList<>();
             AttributeStatementProvider attributeProvider = new ClaimsAttributeStatementProvider();
             AttributeStatementBean attributeBean = attributeProvider.getStatement(tokenParameters);
             if (attributeBean != null) {
@@ -456,7 +404,15 @@ public class SAMLTokenProvider implements TokenProvider {
         }
         
         // Get the Subject and Conditions
-        SubjectBean subjectBean = subjectProvider.getSubject(tokenParameters, doc, secret);
+        SubjectProviderParameters subjectProviderParameters = new SubjectProviderParameters();
+        subjectProviderParameters.setProviderParameters(tokenParameters);
+        subjectProviderParameters.setDoc(doc);
+        subjectProviderParameters.setSecret(secret);
+        subjectProviderParameters.setAttrBeanList(attrBeanList);
+        subjectProviderParameters.setAuthBeanList(authBeanList);
+        subjectProviderParameters.setAuthDecisionBeanList(authDecisionBeanList);
+        SubjectBean subjectBean = subjectProvider.getSubject(subjectProviderParameters);
+        
         ConditionsBean conditionsBean = conditionsProvider.getConditions(tokenParameters);
         
         // Set all of the beans on the SamlCallbackHandler

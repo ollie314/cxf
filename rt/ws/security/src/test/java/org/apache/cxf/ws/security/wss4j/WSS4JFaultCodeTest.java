@@ -19,17 +19,13 @@
 package org.apache.cxf.ws.security.wss4j;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 
 import javax.xml.namespace.QName;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.soap.MessageFactory;
+import javax.xml.soap.SOAPConstants;
 import javax.xml.soap.SOAPMessage;
-import javax.xml.soap.SOAPPart;
 import javax.xml.stream.XMLStreamReader;
-import javax.xml.stream.XMLStreamWriter;
-import javax.xml.transform.dom.DOMSource;
 
 import org.w3c.dom.Document;
 
@@ -41,9 +37,9 @@ import org.apache.cxf.message.ExchangeImpl;
 import org.apache.cxf.message.MessageImpl;
 import org.apache.cxf.phase.PhaseInterceptor;
 import org.apache.cxf.staxutils.StaxUtils;
+import org.apache.cxf.ws.security.SecurityConstants;
 import org.apache.wss4j.dom.WSConstants;
 import org.apache.wss4j.dom.handler.WSHandlerConstants;
-
 import org.junit.Test;
 
 
@@ -62,17 +58,9 @@ public class WSS4JFaultCodeTest extends AbstractSecurityTest {
     public void testNoSecurity() throws Exception {
         Document doc = readDocument("wsse-request-clean.xml");
 
-        SoapMessage msg = new SoapMessage(new MessageImpl());
-        Exchange ex = new ExchangeImpl();
-        ex.setInMessage(msg);
-        
-        SOAPMessage saajMsg = MessageFactory.newInstance().createMessage();
-        SOAPPart part = saajMsg.getSOAPPart();
-        part.setContent(new DOMSource(doc));
-        saajMsg.saveChanges();
-
-        msg.setContent(SOAPMessage.class, saajMsg);
-        doc = part;
+        SoapMessage msg = getSoapMessageForDom(doc);
+        SOAPMessage saajMsg = msg.getContent(SOAPMessage.class);
+        doc = saajMsg.getSOAPPart();
         
         byte[] docbytes = getMessageBytes(doc);
         XMLStreamReader reader = StaxUtils.createXMLStreamReader(new ByteArrayInputStream(docbytes));
@@ -91,13 +79,16 @@ public class WSS4JFaultCodeTest extends AbstractSecurityTest {
         WSS4JInInterceptor inHandler = new WSS4JInInterceptor();
 
         SoapMessage inmsg = new SoapMessage(new MessageImpl());
+        Exchange ex = new ExchangeImpl();
         ex.setInMessage(inmsg);
         inmsg.setContent(SOAPMessage.class, saajMsg);
 
         inHandler.setProperty(WSHandlerConstants.ACTION, WSHandlerConstants.ENCRYPT);
         inHandler.setProperty(WSHandlerConstants.DEC_PROP_FILE, "insecurity.properties");
         inHandler.setProperty(WSHandlerConstants.PW_CALLBACK_CLASS, TestPwdCallback.class.getName());
-
+        
+        inmsg.put(SecurityConstants.RETURN_SECURITY_ERROR, Boolean.TRUE);
+        
         try {
             inHandler.handleMessage(inmsg);
             fail("Expected failure on an message with no security header");
@@ -119,23 +110,15 @@ public class WSS4JFaultCodeTest extends AbstractSecurityTest {
         WSS4JOutInterceptor ohandler = new WSS4JOutInterceptor();
         PhaseInterceptor<SoapMessage> handler = ohandler.createEndingInterceptor();
 
-        SoapMessage msg = new SoapMessage(new MessageImpl());
-        Exchange ex = new ExchangeImpl();
-        ex.setInMessage(msg);
-        
-        SOAPMessage saajMsg = MessageFactory.newInstance().createMessage();
-        SOAPPart part = saajMsg.getSOAPPart();
-        part.setContent(new DOMSource(doc));
-        saajMsg.saveChanges();
-
-        msg.setContent(SOAPMessage.class, saajMsg);
+        SoapMessage msg = getSoapMessageForDom(doc);
 
         msg.put(WSHandlerConstants.ACTION, WSHandlerConstants.TIMESTAMP);
         msg.put(WSHandlerConstants.TTL_TIMESTAMP, "1");
 
         handler.handleMessage(msg);
 
-        doc = part;
+        SOAPMessage saajMsg = msg.getContent(SOAPMessage.class);
+        doc = saajMsg.getSOAPPart();
         
         assertValid("//wsse:Security", doc);
 
@@ -156,11 +139,13 @@ public class WSS4JFaultCodeTest extends AbstractSecurityTest {
         WSS4JInInterceptor inHandler = new WSS4JInInterceptor();
 
         SoapMessage inmsg = new SoapMessage(new MessageImpl());
+        Exchange ex = new ExchangeImpl();
         ex.setInMessage(inmsg);
         inmsg.setContent(SOAPMessage.class, saajMsg);
 
         inHandler.setProperty(WSHandlerConstants.ACTION, WSHandlerConstants.TIMESTAMP);
         inHandler.setProperty(WSHandlerConstants.TTL_TIMESTAMP, "1");
+        inmsg.put(SecurityConstants.RETURN_SECURITY_ERROR, Boolean.TRUE);
 
         try {
             //
@@ -170,7 +155,7 @@ public class WSS4JFaultCodeTest extends AbstractSecurityTest {
             inHandler.handleMessage(inmsg);
             fail("Expected failure on an invalid Timestamp");
         } catch (SoapFault fault) {
-            assertTrue(fault.getReason().contains("The message has expired"));
+            assertTrue(fault.getReason().contains("Invalid timestamp"));
             QName faultCode = new QName(WSConstants.WSSE_NS, "MessageExpired");
             assertTrue(fault.getFaultCode().equals(faultCode));
         }
@@ -186,22 +171,14 @@ public class WSS4JFaultCodeTest extends AbstractSecurityTest {
         WSS4JOutInterceptor ohandler = new WSS4JOutInterceptor();
         PhaseInterceptor<SoapMessage> handler = ohandler.createEndingInterceptor();
 
-        SoapMessage msg = new SoapMessage(new MessageImpl());
-        Exchange ex = new ExchangeImpl();
-        ex.setInMessage(msg);
-        
-        SOAPMessage saajMsg = MessageFactory.newInstance().createMessage();
-        SOAPPart part = saajMsg.getSOAPPart();
-        part.setContent(new DOMSource(doc));
-        saajMsg.saveChanges();
-
-        msg.setContent(SOAPMessage.class, saajMsg);
+        SoapMessage msg = getSoapMessageForDom(doc);
 
         msg.put(WSHandlerConstants.ACTION, WSHandlerConstants.TIMESTAMP);
 
         handler.handleMessage(msg);
 
-        doc = part;
+        SOAPMessage saajMsg = msg.getContent(SOAPMessage.class);
+        doc = saajMsg.getSOAPPart();
         
         assertValid("//wsse:Security", doc);
 
@@ -222,6 +199,7 @@ public class WSS4JFaultCodeTest extends AbstractSecurityTest {
         WSS4JInInterceptor inHandler = new WSS4JInInterceptor();
 
         SoapMessage inmsg = new SoapMessage(new MessageImpl());
+        Exchange ex = new ExchangeImpl();
         ex.setInMessage(inmsg);
         inmsg.setContent(SOAPMessage.class, saajMsg);
 
@@ -229,6 +207,8 @@ public class WSS4JFaultCodeTest extends AbstractSecurityTest {
             WSHandlerConstants.TIMESTAMP + " " + WSHandlerConstants.USERNAME_TOKEN);
         inHandler.setProperty(WSHandlerConstants.PW_CALLBACK_CLASS, TestPwdCallback.class.getName());
 
+        inmsg.put(SecurityConstants.RETURN_SECURITY_ERROR, Boolean.TRUE);
+        
         try {
             inHandler.handleMessage(inmsg);
             fail("Expected failure on an action mismatch");
@@ -240,18 +220,48 @@ public class WSS4JFaultCodeTest extends AbstractSecurityTest {
         }
     }
     
+    // See CXF-6900.
+    @Test
+    public void testSignedEncryptedSOAP12Fault() throws Exception {
+        Document doc = readDocument("wsse-response-fault.xml");
 
-    private byte[] getMessageBytes(Document doc) throws Exception {
-        // XMLOutputFactory factory = XMLOutputFactory.newInstance();
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        SoapMessage msg = getSoapMessageForDom(doc, SOAPConstants.SOAP_1_2_PROTOCOL);
+        SOAPMessage saajMsg = msg.getContent(SOAPMessage.class);
+        doc = saajMsg.getSOAPPart();
+        
+        byte[] docbytes = getMessageBytes(doc);
+        XMLStreamReader reader = StaxUtils.createXMLStreamReader(new ByteArrayInputStream(docbytes));
 
-        // XMLStreamWriter byteArrayWriter =
-        // factory.createXMLStreamWriter(outputStream);
-        XMLStreamWriter byteArrayWriter = StaxUtils.createXMLStreamWriter(outputStream);
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
 
-        StaxUtils.writeDocument(doc, byteArrayWriter, false);
+        dbf.setValidating(false);
+        dbf.setIgnoringComments(false);
+        dbf.setIgnoringElementContentWhitespace(true);
+        dbf.setNamespaceAware(true);
 
-        byteArrayWriter.flush();
-        return outputStream.toByteArray();
+        DocumentBuilder db = dbf.newDocumentBuilder();
+        db.setEntityResolver(new NullResolver());
+        doc = StaxUtils.read(db, reader, false);
+
+        WSS4JInInterceptor inHandler = new WSS4JInInterceptor();
+
+        SoapMessage inmsg = new SoapMessage(new MessageImpl());
+        Exchange ex = new ExchangeImpl();
+        ex.setInMessage(inmsg);
+        inmsg.setContent(SOAPMessage.class, saajMsg);
+
+        inHandler.setProperty(WSHandlerConstants.ACTION, 
+                              WSHandlerConstants.SIGNATURE + " "  + WSHandlerConstants.ENCRYPT);
+        inHandler.setProperty(WSHandlerConstants.DEC_PROP_FILE, "insecurity.properties");
+        inHandler.setProperty(WSHandlerConstants.SIG_VER_PROP_FILE, "insecurity.properties");
+        inHandler.setProperty(WSHandlerConstants.PW_CALLBACK_CLASS, TestPwdCallback.class.getName());
+        inHandler.setProperty(
+            WSHandlerConstants.PW_CALLBACK_CLASS, 
+            "org.apache.cxf.ws.security.wss4j.TestPwdCallback"
+        );
+        
+        inHandler.handleMessage(inmsg);
+        // StaxUtils.print(saajMsg.getSOAPPart());
     }
+    
 }

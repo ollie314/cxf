@@ -48,10 +48,9 @@ import org.apache.cxf.ws.security.wss4j.CryptoCoverageUtil.CoverageType;
 import org.apache.wss4j.common.ext.WSSecurityException;
 import org.apache.wss4j.dom.WSConstants;
 import org.apache.wss4j.dom.WSDataRef;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
 import org.apache.wss4j.dom.handler.WSHandlerConstants;
 import org.apache.wss4j.dom.handler.WSHandlerResult;
-import org.apache.wss4j.dom.util.WSSecurityUtil;
 
 /**
  * Utility to enable the checking of WS-Security signature/encryption
@@ -66,12 +65,12 @@ public class CryptoCoverageChecker extends AbstractSoapInterceptor {
      * that must be covered.  See {@link #prefixMap}
      * for namespace prefixes available.
      */
-    protected List<XPathExpression> xPaths = new ArrayList<XPathExpression>();
+    protected List<XPathExpression> xPaths = new ArrayList<>();
     
     /**
      * Mapping of namespace prefixes to namespace URIs.
      */
-    protected Map<String, String> prefixMap = new HashMap<String, String>();
+    protected Map<String, String> prefixMap = new HashMap<>();
     
     private boolean checkFaults = true;
     
@@ -92,8 +91,7 @@ public class CryptoCoverageChecker extends AbstractSoapInterceptor {
      * @param xPaths
      *            a list of XPath expressions
      */
-    public CryptoCoverageChecker(Map<String, String> prefixes, List<XPathExpression> xPaths)
-    {
+    public CryptoCoverageChecker(Map<String, String> prefixes, List<XPathExpression> xPaths) {
         super(Phase.PRE_PROTOCOL);
         this.addAfter(WSS4JInInterceptor.class.getName());
         this.setPrefixes(prefixes);
@@ -116,6 +114,10 @@ public class CryptoCoverageChecker extends AbstractSoapInterceptor {
             // return
         }
         
+        if (message.getContent(SOAPMessage.class) == null) {
+            throw new SoapFault("Error obtaining SOAP document", Fault.FAULT_CODE_CLIENT);
+        }
+        
         Element documentElement = null;
         try {
             SOAPMessage saajDoc = message.getContent(SOAPMessage.class);
@@ -128,43 +130,38 @@ public class CryptoCoverageChecker extends AbstractSoapInterceptor {
             throw new SoapFault("Error obtaining SOAP document", Fault.FAULT_CODE_CLIENT);
         }
         
-        final Collection<WSDataRef> signed = new HashSet<WSDataRef>();
-        final Collection<WSDataRef> encrypted = new HashSet<WSDataRef>();
+        final Collection<WSDataRef> signed = new HashSet<>();
+        final Collection<WSDataRef> encrypted = new HashSet<>();
         
         List<WSHandlerResult> results = CastUtils.cast(
                 (List<?>) message.get(WSHandlerConstants.RECV_RESULTS));
         
-        for (final WSHandlerResult wshr : results) {
-            final List<WSSecurityEngineResult> wsSecurityEngineSignResults = 
-                WSSecurityUtil.fetchAllActionResults(wshr.getResults(), WSConstants.SIGN);
-            
-            final List<WSSecurityEngineResult> wsSecurityEngineEncResults = 
-                WSSecurityUtil.fetchAllActionResults(wshr.getResults(), WSConstants.ENCR);
-            
-            for (WSSecurityEngineResult wser : wsSecurityEngineSignResults) {
-            
-                List<WSDataRef> sl = CastUtils.cast((List<?>) wser
-                        .get(WSSecurityEngineResult.TAG_DATA_REF_URIS));
-                if (sl != null) {
-                    if (sl.size() == 1
-                        && sl.get(0).getName().equals(new QName(WSConstants.SIG_NS, WSConstants.SIG_LN))) {
-                        //endorsing the signature so don't include
-                        break;
-                    }
-                    
-                    for (WSDataRef r : sl) {
-                        signed.add(r);
+        // Get all encrypted and signed references
+        for (WSHandlerResult wshr : results) {
+            List<WSSecurityEngineResult> signedResults = wshr.getActionResults().get(WSConstants.SIGN);
+            if (signedResults != null) {
+                for (WSSecurityEngineResult signedResult : signedResults) {
+                    List<WSDataRef> sl = 
+                        CastUtils.cast((List<?>)signedResult.get(WSSecurityEngineResult.TAG_DATA_REF_URIS));
+                    if (sl != null) {
+                        if (sl.size() == 1
+                            && sl.get(0).getName().equals(new QName(WSConstants.SIG_NS, WSConstants.SIG_LN))) {
+                            //endorsing the signature so don't include
+                            continue;
+                        }
+                        
+                        signed.addAll(sl);
                     }
                 }
             }
             
-            for (WSSecurityEngineResult wser : wsSecurityEngineEncResults) {
-                List<WSDataRef> el = CastUtils.cast((List<?>) wser
-                        .get(WSSecurityEngineResult.TAG_DATA_REF_URIS));
-
-                if (el != null) {
-                    for (WSDataRef r : el) {
-                        encrypted.add(r);
+            List<WSSecurityEngineResult> encryptedResults = wshr.getActionResults().get(WSConstants.ENCR);
+            if (encryptedResults != null) {
+                for (WSSecurityEngineResult encryptedResult : encryptedResults) {
+                    List<WSDataRef> el = 
+                        CastUtils.cast((List<?>)encryptedResult.get(WSSecurityEngineResult.TAG_DATA_REF_URIS));
+                    if (el != null) {
+                        encrypted.addAll(el);
                     }
                 }
             }

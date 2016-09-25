@@ -101,12 +101,13 @@ public class DocLiteralInInterceptor extends AbstractInDatabindingInterceptor {
                 // Determine if we should keep the parameters wrapper
                 if (shouldWrapParameters(msgInfo, message)) {
                     QName startQName = xmlReader.getName();
-                    if (!msgInfo.getMessageParts().get(0).getConcreteName().equals(startQName)) {
+                    MessagePartInfo mpi = msgInfo.getFirstMessagePart();
+                    if (!mpi.getConcreteName().equals(startQName)) {
                         throw new Fault("UNEXPECTED_WRAPPER_ELEMENT", LOG, null, startQName,
-                                        msgInfo.getMessageParts().get(0).getConcreteName());
+                                        mpi.getConcreteName());
                     }
-                    Object wrappedObject = dr.read(msgInfo.getMessageParts().get(0), xmlReader);
-                    parameters.put(msgInfo.getMessageParts().get(0), wrappedObject);
+                    Object wrappedObject = dr.read(mpi, xmlReader);
+                    parameters.put(mpi, wrappedObject);
                 } else {
                     // Unwrap each part individually if we don't have a wrapper
     
@@ -131,7 +132,7 @@ public class DocLiteralInInterceptor extends AbstractInDatabindingInterceptor {
                 BindingMessageInfo msgInfo = null;
 
     
-                Endpoint ep = exchange.get(Endpoint.class);
+                Endpoint ep = exchange.getEndpoint();
                 ServiceInfo si = ep.getEndpointInfo().getService();
                 if (bop != null) { //for xml binding or client side
                     if (client) {
@@ -219,13 +220,12 @@ public class DocLiteralInInterceptor extends AbstractInDatabindingInterceptor {
         // TO DO : check duplicate operation with no input and also check if the action matches 
         for (OperationInfo op : operations) {
             MessageInfo bmsg = op.getInput();
-            List<MessagePartInfo> bparts = bmsg.getMessageParts();
-            if (bparts.size() == 0
-                || (bparts.size() == 1 
-                    && Constants.XSD_ANYTYPE.equals(bparts.get(0).getTypeQName()))) {
+            int bPartsNum = bmsg.getMessagePartsNumber();
+            if (bPartsNum == 0
+                || (bPartsNum == 1 
+                    && Constants.XSD_ANYTYPE.equals(bmsg.getFirstMessagePart().getTypeQName()))) {
                 BindingOperationInfo boi = ep.getEndpointInfo().getBinding().getOperation(op);
                 exchange.put(BindingOperationInfo.class, boi);
-                exchange.put(OperationInfo.class, op);
                 exchange.setOneWay(op.isOneWay());
             }
         }
@@ -346,7 +346,6 @@ public class DocLiteralInInterceptor extends AbstractInDatabindingInterceptor {
             
         if (bop != null) {
             exchange.put(BindingOperationInfo.class, bop);
-            exchange.put(OperationInfo.class, bop.getOperationInfo());
         }
         return bop;
     }
@@ -354,7 +353,7 @@ public class DocLiteralInInterceptor extends AbstractInDatabindingInterceptor {
     protected boolean shouldWrapParameters(MessageInfo msgInfo, Message message) {
         Object keepParametersWrapperFlag = message.get(KEEP_PARAMETERS_WRAPPER);
         if (keepParametersWrapperFlag == null) {
-            return msgInfo.getMessageParts().get(0).getTypeClass() != null;
+            return msgInfo.getFirstMessagePart().getTypeClass() != null;
         } else {
             return Boolean.parseBoolean(keepParametersWrapperFlag.toString());
         }

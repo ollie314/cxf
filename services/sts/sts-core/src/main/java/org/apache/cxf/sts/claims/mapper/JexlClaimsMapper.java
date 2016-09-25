@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.apache.commons.jexl2.JexlContext;
@@ -48,8 +49,9 @@ public class JexlClaimsMapper implements ClaimsMapper {
         // jexl.setLenient(false);
         jexlEngine.setSilent(false);
 
-        Map<String, Object> functions = new HashMap<String, Object>();
+        Map<String, Object> functions = new HashMap<>();
         functions.put("claims", new ClaimUtils());
+        functions.put("LOG", LOG);
         jexlEngine.setFunctions(functions);
     }
 
@@ -90,11 +92,18 @@ public class JexlClaimsMapper implements ClaimsMapper {
 
     public void setScript(String scriptLocation) throws IOException {
         URL resource = ClassLoaderUtils.getResource(scriptLocation, this.getClass());
-        if (resource == null) {
+        if (resource != null) {
+            scriptLocation = resource.getPath();
+            if (LOG.isLoggable(Level.FINE)) {
+                LOG.fine("Script found within Classpath: " + scriptLocation);
+            }
+        }
+        File scriptFile = new File(scriptLocation);
+        if (scriptFile.exists()) {
+            this.script = jexlEngine.createScript(scriptFile);
+        } else {
             throw new IllegalArgumentException("Script resource not found!");
         }
-        
-        this.script = jexlEngine.createScript(new File(resource.getPath()));
     }
 
     public JexlEngine getJexlEngine() {

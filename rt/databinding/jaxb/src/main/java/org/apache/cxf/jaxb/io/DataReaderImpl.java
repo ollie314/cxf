@@ -26,18 +26,22 @@ import java.util.logging.Logger;
 
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.PropertyException;
+import javax.xml.bind.UnmarshalException;
 import javax.xml.bind.Unmarshaller;
 import javax.xml.bind.ValidationEvent;
 import javax.xml.bind.ValidationEventHandler;
+import javax.xml.bind.annotation.adapters.XmlAdapter;
 import javax.xml.namespace.QName;
 
 import org.apache.cxf.common.i18n.Message;
+import org.apache.cxf.common.jaxb.JAXBUtils;
 import org.apache.cxf.common.logging.LogUtils;
 import org.apache.cxf.databinding.DataReader;
 import org.apache.cxf.interceptor.Fault;
 import org.apache.cxf.jaxb.JAXBDataBase;
 import org.apache.cxf.jaxb.JAXBDataBinding;
 import org.apache.cxf.jaxb.JAXBEncoderDecoder;
+import org.apache.cxf.jaxb.UnmarshallerEventHandler;
 import org.apache.cxf.message.MessageUtils;
 import org.apache.cxf.service.model.MessagePartInfo;
 
@@ -65,34 +69,39 @@ public class DataReaderImpl<T> extends JAXBDataBase implements DataReader<T> {
         }
         
         public boolean handleEvent(ValidationEvent event) {
-            String msg = event.getMessage();
-            if (msg != null 
-                && msg.contains(":Id") 
-                && (msg.startsWith("cvc-type.3.1.1: ") 
-                    || msg.startsWith("cvc-type.3.2.2: ") 
-                    || msg.startsWith("cvc-complex-type.3.1.1: ")
-                    || msg.startsWith("cvc-complex-type.3.2.2: "))) {
+            // if the original handler has already handled the event, no need for us
+            // to do anything, otherwise if not yet handled, then do this 'hack' 
+            if (origHandler != null && origHandler.handleEvent(event)) {
                 return true;
+            } else {
+                // hack for CXF-3453
+                String msg = event.getMessage();
+                return msg != null 
+                    && msg.contains(":Id") 
+                    && (msg.startsWith("cvc-type.3.1.1: ") 
+                        || msg.startsWith("cvc-type.3.2.2: ") 
+                        || msg.startsWith("cvc-complex-type.3.1.1: ")
+                        || msg.startsWith("cvc-complex-type.3.2.2: "));
             }
-            if (origHandler != null) {
-                return origHandler.handleEvent(event);
-            }
-            return false;
         }
     }
+    
     public void setProperty(String prop, Object value) {
         if (prop.equals(JAXBDataBinding.UNWRAP_JAXB_ELEMENT)) {
             unwrapJAXBElement = Boolean.TRUE.equals(value);
         } else if (prop.equals(org.apache.cxf.message.Message.class.getName())) {
             org.apache.cxf.message.Message m = (org.apache.cxf.message.Message)value;
-            veventHandler = (ValidationEventHandler)m.getContextualProperty("jaxb-reader-validation-event-handler");
+            veventHandler = (ValidationEventHandler)m.getContextualProperty(
+                    JAXBDataBinding.READER_VALIDATION_EVENT_HANDLER);
             if (veventHandler == null) {
-                veventHandler = (ValidationEventHandler)m.getContextualProperty("jaxb-validation-event-handler");
+                veventHandler = (ValidationEventHandler)m.getContextualProperty(
+                        JAXBDataBinding.VALIDATION_EVENT_HANDLER);
             }
             if (veventHandler == null) {
                 veventHandler = databinding.getValidationEventHandler();
             }
-            setEventHandler = MessageUtils.getContextualBoolean(m, "set-jaxb-validation-event-handler", true);
+            setEventHandler = MessageUtils.getContextualBoolean(m, 
+                    JAXBDataBinding.SET_VALIDATION_EVENT_HANDLER, true);
             
             Object unwrapProperty = m.get(JAXBDataBinding.UNWRAP_JAXB_ELEMENT);
             if (unwrapProperty == null) {
@@ -103,6 +112,7 @@ public class DataReaderImpl<T> extends JAXBDataBase implements DataReader<T> {
             }
         }
     }
+    
     private Unmarshaller createUnmarshaller() {
         try {
             Unmarshaller um = null;
@@ -125,6 +135,9 @@ public class DataReaderImpl<T> extends JAXBDataBase implements DataReader<T> {
             }
             um.setSchema(schema);
             um.setAttachmentUnmarshaller(getAttachmentUnmarshaller());
+            for (XmlAdapter<?, ?> adapter : databinding.getConfiguredXmlAdapters()) {
+                um.setAdapter(adapter);
+            }
             return um;
         } catch (JAXBException ex) {
             if (ex instanceof javax.xml.bind.UnmarshalException) {
@@ -148,23 +161,59 @@ public class DataReaderImpl<T> extends JAXBDataBase implements DataReader<T> {
                 // TODO:Cache the JAXBRIContext
                 QName qname = new QName(null, part.getConcreteName().getLocalPart());
 
-                return JAXBEncoderDecoder.unmarshalWithBridge(qname, 
+                Object obj = JAXBEncoderDecoder.unmarshalWithBridge(qname, 
                                                               part.getTypeClass(), 
                                                               anns, 
                                                               databinding.getContextClasses(), 
                                                               reader, 
                                                               getAttachmentUnmarshaller());
+                
+                onCompleteUnmarshalling();
+                
+                return obj;
             }
         }
         
-        return JAXBEncoderDecoder.unmarshall(createUnmarshaller(), reader, part, 
-                                             unwrapJAXBElement);
+        Unmarshaller um = createUnmarshaller();
+        try {
+            Object obj = JAXBEncoderDecoder.unmarshall(um, reader, part, 
+                                                 unwrapJAXBElement);
+            onCompleteUnmarshalling();
+            
+            return obj;
+        } finally {
+            JAXBUtils.closeUnmarshaller(um);
+        }
     }
 
     public Object read(QName name, T input, Class<?> type) {
-        return JAXBEncoderDecoder.unmarshall(createUnmarshaller(), input,
+        Unmarshaller um = createUnmarshaller();
+        
+        try {
+            Object obj = JAXBEncoderDecoder.unmarshall(um, input,
                                              name, type, 
                                              unwrapJAXBElement);
+            onCompleteUnmarshalling();
+            
+            return obj;
+        } finally {
+            JAXBUtils.closeUnmarshaller(um);
+        }
+
     }
 
+    private void onCompleteUnmarshalling() {
+        if (setEventHandler && veventHandler instanceof UnmarshallerEventHandler) {
+            try {
+                ((UnmarshallerEventHandler) veventHandler).onUnmarshalComplete();
+            } catch (UnmarshalException e) {
+                if (e.getLinkedException() != null) {
+                    throw new Fault(new Message("UNMARSHAL_ERROR", LOG, 
+                            e.getLinkedException().getMessage()), e);
+                } else {
+                    throw new Fault(new Message("UNMARSHAL_ERROR", LOG, e.getMessage()), e);
+                }
+            }
+        }
+    }
 }

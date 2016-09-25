@@ -35,11 +35,11 @@
     <http:conduit name="https://localhost:.*">
         <http:tlsClientParameters disableCNCheck="true">
             <sec:trustManagers>
-                <sec:keyStore type="jks" password="password" resource="org/apache/cxf/systest/ws/security/Truststore.jks"/>
+                <sec:keyStore type="jks" password="password" resource="keys/Truststore.jks"/>
             </sec:trustManagers>
         </http:tlsClientParameters>
     </http:conduit>
-    <jaxws:endpoint xmlns:s="http://www.example.org/contract/DoubleIt" id="NoSecurity" address="http://localhost:${testutil.ports.Intermediary}/DoubleItX509" serviceName="s:DoubleItService" endpointName="s:DoubleItPort" implementor="org.apache.cxf.systest.ws.x509.DoubleItIntermediaryImpl" wsdlLocation="org/apache/cxf/systest/ws/x509/DoubleItIntermediary.wsdl">
+    <jaxws:endpoint xmlns:s="http://www.example.org/contract/DoubleIt" id="NoSecurity" address="http://localhost:${testutil.ports.x509.Intermediary}/DoubleItX509" serviceName="s:DoubleItService" endpointName="s:DoubleItPort" implementor="org.apache.cxf.systest.ws.x509.DoubleItIntermediaryImpl" wsdlLocation="org/apache/cxf/systest/ws/x509/DoubleItIntermediary.wsdl">
         <jaxws:properties>
        </jaxws:properties>
     </jaxws:endpoint>

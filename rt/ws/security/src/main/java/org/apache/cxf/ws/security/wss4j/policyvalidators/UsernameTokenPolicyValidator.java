@@ -19,82 +19,85 @@
 
 package org.apache.cxf.ws.security.wss4j.policyvalidators;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-import org.w3c.dom.Element;
+import javax.xml.namespace.QName;
 
-import org.apache.cxf.message.Message;
 import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
-import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
 import org.apache.wss4j.dom.message.token.UsernameToken;
-import org.apache.wss4j.dom.util.WSSecurityUtil;
+import org.apache.wss4j.policy.SP11Constants;
+import org.apache.wss4j.policy.SP12Constants;
 import org.apache.wss4j.policy.SP13Constants;
 import org.apache.wss4j.policy.SPConstants;
 import org.apache.wss4j.policy.model.AbstractSecurityAssertion;
 import org.apache.wss4j.policy.model.SupportingTokens;
 import org.apache.wss4j.policy.model.UsernameToken.PasswordType;
+import org.apache.wss4j.policy.model.UsernameToken.UsernameTokenType;
 
 /**
  * Validate a UsernameToken policy.
  */
-public class UsernameTokenPolicyValidator 
-    extends AbstractTokenPolicyValidator implements TokenPolicyValidator {
+public class UsernameTokenPolicyValidator extends AbstractSecurityPolicyValidator {
     
-    public boolean validatePolicy(
-        AssertionInfoMap aim,
-        Message message,
-        Element soapBody,
-        List<WSSecurityEngineResult> results,
-        List<WSSecurityEngineResult> signedResults
-    ) {
-        Collection<AssertionInfo> ais = getAllAssertionsByLocalname(aim, SPConstants.USERNAME_TOKEN);
-        if (!ais.isEmpty()) {
-            parsePolicies(ais, message, results);
-            
-            assertPolicy(aim, SP13Constants.CREATED);
-            assertPolicy(aim, SP13Constants.NONCE);
-            assertPolicy(aim, SPConstants.NO_PASSWORD);
-            assertPolicy(aim, SPConstants.HASH_PASSWORD);
-            assertPolicy(aim, SPConstants.USERNAME_TOKEN10);
-            assertPolicy(aim, SPConstants.USERNAME_TOKEN11);
-        }
-        
-        return true;
+    /**
+     * Return true if this SecurityPolicyValidator implementation is capable of validating a 
+     * policy defined by the AssertionInfo parameter
+     */
+    public boolean canValidatePolicy(AssertionInfo assertionInfo) {
+        return assertionInfo.getAssertion() != null 
+            && (SP12Constants.USERNAME_TOKEN.equals(assertionInfo.getAssertion().getName())
+                || SP11Constants.USERNAME_TOKEN.equals(assertionInfo.getAssertion().getName()));
     }
     
-    private void parsePolicies(
-        Collection<AssertionInfo> ais, 
-        Message message,
-        List<WSSecurityEngineResult> results
-    ) {
-        final List<Integer> actions = new ArrayList<Integer>(2);
-        actions.add(WSConstants.UT);
-        actions.add(WSConstants.UT_NOPASSWORD);
-        List<WSSecurityEngineResult> utResults = 
-            WSSecurityUtil.fetchAllActionResults(results, actions);
-        
+    /**
+     * Validate policies. W
+     */
+    public void validatePolicies(PolicyValidatorParameters parameters, Collection<AssertionInfo> ais) {
         for (AssertionInfo ai : ais) {
             org.apache.wss4j.policy.model.UsernameToken usernameTokenPolicy = 
                 (org.apache.wss4j.policy.model.UsernameToken)ai.getAssertion();
             ai.setAsserted(true);
-            if (!isTokenRequired(usernameTokenPolicy, message)) {
+            assertToken(usernameTokenPolicy, parameters.getAssertionInfoMap());
+            
+            if (!isTokenRequired(usernameTokenPolicy, parameters.getMessage())) {
                 continue;
             }
 
-            if (utResults.isEmpty()) {
+            if (parameters.getUsernameTokenResults().isEmpty()) {
                 ai.setNotAsserted(
                     "The received token does not match the token inclusion requirement"
                 );
                 continue;
             }
 
-            if (!checkTokens(usernameTokenPolicy, ai, utResults)) {
+            if (!checkTokens(usernameTokenPolicy, ai, parameters.getUsernameTokenResults())) {
                 continue;
             }
+        }
+    }
+    
+    private void assertToken(org.apache.wss4j.policy.model.UsernameToken token, AssertionInfoMap aim) {
+        String namespace = token.getName().getNamespaceURI();
+        
+        if (token.isCreated()) {
+            PolicyUtils.assertPolicy(aim, SP13Constants.CREATED);
+        }
+        if (token.isNonce()) {
+            PolicyUtils.assertPolicy(aim, SP13Constants.NONCE);
+        }
+        
+        PasswordType passwordType = token.getPasswordType();
+        if (passwordType != null) {
+            PolicyUtils.assertPolicy(aim, new QName(namespace, passwordType.name()));
+        }
+        
+        UsernameTokenType usernameTokenType = token.getUsernameTokenType();
+        if (usernameTokenType != null) {
+            PolicyUtils.assertPolicy(aim, new QName(namespace, usernameTokenType.name()));
         }
     }
     

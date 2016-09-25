@@ -49,9 +49,10 @@ import org.apache.cxf.staxutils.StaxUtils;
 
 //The following wsdl file is used.
 //wsdlLocation = "/trunk/testutils/src/main/resources/wsdl/hello_world_rpc_lit.wsdl"
-@WebServiceProvider(portName = "SoapPortProviderRPCLit3", serviceName = "SOAPServiceProviderRPCLit",
-                      targetNamespace = "http://apache.org/hello_world_rpclit",
- wsdlLocation = "/wsdl/hello_world_rpc_lit.wsdl")
+@WebServiceProvider(portName = "SoapPortProviderRPCLit3",
+                    serviceName = "SOAPServiceProviderRPCLit",
+                    targetNamespace = "http://apache.org/hello_world_rpclit",
+                    wsdlLocation = "/wsdl/hello_world_rpc_lit.wsdl")
 @ServiceMode (value = javax.xml.ws.Service.Mode.PAYLOAD)
 @HandlerChain(file = "./handlers_invocation.xml", name = "TestHandlerChain")
 public abstract class AbstractSourcePayloadProvider implements SourceProvider {
@@ -116,15 +117,17 @@ public abstract class AbstractSourcePayloadProvider implements SourceProvider {
 
     public static String getSourceAsString(Source s) throws Exception {
         try {
-            Transformer transformer = TransformerFactory.newInstance().newTransformer();
+            TransformerFactory transformerFactory = TransformerFactory.newInstance();
+            transformerFactory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            Transformer transformer = transformerFactory.newTransformer();
             transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
             transformer.setOutputProperty(OutputKeys.METHOD, "xml");
-            Writer out = new StringWriter();
-            StreamResult streamResult = new StreamResult();
-            streamResult.setWriter(out);
-            transformer.transform(s, streamResult);
-            return streamResult.getWriter().toString();
-            
+            try (Writer out = new StringWriter()) {
+                StreamResult streamResult = new StreamResult();
+                streamResult.setWriter(out);
+                transformer.transform(s, streamResult);
+                return streamResult.getWriter().toString();
+            }
         } catch (TransformerException te) {
             if ("javax.xml.transform.stax.StAXSource".equals(s.getClass().getName())) {
                 //on java6, we will get this class if "stax" is configured

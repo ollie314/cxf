@@ -60,7 +60,6 @@ import org.apache.cxf.interceptor.LoggingInInterceptor;
 import org.apache.cxf.interceptor.LoggingOutInterceptor;
 import org.apache.cxf.interceptor.transform.TransformInInterceptor;
 import org.apache.cxf.interceptor.transform.TransformOutInterceptor;
-import org.apache.cxf.io.CachedOutputStream;
 import org.apache.cxf.jaxrs.client.ClientConfiguration;
 import org.apache.cxf.jaxrs.client.JAXRSClientFactory;
 import org.apache.cxf.jaxrs.client.JAXRSClientFactoryBean;
@@ -172,9 +171,12 @@ public class JAXRSSoapBookTest extends AbstractBusClientServerTestBase {
     
     @Test
     public void testGetAll() throws Exception {
+        URL url = new URL("http://localhost:" + PORT + "/test/services/rest2/myRestService");
         
-        InputStream in = getHttpInputStream("http://localhost:" + PORT 
-                                            + "/test/services/rest2/myRestService");
+        URLConnection connect = url.openConnection();
+        connect.addRequestProperty("Accept", "text/plain");
+        InputStream in = connect.getInputStream();
+        
         assertEquals("0", getStringFromInputStream(in));
                 
     }
@@ -933,12 +935,7 @@ public class JAXRSSoapBookTest extends AbstractBusClientServerTestBase {
     }
 
     private String getStringFromInputStream(InputStream in) throws Exception {        
-        CachedOutputStream bos = new CachedOutputStream();
-        IOUtils.copy(in, bos);
-        String str = new String(bos.getBytes()); 
-        in.close();
-        bos.close();
-        return str;
+        return IOUtils.toString(in);
     }
 
     private InputStream getHttpInputStream(String endpointAddress) throws Exception {

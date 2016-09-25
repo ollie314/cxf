@@ -22,68 +22,64 @@ package org.apache.cxf.ws.security.wss4j.policyvalidators;
 import java.util.Collection;
 import java.util.List;
 
-import org.w3c.dom.Element;
-
-import org.apache.cxf.message.Message;
 import org.apache.cxf.ws.policy.AssertionInfo;
 import org.apache.cxf.ws.policy.AssertionInfoMap;
+import org.apache.cxf.ws.security.policy.PolicyUtils;
 import org.apache.wss4j.dom.WSConstants;
-import org.apache.wss4j.dom.WSSecurityEngineResult;
-import org.apache.wss4j.dom.util.WSSecurityUtil;
+import org.apache.wss4j.dom.engine.WSSecurityEngineResult;
 import org.apache.wss4j.policy.SP11Constants;
 import org.apache.wss4j.policy.SP12Constants;
-import org.apache.wss4j.policy.SPConstants;
 import org.apache.wss4j.policy.model.SecurityContextToken;
 
 /**
  * Validate a SecurityContextToken policy.
  */
-public class SecurityContextTokenPolicyValidator 
-    extends AbstractTokenPolicyValidator implements TokenPolicyValidator {
+public class SecurityContextTokenPolicyValidator extends AbstractSecurityPolicyValidator {
     
-    public boolean validatePolicy(
-        AssertionInfoMap aim,
-        Message message,
-        Element soapBody,
-        List<WSSecurityEngineResult> results,
-        List<WSSecurityEngineResult> signedResults
-    ) {
-        Collection<AssertionInfo> ais = 
-            getAllAssertionsByLocalname(aim, SPConstants.SECURITY_CONTEXT_TOKEN);
-        if (!ais.isEmpty()) {
-            parsePolicies(aim, ais, message, results);
-        }
-        
-        return true;
+    /**
+     * Return true if this SecurityPolicyValidator implementation is capable of validating a 
+     * policy defined by the AssertionInfo parameter
+     */
+    public boolean canValidatePolicy(AssertionInfo assertionInfo) {
+        return assertionInfo.getAssertion() != null 
+            && (SP12Constants.SECURITY_CONTEXT_TOKEN.equals(assertionInfo.getAssertion().getName())
+                || SP11Constants.SECURITY_CONTEXT_TOKEN.equals(assertionInfo.getAssertion().getName()));
     }
     
-    private void parsePolicies(
-        AssertionInfoMap aim,
-        Collection<AssertionInfo> ais, 
-        Message message,
-        List<WSSecurityEngineResult> results
-    ) {
+    /**
+     * Validate policies.
+     */
+    public void validatePolicies(PolicyValidatorParameters parameters, Collection<AssertionInfo> ais) {
         List<WSSecurityEngineResult> sctResults = 
-            WSSecurityUtil.fetchAllActionResults(results, WSConstants.SCT);
+            parameters.getResults().getActionResults().get(WSConstants.SCT);
 
         for (AssertionInfo ai : ais) {
             SecurityContextToken sctPolicy = (SecurityContextToken)ai.getAssertion();
             ai.setAsserted(true);
+            assertToken(sctPolicy, parameters.getAssertionInfoMap());
             
-            assertPolicy(aim, SP12Constants.REQUIRE_EXTERNAL_URI_REFERENCE);
-            assertPolicy(aim, SP12Constants.SC13_SECURITY_CONTEXT_TOKEN);
-            assertPolicy(aim, SP11Constants.SC10_SECURITY_CONTEXT_TOKEN);
-
-            if (!isTokenRequired(sctPolicy, message)) {
+            if (!isTokenRequired(sctPolicy, parameters.getMessage())) {
                 continue;
             }
 
-            if (sctResults.isEmpty()) {
+            if (sctResults == null || sctResults.isEmpty()) {
                 ai.setNotAsserted(
                     "The received token does not match the token inclusion requirement"
                 );
                 continue;
             }
+        }
+    }
+    
+    private void assertToken(SecurityContextToken token, AssertionInfoMap aim) {
+        if (token.isRequireExternalUriReference()) {
+            PolicyUtils.assertPolicy(aim, SP12Constants.REQUIRE_EXTERNAL_URI_REFERENCE);
+        }
+        if (token.isSc10SecurityContextToken()) {
+            PolicyUtils.assertPolicy(aim, SP11Constants.SC10_SECURITY_CONTEXT_TOKEN);
+        }
+        if (token.isSc13SecurityContextToken()) {
+            PolicyUtils.assertPolicy(aim, SP12Constants.SC13_SECURITY_CONTEXT_TOKEN);
         }
     }
 }

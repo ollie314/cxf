@@ -28,19 +28,9 @@ import org.apache.xmlbeans.XmlOptions;
 
 public class XmlBeansWrapperHelper extends AbstractWrapperHelper {
     
-    private boolean validate;
-            
     public XmlBeansWrapperHelper(Class<?> wt, Method[] sets, Method[] gets, Field[] f) {
         super(wt, sets, gets, f);
        
-    }
-    
-    public void setValidate(boolean v) {
-        validate = v;
-    }
-    
-    public boolean getValidate() {
-        return validate;
     }
 
     @Override
@@ -66,8 +56,10 @@ public class XmlBeansWrapperHelper extends AbstractWrapperHelper {
                     Method method = c.getMethod("newInstance", NO_CLASSES);
                     obj = method.invoke(null, NO_PARAMS);                    
                 }
-                // create the value object
-                obj = newType.invoke(obj, NO_PARAMS);
+                if (newType != null) {
+                    // create the value object
+                    obj = newType.invoke(obj, NO_PARAMS);
+                }
                 break;
             }
         }

@@ -265,6 +265,19 @@ public class UriBuilderImplTest extends Assert {
             .build("valueA", "valueB");
         assertEquals("/index.jsp?a=valueA&b=valueB", uri.toString());        
     }
+    
+    @Test
+    public void testResolveTemplateInQuery() {
+        String uri = UriBuilder.fromPath("my/path").queryParam("qp",
+            "{param}").resolveTemplate("param", "value").toTemplate();
+        assertEquals("my/path?qp=value", uri);        
+    }
+    
+    @Test
+    public void testResolveTemplateInQuery2() {
+        String uri = UriBuilder.fromUri("my/path?qp={param}").resolveTemplate("param", "value").toTemplate();
+        assertEquals("my/path?qp=value", uri);        
+    }
 
     @Test(expected = IllegalArgumentException.class)
     public void testQueryParamWithMissingTemplateValues() {
@@ -423,7 +436,7 @@ public class UriBuilderImplTest extends Assert {
         URI uri = new URI("http://bar/foo+%20%2B?q=a+b%20%2B");
         URI newUri = new UriBuilderImpl(uri).buildFromEncoded();   
         assertEquals("URI is not built correctly", 
-                     "http://bar/foo+%20%2B?q=a%2Bb%20%2B", newUri.toString());
+                     "http://bar/foo+%20%2B?q=a+b%20%2B", newUri.toString());
     }
     
     @Test
@@ -477,6 +490,13 @@ public class UriBuilderImplTest extends Assert {
         URI uri = new URI("http://bar/foo");
         URI newUri = new UriBuilderImpl(uri).matrixParam("q").build();   
         assertEquals("URI is not built correctly", "http://bar/foo;q", newUri.toString());
+    }
+    
+    @Test
+    public void testMatrixWithSlash() throws Exception {
+        URI uri = new URI("http://bar/foo");
+        URI newUri = new UriBuilderImpl(uri).matrixParam("q", "1/2").build();   
+        assertEquals("URI is not built correctly", "http://bar/foo;q=1%2F2", newUri.toString());
     }
     
     @Test
@@ -1536,6 +1556,13 @@ public class UriBuilderImplTest extends Assert {
     public void testPathParamSpaceBuild4() {
         String expected = "http://localhost:8080/name%20space";
         URI uri = UriBuilder.fromUri("http://localhost:8080").path("name space").buildFromEncoded();
+        assertEquals(expected, uri.toString());
+    }
+    
+    @Test
+    public void testFromUriWithMatrix() {
+        String expected = "http://localhost:8080/name;a=b";
+        URI uri = UriBuilder.fromUri("http://localhost:8080/name;a=b").build();
         assertEquals(expected, uri.toString());
     }
     
