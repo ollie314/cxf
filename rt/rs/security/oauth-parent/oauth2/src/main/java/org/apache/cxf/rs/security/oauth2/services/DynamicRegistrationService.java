@@ -30,11 +30,13 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
 
 import org.apache.cxf.common.util.Base64UrlUtility;
 import org.apache.cxf.common.util.StringUtils;
+import org.apache.cxf.jaxrs.ext.MessageContext;
 import org.apache.cxf.jaxrs.utils.ExceptionUtils;
 import org.apache.cxf.rs.security.oauth2.common.Client;
 import org.apache.cxf.rs.security.oauth2.provider.ClientRegistrationProvider;
@@ -44,12 +46,15 @@ import org.apache.cxf.rs.security.oauth2.utils.OAuthUtils;
 import org.apache.cxf.rt.security.crypto.CryptoUtils;
 
 @Path("register")
-public class DynamicRegistrationService extends AbstractOAuthService {
+public class DynamicRegistrationService {
     private static final String DEFAULT_APPLICATION_TYPE = "web";
     private static final Integer DEFAULT_CLIENT_ID_SIZE = 10;
     private ClientRegistrationProvider clientProvider;
     private String initialAccessToken;
     private int clientIdSizeInBytes = DEFAULT_CLIENT_ID_SIZE;
+    private MessageContext mc;
+    private boolean supportRegistrationAccessTokens = true;
+    
     @POST
     @Consumes("application/json")
     @Produces("application/json")
@@ -125,10 +130,15 @@ public class DynamicRegistrationService extends AbstractOAuthService {
         // TODO: consider making Client secret time limited
         response.setClientSecretExpiresAt(Long.valueOf(0));
         UriBuilder ub = getMessageContext().getUriInfo().getAbsolutePathBuilder();
-        response.setRegistrationClientUri(ub.path(client.getClientId()).build().toString());
         
-        response.setRegistrationAccessToken(client.getProperties()
-                                            .get(ClientRegistrationResponse.REG_ACCESS_TOKEN));
+        if (supportRegistrationAccessTokens) {
+            // both registration access token and uri are either included or excluded
+            response.setRegistrationClientUri(
+                ub.path(client.getClientId()).build().toString());
+        
+            response.setRegistrationAccessToken(
+                client.getProperties().get(ClientRegistrationResponse.REG_ACCESS_TOKEN));
+        }
         return response;
     }
     
@@ -239,7 +249,8 @@ public class DynamicRegistrationService extends AbstractOAuthService {
         //TODO: check other properties
         // Add more typed properties like tosUri, policyUri, etc to Client
         // or set them as Client extra properties
-        
+     
+        newClient.setRegisteredDynamically(true);
         return newClient;
     }
 
@@ -280,5 +291,18 @@ public class DynamicRegistrationService extends AbstractOAuthService {
     }
     protected int getClientSecretSizeInBytes(ClientRegistration request) {
         return 16;
+    }
+
+    @Context 
+    public void setMessageContext(MessageContext context) {
+        this.mc = context;
+    }
+    
+    public MessageContext getMessageContext() {
+        return mc;
+    }
+
+    public void setSupportRegistrationAccessTokens(boolean supportRegistrationAccessTokens) {
+        this.supportRegistrationAccessTokens = supportRegistrationAccessTokens;
     }
 }
