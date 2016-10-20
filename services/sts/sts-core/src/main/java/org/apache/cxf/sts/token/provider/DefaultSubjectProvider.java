@@ -27,6 +27,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
+import javax.naming.ldap.LdapName;
+import javax.naming.ldap.Rdn;
 import javax.security.auth.kerberos.KerberosPrincipal;
 import javax.security.auth.x500.X500Principal;
 
@@ -113,7 +115,6 @@ public class DefaultSubjectProvider implements SubjectProvider {
     /**
      * Get the Principal (which is used as the Subject). By default, we check the following (in order):
      *  - A valid OnBehalfOf principal
-     *  - A valid ActAs principal
      *  - A valid principal associated with a token received as ValidateTarget
      *  - The principal associated with the request. We don't need to check to see if it is "valid" here, as it
      *    is not parsed by the STS (but rather the WS-Security layer).
@@ -126,11 +127,6 @@ public class DefaultSubjectProvider implements SubjectProvider {
         //if validation was successful, the principal was set in ReceivedToken 
         if (providerParameters.getTokenRequirements().getOnBehalfOf() != null) {
             ReceivedToken receivedToken = providerParameters.getTokenRequirements().getOnBehalfOf();
-            if (receivedToken.getState().equals(STATE.VALID)) {
-                principal = receivedToken.getPrincipal();
-            }
-        } else if (providerParameters.getTokenRequirements().getActAs() != null) {
-            ReceivedToken receivedToken = providerParameters.getTokenRequirements().getActAs();
             if (receivedToken.getState().equals(STATE.VALID)) {
                 principal = receivedToken.getPrincipal();
             }
@@ -166,10 +162,14 @@ public class DefaultSubjectProvider implements SubjectProvider {
             && principal instanceof X500Principal) {
             // Just use the "cn" instead of the entire DN
             try {
-                String principalName = principal.getName();
-                int index = principalName.indexOf('=');
-                principalName = principalName.substring(index + 1, principalName.indexOf(',', index));
-                subjectName = principalName;
+                LdapName ln = new LdapName(principal.getName());
+
+                for (Rdn rdn : ln.getRdns()) {
+                    if ("CN".equalsIgnoreCase(rdn.getType()) && (rdn.getValue() instanceof String)) {
+                        subjectName = (String)rdn.getValue();
+                        break;
+                    }
+                }
             } catch (Throwable ex) {
                 subjectName = principal.getName();
                 //Ignore, not X500 compliant thus use the whole string as the value
@@ -282,7 +282,7 @@ public class DefaultSubjectProvider implements SubjectProvider {
                     try {
                         Collection<Pattern> constraints = Collections.emptyList();
                         stsProperties.getSignatureCrypto().verifyTrust(
-                            new X509Certificate[]{receivedKey.getX509Cert()}, false, constraints);
+                            new X509Certificate[]{receivedKey.getX509Cert()}, false, constraints, null);
                     } catch (WSSecurityException e) {
                         LOG.log(Level.FINE, "Error in trust validation of UseKey: ", e);
                         throw new STSException("Error in trust validation of UseKey", STSException.REQUEST_FAILED);

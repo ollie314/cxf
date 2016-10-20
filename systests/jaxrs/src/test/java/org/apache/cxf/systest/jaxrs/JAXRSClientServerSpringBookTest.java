@@ -23,6 +23,8 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Type;
 import java.net.Socket;
 import java.net.URL;
 import java.net.URLConnection;
@@ -36,6 +38,8 @@ import javax.ws.rs.InternalServerErrorException;
 import javax.ws.rs.core.Form;
 import javax.ws.rs.core.Link;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.ext.ParamConverter;
+import javax.ws.rs.ext.ParamConverterProvider;
 import javax.xml.bind.annotation.XmlElement;
 import javax.xml.bind.annotation.XmlRootElement;
 
@@ -81,7 +85,6 @@ public class JAXRSClientServerSpringBookTest extends AbstractBusClientServerTest
     public void testGetGenericBook() throws Exception {
         String baseAddress = "http://localhost:" + PORT + "/the/thebooks8/books"; 
         WebClient wc = WebClient.create(baseAddress);
-        WebClient.getConfig(wc).getHttpConduit().getClient().setReceiveTimeout(10000000);
         Long id = wc.type("application/xml").accept("text/plain").post(new Book("CXF", 1L), Long.class);
         assertEquals(new Long(1), id);
         Book book = wc.replaceHeader("Accept", "application/xml").query("id", 1L).get(Book.class);
@@ -99,8 +102,46 @@ public class JAXRSClientServerSpringBookTest extends AbstractBusClientServerTest
     public void testGetBookText() throws Exception {
         final String address = "http://localhost:" + PORT + "/the/thebooks/bookstore/books/text"; 
         WebClient wc = WebClient.create(address).accept("text/*");
+        WebClient.getConfig(wc).getHttpConduit().getClient().setReceiveTimeout(10000000);
         assertEquals(406, wc.get().getStatus());
         
+    }
+    
+    @Test
+    public void testGetServicesPageNotFound() throws Exception {
+        final String address = "http://localhost:" + PORT + "/the/services;a=b"; 
+        WebClient wc = WebClient.create(address).accept("text/*");
+        WebClient.getConfig(wc).getHttpConduit().getClient().setReceiveTimeout(10000000);
+        assertEquals(404, wc.get().getStatus());
+    }
+    @Test
+    public void testGetServicesPage() throws Exception {
+        final String address = "http://localhost:" + PORT + "/the/services"; 
+        WebClient wc = WebClient.create(address).accept("text/*");
+        String s = wc.get(String.class);
+        assertTrue(s.contains("href=\"/the/services/?stylesheet=1\""));
+        assertTrue(s.contains("<title>CXF - Service list</title>"));
+        assertTrue(s.contains("<a href=\"http://localhost:" + PORT + "/the/"));
+    }
+    @Test
+    public void testGetServicesPageWithServletPatternMatchOnly() throws Exception {
+        final String address = "http://localhost:" + PORT + "/the/;a=b"; 
+        WebClient wc = WebClient.create(address).accept("text/*");
+        String s = wc.get(String.class);
+        assertTrue(s.contains("href=\"/the/?stylesheet=1\""));
+        assertTrue(s.contains("<title>CXF - Service list</title>"));
+        assertFalse(s.contains(";a=b"));
+        assertTrue(s.contains("<a href=\"http://localhost:" + PORT + "/the/"));
+    }
+    @Test
+    public void testGetServicesPageWithServletPatternMatchOnly2() throws Exception {
+        final String address = "http://localhost:" + PORT + "/services;a=b;/list;a=b/;a=b"; 
+        WebClient wc = WebClient.create(address).accept("text/*");
+        String s = wc.get(String.class);
+        assertTrue(s.contains("href=\"/services/list/?stylesheet=1\""));
+        assertTrue(s.contains("<title>CXF - Service list</title>"));
+        assertFalse(s.contains(";a=b"));
+        assertTrue(s.contains("<a href=\"http://localhost:" + PORT + "/services/list/"));
     }
     
     @Test
@@ -850,8 +891,9 @@ public class JAXRSClientServerSpringBookTest extends AbstractBusClientServerTest
                                          endpointAddress, 
                                          BookStoreNoAnnotations.class,
                                          "classpath:/org/apache/cxf/systest/jaxrs/resources/resources.xml",
+                                         Collections.singletonList(new LongTypeParamConverterProvider()),
                                          null);
-        Book b = bStore.getBook(123L);
+        Book b = bStore.getBook(null);
         assertNotNull(b);
         assertEquals(123L, b.getId());
         assertEquals("CXF in Action", b.getName());
@@ -1001,6 +1043,25 @@ public class JAXRSClientServerSpringBookTest extends AbstractBusClientServerTest
         
         public void setName(String n) {
             name1 = n;
+        }
+        
+    }
+    static class LongTypeParamConverterProvider implements ParamConverterProvider, ParamConverter<Long> {
+
+        @SuppressWarnings("unchecked")
+        @Override
+        public <T> ParamConverter<T> getConverter(Class<T> cls, Type t, Annotation[] anns) {
+            return cls == Long.class ? (ParamConverter<T>)this : null;
+        }
+
+        @Override
+        public Long fromString(String s) {
+            return null;
+        }
+
+        @Override
+        public String toString(Long l) {
+            return l == null ? "123" : String.valueOf(l);
         }
         
     }

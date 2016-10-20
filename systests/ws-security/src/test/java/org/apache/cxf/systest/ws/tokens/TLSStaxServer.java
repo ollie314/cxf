@@ -16,18 +16,32 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package registry.eureka;
 
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.cloud.netflix.eureka.server.EnableEurekaServer;
+package org.apache.cxf.systest.ws.tokens;
 
-@SpringBootApplication
-@EnableEurekaServer
-//CHECKSTYLE:OFF
-public class RegistryApplication {
-//CHECKSTYLE:ON    
-    public static void main(String[] args) {
-        SpringApplication.run(RegistryApplication.class, args);
+import java.net.URL;
+
+import org.apache.cxf.Bus;
+import org.apache.cxf.BusFactory;
+import org.apache.cxf.bus.spring.SpringBusFactory;
+import org.apache.cxf.testutil.common.AbstractBusTestServerBase;
+
+public class TLSStaxServer extends AbstractBusTestServerBase {
+
+    public TLSStaxServer() {
+
+    }
+
+    protected void run()  {
+        URL busFile = TLSStaxServer.class.getResource("tls-stax-server.xml");
+        Bus busLocal = new SpringBusFactory().createBus(busFile);
+        BusFactory.setDefaultBus(busLocal);
+        setBus(busLocal);
+
+        try {
+            new TLSStaxServer();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }

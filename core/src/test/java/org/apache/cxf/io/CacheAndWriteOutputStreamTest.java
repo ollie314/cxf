@@ -16,18 +16,26 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package registry.eureka;
+package org.apache.cxf.io;
 
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.cloud.netflix.eureka.server.EnableEurekaServer;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 
-@SpringBootApplication
-@EnableEurekaServer
-//CHECKSTYLE:OFF
-public class RegistryApplication {
-//CHECKSTYLE:ON    
-    public static void main(String[] args) {
-        SpringApplication.run(RegistryApplication.class, args);
+public class CacheAndWriteOutputStreamTest extends CachedOutputStreamTest {
+
+    ByteArrayOutputStream baos = new ByteArrayOutputStream() {
+        boolean isClosed;
+        @Override
+        public void close() throws IOException {
+            if (isClosed) {
+                throw new IOException("stream already closed");
+            }
+            isClosed = true;
+        }
+    };
+    
+    @Override
+    protected Object createCache() {
+        return new CacheAndWriteOutputStream(baos);
     }
 }
