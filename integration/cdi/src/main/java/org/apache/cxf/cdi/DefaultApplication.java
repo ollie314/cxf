@@ -16,15 +16,11 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package sample.rs.service;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.cloud.netflix.eureka.EnableEurekaClient;
+package org.apache.cxf.cdi;
 
-@SpringBootApplication
-@EnableEurekaClient
-public class SampleRestApplication {
-    public static void main(String[] args) {
-        SpringApplication.run(SampleRestApplication.class, args);
-    }
+import javax.ws.rs.ApplicationPath;
+import javax.ws.rs.core.Application;
+
+@ApplicationPath("/")
+public class DefaultApplication extends Application {
 }
